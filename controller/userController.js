@@ -32,6 +32,10 @@ exports.registerUser = async (req, res) => {
       password, 
       phone,
       country,
+      countryCode,
+      state,
+      stateCode,
+      city,
       interest,
       walletAddress,
       referralCode 
@@ -54,6 +58,17 @@ exports.registerUser = async (req, res) => {
       });
     }
 
+    // Check if username is already taken
+    if (userName) {
+      const existingUsername = await User.findOne({ userName });
+      if (existingUsername) {
+        return res.status(400).json({
+          success: false,
+          message: 'This username is already taken'
+        });
+      }
+    }
+
     // Validate wallet address if provided
     if (walletAddress && !isValidEthAddress(walletAddress)) {
       return res.status(400).json({
@@ -73,7 +88,7 @@ exports.registerUser = async (req, res) => {
       }
     }
 
-    // Create new user
+    // Create new user with enhanced fields
     const user = new User({
       name: name || fullName, // Support both name formats
       userName: userName,
@@ -81,6 +96,10 @@ exports.registerUser = async (req, res) => {
       password,
       phone: phone || null,
       country: country || null,
+      countryCode: countryCode || null,
+      state: state || null,
+      stateCode: stateCode || null,
+      city: city || null,
       interest: interest || null,
       walletAddress: walletAddress || null,
       referralInfo: referralCode ? {
@@ -128,7 +147,7 @@ exports.registerUser = async (req, res) => {
       // Continue with registration even if welcome email fails
     }
 
-    // Return success response
+    // Return success response with enhanced user data
     res.status(201).json({
       success: true,
       message: 'User registered successfully',
@@ -138,7 +157,11 @@ exports.registerUser = async (req, res) => {
         name: user.name || fullName,
         userName: user.userName,
         email: user.email,
-        walletAddress: user.walletAddress
+        walletAddress: user.walletAddress,
+        country: user.country,
+        state: user.state,
+        city: user.city,
+        interest: user.interest
       }
     });
   } catch (error) {
@@ -177,7 +200,7 @@ exports.loginUser = async (req, res) => {
     // Generate token
     const token = generateToken(user._id);
 
-    // Return success response
+    // Return success response with enhanced user data
     res.status(200).json({
       success: true,
       message: 'Login successful',
@@ -187,7 +210,12 @@ exports.loginUser = async (req, res) => {
         name: user.name,
         userName: user.userName,
         email: user.email,
-        walletAddress: user.walletAddress
+        walletAddress: user.walletAddress,
+        country: user.country,
+        state: user.state,
+        city: user.city,
+        interest: user.interest,
+        phone: user.phone
       }
     });
   } catch (error) {
@@ -200,7 +228,6 @@ exports.loginUser = async (req, res) => {
   }
 };
 
-// Forgot Password - Generate Reset Token
 // Forgot Password - Generate Reset Token
 exports.forgotPassword = async (req, res) => {
   try {
@@ -374,8 +401,6 @@ exports.resetPassword = async (req, res) => {
   }
 };
 
-// Add this function to your controller/userController.js file
-
 // Verify Reset Token - Check if token is valid without resetting password
 exports.verifyResetToken = async (req, res) => {
   try {
@@ -422,8 +447,6 @@ exports.verifyResetToken = async (req, res) => {
   }
 };
 
-// Add this to your controller/userController.js file
-
 // Login with wallet address
 exports.loginWithWallet = async (req, res) => {
   try {
@@ -457,7 +480,7 @@ exports.loginWithWallet = async (req, res) => {
     // Generate token
     const token = generateToken(user._id);
 
-    // Return success response
+    // Return success response with enhanced user data
     res.status(200).json({
       success: true,
       message: 'Login successful',
@@ -467,11 +490,146 @@ exports.loginWithWallet = async (req, res) => {
         name: user.name,
         userName: user.userName,
         email: user.email,
-        walletAddress: user.walletAddress
+        walletAddress: user.walletAddress,
+        country: user.country,
+        state: user.state,
+        city: user.city,
+        interest: user.interest,
+        phone: user.phone
       }
     });
   } catch (error) {
     console.error('Wallet login error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Internal server error',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+};
+
+// Update user profile
+exports.updateUserProfile = async (req, res) => {
+  try {
+    const userId = req.user.id; // Assuming you have authentication middleware that adds user to req
+    
+    const { 
+      name, 
+      userName,
+      phone,
+      country,
+      countryCode,
+      state,
+      stateCode, 
+      city,
+      interest,
+      walletAddress 
+    } = req.body;
+
+    // Find user
+    const user = await User.findById(userId);
+    
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
+    }
+
+    // Check if username is already taken (if changing username)
+    if (userName && userName !== user.userName) {
+      const existingUsername = await User.findOne({ userName });
+      if (existingUsername) {
+        return res.status(400).json({
+          success: false,
+          message: 'This username is already taken'
+        });
+      }
+    }
+
+    // Validate wallet address if provided
+    if (walletAddress && walletAddress !== user.walletAddress && !isValidEthAddress(walletAddress)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid wallet address format'
+      });
+    }
+
+    // Check if wallet address is already in use (if changing wallet address)
+    if (walletAddress && walletAddress !== user.walletAddress) {
+      const existingWallet = await User.findOne({ walletAddress });
+      if (existingWallet) {
+        return res.status(400).json({
+          success: false,
+          message: 'This wallet address is already registered to another account'
+        });
+      }
+    }
+
+    // Update user fields
+    if (name) user.name = name;
+    if (userName) user.userName = userName;
+    if (phone !== undefined) user.phone = phone;
+    if (country !== undefined) user.country = country;
+    if (countryCode !== undefined) user.countryCode = countryCode;
+    if (state !== undefined) user.state = state;
+    if (stateCode !== undefined) user.stateCode = stateCode;
+    if (city !== undefined) user.city = city;
+    if (interest !== undefined) user.interest = interest;
+    if (walletAddress !== undefined) user.walletAddress = walletAddress;
+
+    // Save updated user
+    await user.save();
+
+    // Return success response
+    res.status(200).json({
+      success: true,
+      message: 'Profile updated successfully',
+      user: {
+        id: user._id,
+        name: user.name,
+        userName: user.userName,
+        email: user.email,
+        phone: user.phone,
+        country: user.country,
+        countryCode: user.countryCode,
+        state: user.state,
+        stateCode: user.stateCode,
+        city: user.city,
+        interest: user.interest,
+        walletAddress: user.walletAddress
+      }
+    });
+  } catch (error) {
+    console.error('Profile update error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Internal server error',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+};
+
+// Get current user profile
+exports.getCurrentUser = async (req, res) => {
+  try {
+    const userId = req.user.id; // From auth middleware
+    
+    const user = await User.findById(userId).select('-password -resetPasswordToken -resetPasswordExpire');
+    
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
+    }
+
+    res.status(200).json({
+      success: true,
+      user
+    });
+  } catch (error) {
+    console.error('Get current user error:', error);
     res.status(500).json({
       success: false,
       message: 'Internal server error',
