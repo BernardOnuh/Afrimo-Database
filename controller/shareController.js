@@ -835,13 +835,14 @@ exports.verifyWeb3Transaction = async (req, res) => {
     const status = verificationSuccess ? 'completed' : 'pending';
     
     // Record the transaction
+   // Record the transaction
     await UserShare.addShares(userId, purchaseDetails.totalShares, {
       transactionId,
       shares: purchaseDetails.totalShares,
       pricePerShare: purchaseDetails.totalPrice / purchaseDetails.totalShares,
       currency: 'usdt',
       totalAmount: paymentAmount > 0 ? paymentAmount : purchaseDetails.totalPrice,
-      paymentMethod: 'web3',
+      paymentMethod: 'crypto',  // Changed from 'web3' to 'crypto'
       status,
       txHash,
       tierBreakdown: purchaseDetails.tierBreakdown,

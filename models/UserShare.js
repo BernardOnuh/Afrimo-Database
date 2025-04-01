@@ -34,7 +34,7 @@ const userShareSchema = new mongoose.Schema({
     },
     paymentMethod: {
       type: String,
-      enum: ['paystack', 'crypto'],
+      enum: ['paystack', 'crypto', 'web3'],  // Added 'web3'
       required: true
     },
     status: {
