@@ -1,3 +1,4 @@
+// controller/shareController.js
 const Share = require('../models/Share');
 const UserShare = require('../models/UserShare');
 const User = require('../models/User');
@@ -6,6 +7,7 @@ const axios = require('axios');
 const { ethers } = require('ethers');
 const { sendEmail } = require('../utils/emailService');
 const SiteConfig = require('../models/SiteConfig');
+
 // Generate a unique transaction ID
 const generateTransactionId = () => {
   return `TXN-${crypto.randomBytes(4).toString('hex').toUpperCase()}-${Date.now().toString().slice(-6)}`;
@@ -116,7 +118,6 @@ exports.initiatePaystackPayment = async (req, res) => {
     };
     
     // Call PayStack API
-    console.log(process.env.PAYSTACK_SECRET_KEY)
     const paystackResponse = await axios.post(
       'https://api.paystack.co/transaction/initialize',
       paystackRequest,
@@ -278,295 +279,9 @@ exports.verifyPaystackPayment = async (req, res) => {
   }
 };
 
-// Process USDT payment (crypto)
-// Process crypto payment with automatic BNB verification
-exports.processCryptoPayment = async (req, res) => {
-  try {
-    const { quantity, txHash, walletAddress } = req.body;
-    const userId = req.user.id; // From auth middleware
-    
-    if (!quantity || !txHash || !walletAddress) {
-      return res.status(400).json({
-        success: false,
-        message: 'Please provide quantity, transaction hash, and wallet address'
-      });
-    }
-    
-    // Calculate purchase details
-    const purchaseDetails = await Share.calculatePurchase(parseInt(quantity), 'usdt');
-    
-    if (!purchaseDetails.success) {
-      return res.status(400).json({
-        success: false,
-        message: 'Unable to process this purchase amount',
-        details: purchaseDetails
-      });
-    }
-    
-    // Generate transaction ID
-    const transactionId = generateTransactionId();
-    
-    // Get company wallet address from config
-    const SiteConfig = require('../models/SiteConfig');
-    const config = await SiteConfig.getCurrentConfig();
-    const companyWalletAddress = config.companyWalletAddress;
-    
-    // Verify on BNB Smart Chain
-    let verificationSuccess = false;
-    let verificationError = null;
-    
-    try {
-      // Connect to BSC
-      const provider = new ethers.providers.JsonRpcProvider('https://bsc-dataseed.binance.org/');
-      
-      // Get transaction details
-      const tx = await provider.getTransaction(txHash);
-      
-      if (!tx) {
-        throw new Error('Transaction not found on blockchain');
-      }
-      
-      // Wait for transaction to be confirmed
-      const receipt = await provider.waitForTransaction(txHash, 1);
-      
-      // Verify transaction details
-      if (
-        tx.to.toLowerCase() !== companyWalletAddress.toLowerCase() ||
-        !receipt.status
-      ) {
-        throw new Error('Invalid transaction details');
-      }
-      
-      // For BNB (native currency) check the value
-      const txValue = ethers.utils.formatEther(tx.value);
-      const requiredAmount = purchaseDetails.totalPrice;
-      
-      // Allow small deviations (e.g., due to gas fluctuations)
-      if (Math.abs(parseFloat(txValue) - requiredAmount) > 0.01 * requiredAmount) {
-        throw new Error(`Amount mismatch: Sent ${txValue} BNB, Required ~${requiredAmount} BNB`);
-      }
-      
-      // All checks passed
-      verificationSuccess = true;
-    } catch (err) {
-      verificationError = err.message;
-      console.error('Blockchain verification error:', err);
-    }
-    
-    // Set status based on verification result
-    const status = verificationSuccess ? 'completed' : 'pending';
-    
-    // Record the transaction
-    await UserShare.addShares(userId, purchaseDetails.totalShares, {
-      transactionId,
-      shares: purchaseDetails.totalShares,
-      pricePerShare: purchaseDetails.totalPrice / purchaseDetails.totalShares,
-      currency: 'usdt',
-      totalAmount: purchaseDetails.totalPrice,
-      paymentMethod: 'crypto',
-      status,
-      tierBreakdown: purchaseDetails.tierBreakdown,
-      adminNote: verificationSuccess ? 
-        `Auto-verified BNB transaction: ${txHash}` : 
-        `Failed auto-verification: ${verificationError}. USDT Transaction Hash: ${txHash}, From Wallet: ${walletAddress}`
-    });
-    
-    // If verification successful, update global share counts
-    if (verificationSuccess) {
-      const shareConfig = await Share.getCurrentConfig();
-      shareConfig.sharesSold += purchaseDetails.totalShares;
-      
-      // Update tier sales
-      shareConfig.tierSales.tier1Sold += purchaseDetails.tierBreakdown.tier1;
-      shareConfig.tierSales.tier2Sold += purchaseDetails.tierBreakdown.tier2;
-      shareConfig.tierSales.tier3Sold += purchaseDetails.tierBreakdown.tier3;
-      
-      await shareConfig.save();
-      
-      // Get user details for notification
-      const user = await User.findById(userId);
-      
-      // Send confirmation email to user
-      if (user && user.email) {
-        try {
-          await sendEmail({
-            email: user.email,
-            subject: 'AfriMobile - Share Purchase Successful',
-            html: `
-              <h2>Share Purchase Confirmation</h2>
-              <p>Dear ${user.name},</p>
-              <p>Your purchase of ${purchaseDetails.totalShares} shares for $${purchaseDetails.totalPrice} USDT has been completed successfully.</p>
-              <p>Transaction Hash: ${txHash}</p>
-              <p>Thank you for your investment in AfriMobile!</p>
-            `
-          });
-        } catch (emailError) {
-          console.error('Failed to send purchase confirmation email:', emailError);
-        }
-      }
-    } else {
-      // Notify admin about pending verification
-      const user = await User.findById(userId);
-      try {
-        const adminEmail = process.env.ADMIN_EMAIL || 'admin@afrimobile.com';
-        await sendEmail({
-          email: adminEmail,
-          subject: 'AfriMobile - New Crypto Payment Needs Verification',
-          html: `
-            <h2>Crypto Payment Verification Required</h2>
-            <p>Automatic verification failed: ${verificationError}</p>
-            <p>Transaction details:</p>
-            <ul>
-              <li>User: ${user.name} (${user.email})</li>
-              <li>Transaction ID: ${transactionId}</li>
-              <li>Amount: $${purchaseDetails.totalPrice} USDT</li>
-              <li>Shares: ${purchaseDetails.totalShares}</li>
-              <li>Transaction Hash: ${txHash}</li>
-              <li>Wallet Address: ${walletAddress}</li>
-            </ul>
-            <p>Please verify this transaction in the admin dashboard.</p>
-          `
-        });
-      } catch (emailError) {
-        console.error('Failed to send admin notification:', emailError);
-      }
-    }
-    
-    // Return response
-    res.status(200).json({
-      success: true,
-      message: verificationSuccess ? 
-        'Payment verified and processed successfully' : 
-        'Payment submitted for verification',
-      data: {
-        transactionId,
-        shares: purchaseDetails.totalShares,
-        amount: purchaseDetails.totalPrice,
-        status,
-        verified: verificationSuccess
-      }
-    });
-  } catch (error) {
-    console.error('Error processing crypto payment:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Failed to process crypto payment',
-      error: process.env.NODE_ENV === 'development' ? error.message : undefined
-    });
-  }
-};
-
-// Admin: Verify crypto payment
-exports.verifyCryptoPayment = async (req, res) => {
-  try {
-    const { transactionId, approved } = req.body;
-    const adminId = req.user.id; // From auth middleware
-    
-    // Check if admin
-    const admin = await User.findById(adminId);
-    if (!admin || !admin.isAdmin) {
-      return res.status(403).json({
-        success: false,
-        message: 'Unauthorized: Admin access required'
-      });
-    }
-    
-    // Find the transaction
-    const userShareRecord = await UserShare.findOne({
-      'transactions.transactionId': transactionId
-    });
-    
-    if (!userShareRecord) {
-      return res.status(404).json({
-        success: false,
-        message: 'Transaction not found'
-      });
-    }
-    
-    const transaction = userShareRecord.transactions.find(
-      t => t.transactionId === transactionId
-    );
-    
-    if (!transaction) {
-      return res.status(404).json({
-        success: false,
-        message: 'Transaction details not found'
-      });
-    }
-    
-    if (transaction.status !== 'pending') {
-      return res.status(400).json({
-        success: false,
-        message: `Transaction already ${transaction.status}`
-      });
-    }
-    
-    const newStatus = approved ? 'completed' : 'failed';
-    
-    // Update transaction status
-    await UserShare.updateTransactionStatus(
-      userShareRecord.user,
-      transactionId,
-      newStatus
-    );
-    
-    // If approved, update global share counts
-    if (approved) {
-      const shareConfig = await Share.getCurrentConfig();
-      shareConfig.sharesSold += transaction.shares;
-      
-      // Update tier sales
-      shareConfig.tierSales.tier1Sold += transaction.tierBreakdown.tier1;
-      shareConfig.tierSales.tier2Sold += transaction.tierBreakdown.tier2;
-      shareConfig.tierSales.tier3Sold += transaction.tierBreakdown.tier3;
-      
-      await shareConfig.save();
-    }
-    
-    // Notify user
-    const user = await User.findById(userShareRecord.user);
-    if (user && user.email) {
-      try {
-        await sendEmail({
-          email: user.email,
-          subject: `AfriMobile - USDT Payment ${approved ? 'Approved' : 'Declined'}`,
-          html: `
-            <h2>Share Purchase ${approved ? 'Confirmation' : 'Update'}</h2>
-            <p>Dear ${user.name},</p>
-            <p>Your purchase of ${transaction.shares} shares for $${transaction.totalAmount} USDT has been ${approved ? 'verified and completed' : 'declined'}.</p>
-            <p>Transaction Reference: ${transactionId}</p>
-            ${approved ? 
-              `<p>Thank you for your investment in AfriMobile!</p>` : 
-              `<p>Please contact support if you have any questions.</p>`
-            }
-          `
-        });
-      } catch (emailError) {
-        console.error('Failed to send purchase notification email:', emailError);
-      }
-    }
-    
-    // Return success
-    res.status(200).json({
-      success: true,
-      message: `Transaction ${approved ? 'approved' : 'declined'} successfully`,
-      status: newStatus
-    });
-  } catch (error) {
-    console.error('Error verifying crypto payment:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Failed to verify crypto payment',
-      error: process.env.NODE_ENV === 'development' ? error.message : undefined
-    });
-  }
-};
-
-
 // Get payment configuration (wallet addresses, supported cryptos)
 exports.getPaymentConfig = async (req, res) => {
   try {
-    const SiteConfig = require('../models/SiteConfig');
     const config = await SiteConfig.getCurrentConfig();
     
     res.status(200).json({
@@ -598,7 +313,7 @@ exports.updateCompanyWallet = async (req, res) => {
       });
     }
     
-    if (!walletAddress || !isValidEthAddress(walletAddress)) {
+    if (!walletAddress || !ethers.utils.isAddress(walletAddress)) {
       return res.status(400).json({
         success: false,
         message: 'Please provide a valid wallet address'
@@ -606,7 +321,6 @@ exports.updateCompanyWallet = async (req, res) => {
     }
     
     // Update company wallet
-    const SiteConfig = require('../models/SiteConfig');
     const config = await SiteConfig.getCurrentConfig();
     config.companyWalletAddress = walletAddress;
     config.lastUpdated = Date.now();
@@ -958,6 +672,657 @@ exports.getShareStatistics = async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Failed to fetch share statistics',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+};
+
+// Web3 direct payment verification
+exports.verifyWeb3Transaction = async (req, res) => {
+  try {
+    const { quantity, txHash, walletAddress } = req.body;
+    const userId = req.user.id;
+
+    // Validate input
+    if (!quantity || !txHash || !walletAddress) {
+      return res.status(400).json({
+        success: false,
+        message: 'Please provide all required fields'
+      });
+    }
+
+    // Calculate purchase details
+    const purchaseDetails = await Share.calculatePurchase(parseInt(quantity), 'usdt');
+    
+    if (!purchaseDetails.success) {
+      return res.status(400).json({
+        success: false,
+        message: 'Unable to process this purchase amount',
+        details: purchaseDetails
+      });
+    }
+
+    // Check if transaction already exists
+    const existingUserShare = await UserShare.findOne({
+      'transactions.txHash': txHash
+    });
+    
+    if (existingUserShare) {
+      return res.status(400).json({
+        success: false,
+        message: 'This transaction has already been processed'
+      });
+    }
+
+    // Get company wallet address from config
+    const config = await SiteConfig.getCurrentConfig();
+    const companyWalletAddress = config.companyWalletAddress;
+    
+    if (!companyWalletAddress) {
+      return res.status(400).json({
+        success: false,
+        message: 'Payment configuration not found'
+      });
+    }
+
+    // Verify on blockchain
+    const verificationResult = await verifyTransactionOnChain(
+      txHash, 
+      companyWalletAddress, 
+      walletAddress
+    );
+
+    if (!verificationResult.valid) {
+      return res.status(400).json({
+        success: false,
+        message: verificationResult.message || 'Transaction verification failed'
+      });
+    }
+
+    // Generate transaction ID
+    const transactionId = generateTransactionId();
+
+    // Verify payment amount matches expected amount
+    const paymentAmount = parseFloat(ethers.utils.formatEther(verificationResult.amount));
+    const requiredAmount = purchaseDetails.totalPrice;
+    
+    // Allow small deviations (e.g., due to gas fluctuations)
+    const allowedDifference = requiredAmount * 0.02; // 2% difference allowed
+    
+    // Set status based on verification result
+    const isAmountCorrect = Math.abs(paymentAmount - requiredAmount) <= allowedDifference;
+    const status = isAmountCorrect ? 'completed' : 'pending';
+    
+    // Record transaction
+    await UserShare.addShares(userId, purchaseDetails.totalShares, {
+      transactionId,
+      shares: purchaseDetails.totalShares,
+      pricePerShare: purchaseDetails.totalPrice / purchaseDetails.totalShares,
+      currency: 'usdt',
+      totalAmount: paymentAmount,
+      paymentMethod: 'web3',
+      status,
+      txHash,
+      tierBreakdown: purchaseDetails.tierBreakdown,
+      adminNote: isAmountCorrect ? 
+        `Auto-verified web3 transaction: ${txHash}` : 
+        `Failed auto-verification due to amount mismatch. Expected: ${requiredAmount}, Received: ${paymentAmount}`
+    });
+
+    // If verification successful, update global share counts
+    if (isAmountCorrect) {
+      const shareConfig = await Share.getCurrentConfig();
+      shareConfig.sharesSold += purchaseDetails.totalShares;
+      
+      // Update tier sales
+      shareConfig.tierSales.tier1Sold += purchaseDetails.tierBreakdown.tier1;
+      shareConfig.tierSales.tier2Sold += purchaseDetails.tierBreakdown.tier2;
+      shareConfig.tierSales.tier3Sold += purchaseDetails.tierBreakdown.tier3;
+      
+      await shareConfig.save();
+      
+      // Get user details for notification
+      const user = await User.findById(userId);
+      
+      // Send confirmation email to user
+      if (user && user.email) {
+        try {
+          await sendEmail({
+            email: user.email,
+            subject: 'AfriMobile - Share Purchase Successful',
+            html: `
+              <h2>Share Purchase Confirmation</h2>
+              <p>Dear ${user.name},</p>
+              <p>Your purchase of ${purchaseDetails.totalShares} shares for $${paymentAmount} USDT has been completed successfully.</p>
+              <p>Transaction Hash: ${txHash}</p>
+              <p>Thank you for your investment in AfriMobile!</p>
+            `
+          });
+        } catch (emailError) {
+          console.error('Failed to send purchase confirmation email:', emailError);
+        }
+      }
+    } else {
+      // Notify admin about pending verification
+      const user = await User.findById(userId);
+      try {
+        const adminEmail = process.env.ADMIN_EMAIL || 'admin@afrimobile.com';
+        await sendEmail({
+          email: adminEmail,
+          subject: 'AfriMobile - New Web3 Payment Needs Verification',
+          html: `
+            <h2>Web3 Payment Verification Required</h2>
+            <p>Amount mismatch detected.</p>
+            <p>Transaction details:</p>
+            <ul>
+              <li>User: ${user.name} (${user.email})</li>
+              <li>Transaction ID: ${transactionId}</li>
+              <li>Expected Amount: $${requiredAmount} USDT</li>
+              <li>Received Amount: $${paymentAmount} USDT</li>
+              <li>Shares: ${purchaseDetails.totalShares}</li>
+              <li>Transaction Hash: ${txHash}</li>
+              <li>Wallet Address: ${walletAddress}</li>
+            </ul>
+            <p>Please verify this transaction in the admin dashboard.</p>
+          `
+        });
+      } catch (emailError) {
+        console.error('Failed to send admin notification:', emailError);
+      }
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: isAmountCorrect ? 
+        'Payment verified and processed successfully' : 
+        'Payment submitted for verification',
+      data: {
+        transactionId,
+        shares: purchaseDetails.totalShares,
+        amount: paymentAmount,
+        status,
+        verified: isAmountCorrect
+      }
+    });
+  } catch (error) {
+    console.error('Web3 verification error:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Server error during transaction verification'
+    });
+  }
+};
+
+/**
+ * Helper function to verify transaction on the blockchain
+ * @param {string} txHash - Transaction hash
+ * @param {string} companyWallet - Company wallet address
+ * @param {string} senderWallet - Sender's wallet address
+ * @returns {object} Verification result
+ */
+async function verifyTransactionOnChain(txHash, companyWallet, senderWallet) {
+  try {
+    // Initialize provider for BSC
+    const provider = new ethers.providers.JsonRpcProvider(
+      process.env.BSC_RPC_URL || 'https://bsc-dataseed.binance.org/'
+    );
+    
+    // Get transaction receipt
+    const receipt = await provider.getTransactionReceipt(txHash);
+    
+    // If no receipt, transaction may be pending
+    if (!receipt) {
+      return {
+        valid: false,
+        message: 'Transaction is still pending or not found'
+      };
+    }
+    
+    // Get transaction details
+    const tx = await provider.getTransaction(txHash);
+    
+    // Verify basics
+    if (receipt.status !== 1) {
+      return {
+        valid: false,
+        message: 'Transaction failed on blockchain'
+      };
+    }
+   // Verify sender
+   if (tx.from.toLowerCase() !== senderWallet.toLowerCase()) {
+    return {
+      valid: false,
+      message: 'Transaction sender does not match'
+    };
+  }
+  
+  // Verify recipient
+  if (tx.to.toLowerCase() !== companyWallet.toLowerCase()) {
+    return {
+      valid: false,
+      message: 'Transaction recipient does not match company wallet'
+    };
+  }
+  
+  // Verify transaction is not too old (within last 24 hours)
+  const txBlock = await provider.getBlock(receipt.blockNumber);
+  const txTimestamp = txBlock.timestamp * 1000; // Convert to milliseconds
+  const currentTime = Date.now();
+  const oneDayInMs = 24 * 60 * 60 * 1000;
+  
+  if (currentTime - txTimestamp > oneDayInMs) {
+    return {
+      valid: false,
+      message: 'Transaction is too old (more than 24 hours)'
+    };
+  }
+  
+  // Transaction passed all checks
+  return {
+    valid: true,
+    amount: tx.value,
+    timestamp: txTimestamp
+  };
+} catch (error) {
+  console.error('Blockchain verification error:', error);
+  return {
+    valid: false,
+    message: 'Error verifying transaction on blockchain'
+  };
+}
+}
+
+// Admin: Verify web3 payment
+exports.adminVerifyWeb3Transaction = async (req, res) => {
+try {
+  const { transactionId, approved, adminNote } = req.body;
+  const adminId = req.user.id;
+
+  // Check if admin
+  const admin = await User.findById(adminId);
+  if (!admin || !admin.isAdmin) {
+    return res.status(403).json({
+      success: false,
+      message: 'Unauthorized: Admin access required'
+    });
+  }
+
+  // Find the transaction
+  const userShareRecord = await UserShare.findOne({
+    'transactions.transactionId': transactionId
+  });
+  
+  if (!userShareRecord) {
+    return res.status(404).json({
+      success: false,
+      message: 'Transaction not found'
+    });
+  }
+
+  const transaction = userShareRecord.transactions.find(
+    t => t.transactionId === transactionId && t.paymentMethod === 'web3'
+  );
+
+  if (!transaction) {
+    return res.status(404).json({
+      success: false,
+      message: 'Web3 transaction details not found'
+    });
+  }
+
+  if (transaction.status !== 'pending') {
+    return res.status(400).json({
+      success: false,
+      message: `Transaction already ${transaction.status}`
+    });
+  }
+
+  const newStatus = approved ? 'completed' : 'failed';
+  
+  // Update transaction status
+  await UserShare.updateTransactionStatus(
+    userShareRecord.user,
+    transactionId,
+    newStatus,
+    adminNote
+  );
+  
+  // If approved, update global share counts
+  if (approved) {
+    const shareConfig = await Share.getCurrentConfig();
+    shareConfig.sharesSold += transaction.shares;
+    
+    // Update tier sales
+    shareConfig.tierSales.tier1Sold += transaction.tierBreakdown.tier1;
+    shareConfig.tierSales.tier2Sold += transaction.tierBreakdown.tier2;
+    shareConfig.tierSales.tier3Sold += transaction.tierBreakdown.tier3;
+    
+    await shareConfig.save();
+  }
+  
+  // Notify user
+  const user = await User.findById(userShareRecord.user);
+  if (user && user.email) {
+    try {
+      await sendEmail({
+        email: user.email,
+        subject: `AfriMobile - Web3 Payment ${approved ? 'Approved' : 'Declined'}`,
+        html: `
+          <h2>Share Purchase ${approved ? 'Confirmation' : 'Update'}</h2>
+          <p>Dear ${user.name},</p>
+          <p>Your purchase of ${transaction.shares} shares for $${transaction.totalAmount} USDT has been ${approved ? 'verified and completed' : 'declined'}.</p>
+          <p>Transaction Reference: ${transactionId}</p>
+          ${approved ? 
+            `<p>Thank you for your investment in AfriMobile!</p>` : 
+            `<p>Please contact support if you have any questions.</p>`
+          }
+          ${adminNote ? `<p>Note: ${adminNote}</p>` : ''}
+        `
+      });
+    } catch (emailError) {
+      console.error('Failed to send purchase notification email:', emailError);
+    }
+  }
+  
+  // Return success
+  res.status(200).json({
+    success: true,
+    message: `Transaction ${approved ? 'approved' : 'declined'} successfully`,
+    status: newStatus
+  });
+} catch (error) {
+  console.error('Error verifying web3 payment:', error);
+  res.status(500).json({
+    success: false,
+    message: 'Failed to verify web3 payment',
+    error: process.env.NODE_ENV === 'development' ? error.message : undefined
+  });
+}
+};
+
+// Admin: Get Web3 transactions
+exports.adminGetWeb3Transactions = async (req, res) => {
+try {
+  const adminId = req.user.id;
+
+  // Check if admin
+  const admin = await User.findById(adminId);
+  if (!admin || !admin.isAdmin) {
+    return res.status(403).json({
+      success: false,
+      message: 'Unauthorized: Admin access required'
+    });
+  }
+
+  // Query parameters
+  const { status, page = 1, limit = 20 } = req.query;
+  const skip = (parseInt(page) - 1) * parseInt(limit);
+  
+  // Build query
+  const query = { 'transactions.paymentMethod': 'web3' };
+  if (status && ['pending', 'completed', 'failed'].includes(status)) {
+    query['transactions.status'] = status;
+  }
+  
+  // Get user shares with transactions
+  const userShares = await UserShare.find(query)
+    .skip(skip)
+    .limit(parseInt(limit))
+    .populate('user', 'name email walletAddress');
+  
+  // Format response
+  const transactions = [];
+  for (const userShare of userShares) {
+    for (const transaction of userShare.transactions) {
+      // Only include web3 transactions matching status filter
+      if (transaction.paymentMethod !== 'web3' || 
+          (status && transaction.status !== status)) {
+        continue;
+      }
+      
+      transactions.push({
+        transactionId: transaction.transactionId,
+        txHash: transaction.txHash,
+        user: {
+          id: userShare.user._id,
+          name: userShare.user.name,
+          email: userShare.user.email,
+          walletAddress: userShare.user.walletAddress
+        },
+        shares: transaction.shares,
+        pricePerShare: transaction.pricePerShare,
+        currency: transaction.currency,
+        totalAmount: transaction.totalAmount,
+        status: transaction.status,
+        date: transaction.createdAt,
+        adminNote: transaction.adminNote
+      });
+    }
+  }
+  
+  // Count total
+  const totalCount = await UserShare.countDocuments(query);
+  
+  res.status(200).json({
+    success: true,
+    transactions,
+    pagination: {
+      currentPage: parseInt(page),
+      totalPages: Math.ceil(totalCount / parseInt(limit)),
+      totalCount
+    }
+  });
+} catch (error) {
+  console.error('Error fetching web3 transactions:', error);
+  res.status(500).json({
+    success: false,
+    message: 'Failed to fetch web3 transactions',
+    error: process.env.NODE_ENV === 'development' ? error.message : undefined
+  });
+}
+};
+
+// Add this function to your shareController.js file
+
+/**
+ * @desc    Verify and process a web3 transaction
+ * @route   POST /api/shares/web3/verify
+ * @access  Private (User)
+ */
+exports.verifyWeb3Transaction = async (req, res) => {
+  try {
+    const { quantity, txHash, walletAddress } = req.body;
+    const userId = req.user.id;
+
+    // Validate input
+    if (!quantity || !txHash || !walletAddress) {
+      return res.status(400).json({
+        success: false,
+        message: 'Please provide all required fields'
+      });
+    }
+
+    // Calculate purchase details
+    const purchaseDetails = await Share.calculatePurchase(parseInt(quantity), 'usdt');
+    
+    if (!purchaseDetails.success) {
+      return res.status(400).json({
+        success: false,
+        message: 'Unable to process this purchase amount',
+        details: purchaseDetails
+      });
+    }
+
+    // Check if transaction already exists
+    const existingUserShare = await UserShare.findOne({
+      'transactions.txHash': txHash
+    });
+    
+    if (existingUserShare) {
+      return res.status(400).json({
+        success: false,
+        message: 'This transaction has already been processed'
+      });
+    }
+
+    // Get company wallet address from config
+    const config = await SiteConfig.getCurrentConfig();
+    const companyWalletAddress = config.companyWalletAddress;
+    
+    if (!companyWalletAddress) {
+      return res.status(400).json({
+        success: false,
+        message: 'Company wallet address not configured'
+      });
+    }
+
+    // Verify on blockchain
+    let verificationSuccess = false;
+    let verificationError = null;
+    
+    try {
+      // Connect to BSC
+      const provider = new ethers.providers.JsonRpcProvider(
+        process.env.BSC_RPC_URL || 'https://bsc-dataseed.binance.org/'
+      );
+      
+      // Get transaction details
+      const tx = await provider.getTransaction(txHash);
+      
+      if (!tx) {
+        throw new Error('Transaction not found on blockchain');
+      }
+      
+      // Wait for transaction to be confirmed
+      const receipt = await provider.waitForTransaction(txHash, 1);
+      
+      // Verify transaction details
+      if (
+        tx.to.toLowerCase() !== companyWalletAddress.toLowerCase() ||
+        tx.from.toLowerCase() !== walletAddress.toLowerCase() ||
+        !receipt.status
+      ) {
+        throw new Error('Invalid transaction details');
+      }
+      
+      // For BNB/Token payment check the value
+      const txValue = ethers.utils.formatEther(tx.value);
+      const requiredAmount = purchaseDetails.totalPrice;
+      
+      // Allow small deviations (e.g., due to gas fluctuations)
+      if (Math.abs(parseFloat(txValue) - requiredAmount) > 0.02 * requiredAmount) {
+        throw new Error(`Amount mismatch: Sent ${txValue}, Required ~${requiredAmount}`);
+      }
+      
+      // All checks passed
+      verificationSuccess = true;
+    } catch (err) {
+      verificationError = err.message;
+      console.error('Blockchain verification error:', err);
+    }
+
+    // Generate transaction ID
+    const transactionId = generateTransactionId();
+    
+    // Set status based on verification result
+    const status = verificationSuccess ? 'completed' : 'pending';
+    
+    // Record the transaction
+    await UserShare.addShares(userId, purchaseDetails.totalShares, {
+      transactionId,
+      shares: purchaseDetails.totalShares,
+      pricePerShare: purchaseDetails.totalPrice / purchaseDetails.totalShares,
+      currency: 'usdt',
+      totalAmount: purchaseDetails.totalPrice,
+      paymentMethod: 'web3',
+      status,
+      txHash,
+      tierBreakdown: purchaseDetails.tierBreakdown,
+      adminNote: verificationSuccess ? 
+        `Auto-verified web3 transaction: ${txHash}` : 
+        `Failed auto-verification: ${verificationError}. Transaction Hash: ${txHash}, From Wallet: ${walletAddress}`
+    });
+    
+    // If verification successful, update global share counts
+    if (verificationSuccess) {
+      const shareConfig = await Share.getCurrentConfig();
+      shareConfig.sharesSold += purchaseDetails.totalShares;
+      
+      // Update tier sales
+      shareConfig.tierSales.tier1Sold += purchaseDetails.tierBreakdown.tier1;
+      shareConfig.tierSales.tier2Sold += purchaseDetails.tierBreakdown.tier2;
+      shareConfig.tierSales.tier3Sold += purchaseDetails.tierBreakdown.tier3;
+      
+      await shareConfig.save();
+      
+      // Get user details for notification
+      const user = await User.findById(userId);
+      
+      // Send confirmation email to user
+      if (user && user.email) {
+        try {
+          await sendEmail({
+            email: user.email,
+            subject: 'AfriMobile - Share Purchase Successful',
+            html: `
+              <h2>Share Purchase Confirmation</h2>
+              <p>Dear ${user.name},</p>
+              <p>Your purchase of ${purchaseDetails.totalShares} shares for $${purchaseDetails.totalPrice} USDT has been completed successfully.</p>
+              <p>Transaction Hash: ${txHash}</p>
+              <p>Thank you for your investment in AfriMobile!</p>
+            `
+          });
+        } catch (emailError) {
+          console.error('Failed to send purchase confirmation email:', emailError);
+        }
+      }
+    } else {
+      // Notify admin about pending verification
+      const user = await User.findById(userId);
+      try {
+        const adminEmail = process.env.ADMIN_EMAIL || 'admin@afrimobile.com';
+        await sendEmail({
+          email: adminEmail,
+          subject: 'AfriMobile - New Web3 Payment Needs Verification',
+          html: `
+            <h2>Web3 Payment Verification Required</h2>
+            <p>Automatic verification failed: ${verificationError}</p>
+            <p>Transaction details:</p>
+            <ul>
+              <li>User: ${user.name} (${user.email})</li>
+              <li>Transaction ID: ${transactionId}</li>
+              <li>Amount: $${purchaseDetails.totalPrice} USDT</li>
+              <li>Shares: ${purchaseDetails.totalShares}</li>
+              <li>Transaction Hash: ${txHash}</li>
+              <li>Wallet Address: ${walletAddress}</li>
+            </ul>
+            <p>Please verify this transaction in the admin dashboard.</p>
+          `
+        });
+      } catch (emailError) {
+        console.error('Failed to send admin notification:', emailError);
+      }
+    }
+    
+    // Return response
+    res.status(200).json({
+      success: true,
+      message: verificationSuccess ? 
+        'Payment verified and processed successfully' : 
+        'Payment submitted for verification',
+      data: {
+        transactionId,
+        shares: purchaseDetails.totalShares,
+        amount: purchaseDetails.totalPrice,
+        status,
+        verified: verificationSuccess
+      }
+    });
+  } catch (error) {
+    console.error('Web3 verification error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Server error during transaction verification',
       error: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
