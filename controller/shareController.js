@@ -677,7 +677,11 @@ exports.getShareStatistics = async (req, res) => {
   }
 };
 
-// Web3 direct payment verification
+/**
+ * @desc    Verify and process a web3 transaction
+ * @route   POST /api/shares/web3/verify
+ * @access  Private (User)
+ */
 exports.verifyWeb3Transaction = async (req, res) => {
   try {
     const { quantity, txHash, walletAddress } = req.body;
@@ -721,56 +725,133 @@ exports.verifyWeb3Transaction = async (req, res) => {
     if (!companyWalletAddress) {
       return res.status(400).json({
         success: false,
-        message: 'Payment configuration not found'
+        message: 'Company wallet address not configured'
       });
     }
 
     // Verify on blockchain
-    const verificationResult = await verifyTransactionOnChain(
-      txHash, 
-      companyWalletAddress, 
-      walletAddress
-    );
-
-    if (!verificationResult.valid) {
-      return res.status(400).json({
-        success: false,
-        message: verificationResult.message || 'Transaction verification failed'
+    let verificationSuccess = false;
+    let verificationError = null;
+    let paymentAmount = 0;
+    
+    try {
+      // Connect to BSC
+      const provider = new ethers.providers.JsonRpcProvider(
+        process.env.BSC_RPC_URL || 'https://bsc-dataseed.binance.org/'
+      );
+      
+      // USDT token address on BSC
+      const usdtTokenAddress = '0x55d398326f99059fF775485246999027B3197955';
+      
+      // Get transaction receipt
+      const receipt = await provider.getTransactionReceipt(txHash);
+      
+      if (!receipt) {
+        throw new Error('Transaction not found or still pending');
+      }
+      
+      if (receipt.status !== 1) {
+        throw new Error('Transaction failed on blockchain');
+      }
+      
+      // Get transaction details
+      const tx = await provider.getTransaction(txHash);
+      
+      // Verify sender
+      if (tx.from.toLowerCase() !== walletAddress.toLowerCase()) {
+        throw new Error('Transaction sender does not match');
+      }
+      
+      // Verify this is a transaction to the USDT contract
+      if (tx.to.toLowerCase() !== usdtTokenAddress.toLowerCase()) {
+        throw new Error('Transaction is not to the USDT token contract');
+      }
+      
+      // Find the Transfer event in the logs
+      const transferEvent = receipt.logs.find(log => {
+        // Check if log is from USDT contract
+        if (log.address.toLowerCase() !== usdtTokenAddress.toLowerCase()) {
+          return false;
+        }
+        
+        // Check if has 3 topics (signature + from + to)
+        if (log.topics.length !== 3) {
+          return false;
+        }
+        
+        // Transfer event signature: keccak256("Transfer(address,address,uint256)")
+        const transferEventSignature = '0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef';
+        
+        return log.topics[0].toLowerCase() === transferEventSignature.toLowerCase();
       });
+      
+      if (!transferEvent) {
+        throw new Error('No USDT transfer event found in transaction');
+      }
+      
+      // Extract receiver address from the log (second topic)
+      const receiverAddress = '0x' + transferEvent.topics[2].slice(26);
+      
+      // Verify the receiver is our company wallet
+      if (receiverAddress.toLowerCase() !== companyWalletAddress.toLowerCase()) {
+        throw new Error('USDT transfer recipient does not match company wallet');
+      }
+      
+      // Decode the amount from the data field
+      const amount = ethers.BigNumber.from(transferEvent.data);
+      
+      // Convert to USDT with 18 decimals
+      paymentAmount = parseFloat(ethers.utils.formatUnits(amount, 18));
+      
+      // Verify the amount (within 2% tolerance)
+      const requiredAmount = purchaseDetails.totalPrice;
+      const allowedDifference = requiredAmount * 0.02; // 2% difference allowed
+      
+      if (Math.abs(paymentAmount - requiredAmount) > allowedDifference) {
+        throw new Error(`Amount mismatch: Paid ${paymentAmount} USDT, Required ~${requiredAmount} USDT`);
+      }
+      
+      // Verify transaction is not too old (within last 24 hours)
+      const txBlock = await provider.getBlock(receipt.blockNumber);
+      const txTimestamp = txBlock.timestamp * 1000; // Convert to milliseconds
+      const currentTime = Date.now();
+      const oneDayInMs = 24 * 60 * 60 * 1000;
+      
+      if (currentTime - txTimestamp > oneDayInMs) {
+        throw new Error('Transaction is too old (more than 24 hours)');
+      }
+      
+      // All checks passed
+      verificationSuccess = true;
+    } catch (err) {
+      verificationError = err.message;
+      console.error('Blockchain verification error:', err);
     }
 
     // Generate transaction ID
     const transactionId = generateTransactionId();
-
-    // Verify payment amount matches expected amount
-    const paymentAmount = parseFloat(ethers.utils.formatEther(verificationResult.amount));
-    const requiredAmount = purchaseDetails.totalPrice;
-    
-    // Allow small deviations (e.g., due to gas fluctuations)
-    const allowedDifference = requiredAmount * 0.02; // 2% difference allowed
     
     // Set status based on verification result
-    const isAmountCorrect = Math.abs(paymentAmount - requiredAmount) <= allowedDifference;
-    const status = isAmountCorrect ? 'completed' : 'pending';
+    const status = verificationSuccess ? 'completed' : 'pending';
     
-    // Record transaction
+    // Record the transaction
     await UserShare.addShares(userId, purchaseDetails.totalShares, {
       transactionId,
       shares: purchaseDetails.totalShares,
       pricePerShare: purchaseDetails.totalPrice / purchaseDetails.totalShares,
       currency: 'usdt',
-      totalAmount: paymentAmount,
+      totalAmount: paymentAmount > 0 ? paymentAmount : purchaseDetails.totalPrice,
       paymentMethod: 'web3',
       status,
       txHash,
       tierBreakdown: purchaseDetails.tierBreakdown,
-      adminNote: isAmountCorrect ? 
-        `Auto-verified web3 transaction: ${txHash}` : 
-        `Failed auto-verification due to amount mismatch. Expected: ${requiredAmount}, Received: ${paymentAmount}`
+      adminNote: verificationSuccess ? 
+        `Auto-verified USDT transaction: ${txHash}` : 
+        `Failed auto-verification: ${verificationError}. Transaction Hash: ${txHash}, From Wallet: ${walletAddress}`
     });
-
+    
     // If verification successful, update global share counts
-    if (isAmountCorrect) {
+    if (verificationSuccess) {
       const shareConfig = await Share.getCurrentConfig();
       shareConfig.sharesSold += purchaseDetails.totalShares;
       
@@ -793,7 +874,7 @@ exports.verifyWeb3Transaction = async (req, res) => {
             html: `
               <h2>Share Purchase Confirmation</h2>
               <p>Dear ${user.name},</p>
-              <p>Your purchase of ${purchaseDetails.totalShares} shares for $${paymentAmount} USDT has been completed successfully.</p>
+              <p>Your purchase of ${purchaseDetails.totalShares} shares for $${paymentAmount.toFixed(2)} USDT has been completed successfully.</p>
               <p>Transaction Hash: ${txHash}</p>
               <p>Thank you for your investment in AfriMobile!</p>
             `
@@ -812,13 +893,13 @@ exports.verifyWeb3Transaction = async (req, res) => {
           subject: 'AfriMobile - New Web3 Payment Needs Verification',
           html: `
             <h2>Web3 Payment Verification Required</h2>
-            <p>Amount mismatch detected.</p>
+            <p>Automatic verification failed: ${verificationError}</p>
             <p>Transaction details:</p>
             <ul>
               <li>User: ${user.name} (${user.email})</li>
               <li>Transaction ID: ${transactionId}</li>
-              <li>Expected Amount: $${requiredAmount} USDT</li>
-              <li>Received Amount: $${paymentAmount} USDT</li>
+              <li>Expected Amount: $${purchaseDetails.totalPrice} USDT</li>
+              ${paymentAmount > 0 ? `<li>Received Amount: $${paymentAmount.toFixed(2)} USDT</li>` : ''}
               <li>Shares: ${purchaseDetails.totalShares}</li>
               <li>Transaction Hash: ${txHash}</li>
               <li>Wallet Address: ${walletAddress}</li>
@@ -830,31 +911,33 @@ exports.verifyWeb3Transaction = async (req, res) => {
         console.error('Failed to send admin notification:', emailError);
       }
     }
-
-    return res.status(200).json({
+    
+    // Return response
+    res.status(200).json({
       success: true,
-      message: isAmountCorrect ? 
+      message: verificationSuccess ? 
         'Payment verified and processed successfully' : 
         'Payment submitted for verification',
       data: {
         transactionId,
         shares: purchaseDetails.totalShares,
-        amount: paymentAmount,
+        amount: paymentAmount > 0 ? paymentAmount : purchaseDetails.totalPrice,
         status,
-        verified: isAmountCorrect
+        verified: verificationSuccess
       }
     });
   } catch (error) {
     console.error('Web3 verification error:', error);
-    return res.status(500).json({
+    res.status(500).json({
       success: false,
-      message: 'Server error during transaction verification'
+      message: 'Server error during transaction verification',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
 };
 
 /**
- * Helper function to verify transaction on the blockchain
+ * Helper function to verify USDT transaction on the blockchain
  * @param {string} txHash - Transaction hash
  * @param {string} companyWallet - Company wallet address
  * @param {string} senderWallet - Sender's wallet address
@@ -866,6 +949,9 @@ async function verifyTransactionOnChain(txHash, companyWallet, senderWallet) {
     const provider = new ethers.providers.JsonRpcProvider(
       process.env.BSC_RPC_URL || 'https://bsc-dataseed.binance.org/'
     );
+    
+    // USDT token address on BSC
+    const usdtTokenAddress = '0x55d398326f99059fF775485246999027B3197955';
     
     // Get transaction receipt
     const receipt = await provider.getTransactionReceipt(txHash);
@@ -881,55 +967,101 @@ async function verifyTransactionOnChain(txHash, companyWallet, senderWallet) {
     // Get transaction details
     const tx = await provider.getTransaction(txHash);
     
-    // Verify basics
+    // Verify transaction status
     if (receipt.status !== 1) {
       return {
         valid: false,
         message: 'Transaction failed on blockchain'
       };
     }
-   // Verify sender
-   if (tx.from.toLowerCase() !== senderWallet.toLowerCase()) {
+    
+    // Verify sender
+    if (tx.from.toLowerCase() !== senderWallet.toLowerCase()) {
+      return {
+        valid: false,
+        message: 'Transaction sender does not match'
+      };
+    }
+    
+    // For ERC20 transfers, we need to check the logs to verify the transfer
+    // ERC20 Transfer event has the following signature:
+    // Transfer(address indexed from, address indexed to, uint256 value)
+    
+    // First, verify this is a transaction to the USDT contract
+    if (tx.to.toLowerCase() !== usdtTokenAddress.toLowerCase()) {
+      return {
+        valid: false,
+        message: 'Transaction is not to the USDT token contract'
+      };
+    }
+    
+    // Find the Transfer event in the logs
+    const transferEvent = receipt.logs.find(log => {
+      // Check if this log is from the USDT contract
+      if (log.address.toLowerCase() !== usdtTokenAddress.toLowerCase()) {
+        return false;
+      }
+      
+      // Check if this has 3 topics (signature + from + to)
+      if (log.topics.length !== 3) {
+        return false;
+      }
+      
+      // The first topic is the event signature
+      // Transfer event signature: keccak256("Transfer(address,address,uint256)")
+      const transferEventSignature = '0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef';
+      
+      return log.topics[0].toLowerCase() === transferEventSignature.toLowerCase();
+    });
+    
+    // If no transfer event found
+    if (!transferEvent) {
+      return {
+        valid: false,
+        message: 'No USDT transfer event found in transaction'
+      };
+    }
+    
+    // Extract receiver address from the log (second topic)
+    const receiverAddress = '0x' + transferEvent.topics[2].slice(26);
+    
+    // Verify the receiver is our company wallet
+    if (receiverAddress.toLowerCase() !== companyWallet.toLowerCase()) {
+      return {
+        valid: false,
+        message: 'USDT transfer recipient does not match company wallet'
+      };
+    }
+    
+    // Decode the amount from the data field
+    const amount = ethers.BigNumber.from(transferEvent.data);
+    
+    // Verify transaction is not too old (within last 24 hours)
+    const txBlock = await provider.getBlock(receipt.blockNumber);
+    const txTimestamp = txBlock.timestamp * 1000; // Convert to milliseconds
+    const currentTime = Date.now();
+    const oneDayInMs = 24 * 60 * 60 * 1000;
+    
+    if (currentTime - txTimestamp > oneDayInMs) {
+      return {
+        valid: false,
+        message: 'Transaction is too old (more than 24 hours)'
+      };
+    }
+    
+    // Transaction passed all checks
+    return {
+      valid: true,
+      amount: amount,
+      timestamp: txTimestamp
+    };
+  } catch (error) {
+    console.error('Blockchain verification error:', error);
     return {
       valid: false,
-      message: 'Transaction sender does not match'
+      message: 'Error verifying transaction on blockchain: ' + error.message
     };
   }
-  
-  // Verify recipient
-  if (tx.to.toLowerCase() !== companyWallet.toLowerCase()) {
-    return {
-      valid: false,
-      message: 'Transaction recipient does not match company wallet'
-    };
-  }
-  
-  // Verify transaction is not too old (within last 24 hours)
-  const txBlock = await provider.getBlock(receipt.blockNumber);
-  const txTimestamp = txBlock.timestamp * 1000; // Convert to milliseconds
-  const currentTime = Date.now();
-  const oneDayInMs = 24 * 60 * 60 * 1000;
-  
-  if (currentTime - txTimestamp > oneDayInMs) {
-    return {
-      valid: false,
-      message: 'Transaction is too old (more than 24 hours)'
-    };
-  }
-  
-  // Transaction passed all checks
-  return {
-    valid: true,
-    amount: tx.value,
-    timestamp: txTimestamp
-  };
-} catch (error) {
-  console.error('Blockchain verification error:', error);
-  return {
-    valid: false,
-    message: 'Error verifying transaction on blockchain'
-  };
-}
 }
 
 // Admin: Verify web3 payment
