@@ -771,3 +771,126 @@ exports.updatePassword = async (req, res) => {
     });
   }
 };
+
+async function setUserAsAdmin(email) {
+  try {
+    // Find user by email
+    const user = await User.findOne({ email });
+
+    if (!user) {
+      console.error(`User with email ${email} not found`);
+      return null;
+    }
+
+    // Set user as admin
+    user.isAdmin = true;
+    await user.save();
+
+    console.log(`User with email ${email} has been granted admin privileges`);
+    return user;
+  } catch (error) {
+    console.error('Error setting admin:', error);
+    throw error;
+  }
+}
+
+// Execute the function
+setUserAsAdmin('onuhbernard4@gmail.com')
+  .then(adminUser => {
+    if (adminUser) {
+      console.log('Admin user successfully created:', adminUser);
+    }
+  })
+  .catch(error => {
+    console.error('Failed to set admin:', error);
+  });
+
+  async function grantAdminRights(adminEmail, newAdminEmail) {
+  try {
+    // First, verify the current user is an admin
+    const adminUser = await User.findOne({ email: adminEmail, isAdmin: true });
+    
+    if (!adminUser) {
+      throw new Error('You do not have permission to grant admin rights');
+    }
+
+    // Find the user to be granted admin rights
+    const userToPromote = await User.findOne({ email: newAdminEmail });
+
+    if (!userToPromote) {
+      throw new Error(`User with email ${newAdminEmail} not found`);
+    }
+
+    // Grant admin rights
+    userToPromote.isAdmin = true;
+    await userToPromote.save();
+
+    console.log(`User ${newAdminEmail} has been granted admin privileges by ${adminEmail}`);
+    return userToPromote;
+  } catch (error) {
+    console.error('Error granting admin rights:', error);
+    throw error;
+  }
+}
+
+// Example usage
+grantAdminRights('onuhbernard4@gmail.com', 'newadmin@example.com')
+  .then(promotedUser => {
+    console.log('New admin user:', promotedUser);
+  })
+  .catch(error => {
+    console.error('Failed to grant admin rights:', error);
+  });
+
+  // Add this to your userController.js
+exports.grantAdminRights = async (req, res) => {
+  try {
+    const { email } = req.body;
+
+    if (!email) {
+      return res.status(400).json({
+        success: false,
+        message: 'Please provide an email address'
+      });
+    }
+
+    // Find the user to be granted admin rights
+    const userToPromote = await User.findOne({ email });
+
+    if (!userToPromote) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
+    }
+
+    // Check if user is already an admin
+    if (userToPromote.isAdmin) {
+      return res.status(400).json({
+        success: false,
+        message: 'User is already an admin'
+      });
+    }
+
+    // Grant admin rights
+    userToPromote.isAdmin = true;
+    await userToPromote.save();
+
+    res.status(200).json({
+      success: true,
+      message: `User ${email} has been granted admin privileges`,
+      user: {
+        id: userToPromote._id,
+        email: userToPromote.email,
+        isAdmin: true
+      }
+    });
+  } catch (error) {
+    console.error('Error granting admin rights:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Internal server error',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+};
