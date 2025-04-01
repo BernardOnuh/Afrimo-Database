@@ -5,7 +5,7 @@ const siteConfigSchema = new mongoose.Schema({
   companyWalletAddress: {
     type: String,
     required: true,
-    default: '0x1234567890abcdef1234567890abcdef12345678' // Replace with your actual company wallet
+    default: '0x8E5A1709A1dAD654668A8c44E1286b17eF5086B0' // Replace with your actual company wallet
   },
   supportedCryptos: [{
     symbol: String,
