@@ -68,3 +68,5 @@ PaymentConfigSchema.statics.getCurrentConfig = async function() {
 };
 
 module.exports = mongoose.model('PaymentConfig', PaymentConfigSchema);
+
+//company Address
