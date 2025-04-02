@@ -746,7 +746,8 @@ exports.updatePassword = async (req, res) => {
     }
     
     // Check if current password matches
-    const isMatch = await user.matchPassword(currentPassword);
+    // Changed from user.matchPassword to user.comparePassword to match the method used in loginUser
+    const isMatch = await user.comparePassword(currentPassword);
     if (!isMatch) {
       return res.status(401).json({
         success: false,
