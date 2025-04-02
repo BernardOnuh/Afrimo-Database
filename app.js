@@ -49,6 +49,7 @@ if (process.env.NODE_ENV === 'development') {
 // Routes
 app.use('/api/users', require('./routes/userRoutes'));
 app.use('/api/shares', require('./routes/shareRoutes'));
+app.use('/api', require('./routes/coFounderShareRoutes')); // Fix: Use the base path for co-founder routes
 
 // Add additional routes here as your application grows
 // app.use('/api/transactions', require('./routes/transactionRoutes'));
