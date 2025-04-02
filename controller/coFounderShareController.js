@@ -133,7 +133,7 @@ exports.getPaymentConfig = async (req, res) => {
     }
 };
 
-// Initiate PayStack payment for co-founder shares
+// Updated initiateCoFounderPaystackPayment function to fix the CoFounderShare.calculatePurchase issue
 exports.initiateCoFounderPaystackPayment = async (req, res) => {
     try {
         const { quantity, email } = req.body;
@@ -146,16 +146,40 @@ exports.initiateCoFounderPaystackPayment = async (req, res) => {
             });
         }
         
-        // Calculate purchase amount
-        const purchaseDetails = await CoFounderShare.calculatePurchase(parseInt(quantity), 'naira');
+        // Instead of using CoFounderShare.calculatePurchase, use the calculateCoFounderPurchase logic directly
+        const parsedQuantity = parseInt(quantity);
         
-        if (!purchaseDetails.success) {
+        // Find co-founder share configuration
+        const coFounderShare = await CoFounderShare.findOne();
+        
+        if (!coFounderShare) {
             return res.status(400).json({
                 success: false,
-                message: 'Unable to process this purchase amount',
-                details: purchaseDetails
+                message: 'Co-founder share configuration not found'
             });
         }
+        
+        // Validate available shares
+        if (coFounderShare.sharesSold + parsedQuantity > coFounderShare.totalShares) {
+            return res.status(400).json({
+                success: false,
+                message: 'Insufficient shares available',
+                availableShares: coFounderShare.totalShares - coFounderShare.sharesSold
+            });
+        }
+        
+        // Calculate price based on currency (using naira for PayStack)
+        const pricePerShare = coFounderShare.pricing.priceNaira;
+        const totalPrice = parsedQuantity * pricePerShare;
+        
+        // Calculate purchase details
+        const purchaseDetails = {
+            quantity: parsedQuantity,
+            pricePerShare,
+            totalPrice,
+            currency: 'naira',
+            availableSharesAfterPurchase: coFounderShare.totalShares - (coFounderShare.sharesSold + parsedQuantity)
+        };
         
         // Generate transaction ID
         const transactionId = generateTransactionId();
@@ -163,12 +187,12 @@ exports.initiateCoFounderPaystackPayment = async (req, res) => {
         // Create PayStack request
         const paystackRequest = {
             email,
-            amount: purchaseDetails.totalPrice * 100, // Convert to kobo
+            amount: totalPrice * 100, // Convert to kobo
             reference: transactionId,
             callback_url: `${process.env.FRONTEND_URL}/cofounder/payment/verify?txref=${transactionId}`,
             metadata: {
                 userId,
-                shares: purchaseDetails.quantity,
+                shares: parsedQuantity,
                 transactionId
             }
         };
@@ -193,9 +217,9 @@ exports.initiateCoFounderPaystackPayment = async (req, res) => {
         const transaction = await PaymentTransaction.create({
             userId,
             type: 'co-founder',
-            amount: purchaseDetails.totalPrice,
+            amount: totalPrice,
             currency: 'naira',
-            shares: purchaseDetails.quantity,
+            shares: parsedQuantity,
             status: 'pending',
             transactionId,
             paymentMethod: 'paystack'
@@ -208,7 +232,7 @@ exports.initiateCoFounderPaystackPayment = async (req, res) => {
             data: {
                 authorization_url: paystackResponse.data.data.authorization_url,
                 reference: transactionId,
-                amount: purchaseDetails.totalPrice
+                amount: totalPrice
             }
         });
     } catch (error) {

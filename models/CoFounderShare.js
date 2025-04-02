@@ -79,7 +79,7 @@ const coFounderShareSchema = new mongoose.Schema({
   }]
 }, { timestamps: true });
 
-// Calculate co-founder share purchase
+// Calculate co-founder share purchase (instance method)
 coFounderShareSchema.methods.calculatePurchase = function(quantity, currency) {
   // Check available shares
   const availableShares = this.totalShares - this.sharesSold;
@@ -93,8 +93,8 @@ coFounderShareSchema.methods.calculatePurchase = function(quantity, currency) {
   }
   
   // Calculate total price
-  const price = currency === 'naira' 
-    ? this.pricing.priceNaira 
+  const price = currency === 'naira'
+    ? this.pricing.priceNaira
     : this.pricing.priceUSDT;
   
   const totalPrice = quantity * price;
@@ -107,6 +107,36 @@ coFounderShareSchema.methods.calculatePurchase = function(quantity, currency) {
     pricePerShare: price,
     availableShares: availableShares - quantity
   };
+};
+
+// Add a static method for use in the controller
+coFounderShareSchema.statics.calculatePurchase = async function(quantity, currency) {
+  try {
+    if (!quantity || !currency || !['naira', 'usdt'].includes(currency)) {
+      return {
+        success: false,
+        message: 'Invalid quantity or currency'
+      };
+    }
+    
+    const coFounderShare = await this.findOne();
+    
+    if (!coFounderShare) {
+      return {
+        success: false,
+        message: 'Co-founder share configuration not found'
+      };
+    }
+    
+    // Use the instance method on the found document
+    return coFounderShare.calculatePurchase(quantity, currency);
+  } catch (error) {
+    console.error('Error calculating purchase:', error);
+    return {
+      success: false,
+      message: 'Error calculating purchase'
+    };
+  }
 };
 
 // Submit co-founder application
