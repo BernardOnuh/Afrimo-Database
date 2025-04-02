@@ -12,6 +12,12 @@ router.get('/tree', protect, referralController.getReferralTree);
 // Get referral earnings
 router.get('/earnings', protect, referralController.getReferralEarnings);
 
+// Generate custom invite link
+router.post('/generate-invite', protect, referralController.generateCustomInviteLink);
+
+// Validate invite link
+router.get('/validate-invite/:inviteCode', referralController.validateInviteLink);
+
 // Admin route to adjust referral commission settings
 router.post('/settings', protect, adminProtect, referralController.updateReferralSettings);
 
