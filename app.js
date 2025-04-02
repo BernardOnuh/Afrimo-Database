@@ -57,6 +57,9 @@ app.use('/api/leaderboard', require('./routes/leaderboardRoutes'));
 app.use('/api/referral', require('./routes/referralRoutes'));
 
 app.use('/api/payment', require('./routes/paymentRoutes'));
+
+app.use('/api/withdrawal', require('./routes/withdrawalRoutes'));
+
 // Add additional routes here as your application grows
 // app.use('/api/transactions', require('./routes/transactionRoutes'));
 // app.use('/api/wallets', require('./routes/walletRoutes'));
