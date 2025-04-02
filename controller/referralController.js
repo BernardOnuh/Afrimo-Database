@@ -29,7 +29,7 @@ const getReferralStats = async (req, res) => {
     const response = {
       success: true,
       referralCode,
-      referralLink: `${process.env.FRONTEND_URL}/signup?ref=${referralCode}`,
+      referralLink: `${process.env.FRONTEND_URL}/sign-up?ref=${referralCode}`,
       stats: {
         totalReferred: 0,
         totalEarnings: 0,
@@ -273,7 +273,7 @@ const generateCustomInviteLink = async (req, res) => {
     res.status(200).json({
       success: true,
       inviteCode: user.userName,
-      inviteLink: `${process.env.FRONTEND_URL}/signup?ref=${user.userName}`
+      inviteLink: `${process.env.FRONTEND_URL}/sign-up?ref=${user.userName}`
     });
   } catch (error) {
     console.error('Error generating invite link:', error);
