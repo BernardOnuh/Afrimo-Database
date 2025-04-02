@@ -9,7 +9,7 @@ const TransactionSchema = new mongoose.Schema({
   },
   type: {
     type: String,
-    enum: ['paystack', 'crypto', 'web3'],
+    enum: ['paystack', 'crypto', 'web3', 'co-founder'], // Added 'co-founder' as valid type
     required: true
   },
   amount: {

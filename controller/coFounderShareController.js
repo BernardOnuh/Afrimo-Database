@@ -214,15 +214,15 @@ exports.initiateCoFounderPaystackPayment = async (req, res) => {
         }
         
         // Record the pending transaction
+        // Record the pending transaction
         const transaction = await PaymentTransaction.create({
             userId,
-            type: 'co-founder',
-            amount: totalPrice,
+            type: 'paystack', // Change from 'co-founder' to 'paystack'
+            amount: purchaseDetails.totalPrice,
             currency: 'naira',
-            shares: parsedQuantity,
+            shares: purchaseDetails.quantity,
             status: 'pending',
-            transactionId,
-            paymentMethod: 'paystack'
+            reference: transactionId
         });
         
         // Return success with payment URL
