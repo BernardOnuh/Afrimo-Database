@@ -174,17 +174,31 @@ exports.registerUser = async (req, res) => {
   }
 };
 
-// User login
+// User login with email or username
 exports.loginUser = async (req, res) => {
   try {
-    const { email, password } = req.body;
+    const { email, username, password } = req.body;
+    
+    // Require either email or username
+    if (!email && !username) {
+      return res.status(400).json({
+        success: false,
+        message: 'Please provide either email or username'
+      });
+    }
 
-    // Check if user exists
-    const user = await User.findOne({ email });
+    // Check if user exists by email or username
+    let user;
+    if (email) {
+      user = await User.findOne({ email });
+    } else {
+      user = await User.findOne({ userName: username });
+    }
+
     if (!user) {
       return res.status(401).json({
         success: false,
-        message: 'Invalid email or password'
+        message: 'Invalid credentials'
       });
     }
 
@@ -193,7 +207,7 @@ exports.loginUser = async (req, res) => {
     if (!isMatch) {
       return res.status(401).json({
         success: false,
-        message: 'Invalid email or password'
+        message: 'Invalid credentials'
       });
     }
 
