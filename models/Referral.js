@@ -62,10 +62,17 @@ const ReferralSchema = new mongoose.Schema({
       type: mongoose.Schema.Types.ObjectId,
       ref: 'User'
     },
+    name: String,
+    userName: String,
     email: String,
     date: {
       type: Date,
       default: Date.now
+    },
+    status: {
+      type: String,
+      enum: ['active', 'inactive'],
+      default: 'active'
     }
   }]
 }, {
@@ -79,7 +86,7 @@ ReferralSchema.statics.updateReferralStats = async function(userId, referredUser
     let referral = await this.findOne({ user: userId });
     
     if (!referral) {
-      referral = new this({ 
+      referral = new this({
         user: userId,
         referredUsers: 0,
         totalEarnings: 0,
@@ -109,11 +116,22 @@ ReferralSchema.statics.updateReferralStats = async function(userId, referredUser
     referral.referredUsers++;
     referral.totalEarnings += earnings;
     
-    // Add to referrals list
-    referral.referrals.push({
-      userId: referredUserId,
-      date: new Date()
-    });
+    // If referredUserId is provided, add to referrals list
+    if (referredUserId) {
+      // Get referred user details
+      const User = mongoose.model('User');
+      const referredUser = await User.findById(referredUserId);
+      
+      if (referredUser) {
+        referral.referrals.push({
+          userId: referredUserId,
+          name: referredUser.name,
+          userName: referredUser.userName,
+          email: referredUser.email,
+          date: new Date()
+        });
+      }
+    }
     
     // Save the updated record
     await referral.save();
@@ -144,5 +162,4 @@ ReferralSchema.statics.getCurrentConfig = async function() {
 };
 
 const Referral = mongoose.model('Referral', ReferralSchema);
-
 module.exports = Referral;

@@ -7,6 +7,7 @@ const crypto = require('crypto');
 const axios = require('axios');
 const { ethers } = require('ethers');
 const { sendEmail } = require('../utils/emailService');
+const { processReferralCommission } = require('../utils/referralUtils');
 
 // Generate a unique transaction ID
 const generateTransactionId = () => {
@@ -214,10 +215,9 @@ exports.initiateCoFounderPaystackPayment = async (req, res) => {
         }
         
         // Record the pending transaction
-        // Record the pending transaction
         const transaction = await PaymentTransaction.create({
             userId,
-            type: 'paystack', // Change from 'co-founder' to 'paystack'
+            type: 'co-founder',
             amount: purchaseDetails.totalPrice,
             currency: 'naira',
             shares: purchaseDetails.quantity,
@@ -395,6 +395,26 @@ exports.verifyCoFounderPaystackPayment = async (req, res) => {
         transaction.status = 'completed';
         await transaction.save();
         
+        // Process referral commissions ONLY for completed transactions
+        try {
+            // Ensure the transaction is marked as completed first
+            if (transaction.status === 'completed') {
+                const referralResult = await processReferralCommission(
+                    transaction.userId,
+                    transaction._id,
+                    transaction.amount,
+                    'naira',
+                    'cofounder',
+                    'PaymentTransaction'
+                );
+                
+                console.log('Referral commission process result:', referralResult);
+            }
+        } catch (referralError) {
+            console.error('Error processing referral commissions:', referralError);
+            // Continue with the verification process despite referral error
+        }
+        
         // Notify user
         const user = await User.findById(transaction.userId);
         if (user && user.email) {
@@ -486,14 +506,17 @@ exports.adminVerifyWeb3Transaction = async (req, res) => {
             });
         }
         
+        // Get current status before updating
+        const oldStatus = transaction.status;
+        
         // Update transaction status
         transaction.status = status;
         transaction.adminNotes = adminNotes;
         transaction.verifiedBy = adminId;
         await transaction.save();
         
-        // If approved, add shares
-        if (status === 'completed') {
+        // If approved (moved to completed), add shares and ONLY THEN process referrals
+        if (status === 'completed' && oldStatus !== 'completed') {
             // Find co-founder share configuration
             const coFounderShare = await CoFounderShare.findOne();
             
@@ -518,6 +541,27 @@ exports.adminVerifyWeb3Transaction = async (req, res) => {
                 adminAction: true,
                 adminNote: adminNotes
             });
+            
+            // Process referral commissions - ONLY for now-completed transactions
+            try {
+                // Verify again that the transaction is marked as completed
+                const updatedTransaction = await PaymentTransaction.findById(transactionId);
+                if (updatedTransaction.status === 'completed') {
+                    const referralResult = await processReferralCommission(
+                        transaction.userId,
+                        transaction._id,
+                        transaction.amount,
+                        transaction.currency,
+                        'cofounder',
+                        'PaymentTransaction'
+                    );
+                    
+                    console.log('Referral commission process result:', referralResult);
+                }
+            } catch (referralError) {
+                console.error('Error processing referral commissions:', referralError);
+                // Continue with the verification process despite referral error
+            }
             
             // Notify user
             const user = await User.findById(transaction.userId);
@@ -545,7 +589,12 @@ exports.adminVerifyWeb3Transaction = async (req, res) => {
         res.status(200).json({
             success: true,
             message: 'Transaction verified successfully',
-            transaction
+            transaction: {
+                id: transaction._id,
+                status: transaction.status,
+                shares: transaction.shares,
+                amount: transaction.amount
+            }
         });
     } catch (error) {
         console.error('Error verifying web3 transaction:', error);
@@ -678,30 +727,32 @@ exports.adminAddCoFounderShares = async (req, res) => {
         }
         
         // Check available shares
-        if (coFounderShare.sharesSold + shares > coFounderShare.totalShares) {
+        if (coFounderShare.sharesSold + parseInt(shares) > coFounderShare.totalShares) {
             return res.status(400).json({
                 success: false,
                 message: 'Insufficient co-founder shares available'
             });
         }
         
-        // Create transaction
+        // Create transaction with completed status immediately
         const transaction = await PaymentTransaction.create({
             userId,
             type: 'co-founder',
-            shares,
+            shares: parseInt(shares),
             status: 'completed',
             adminNotes: note || 'Admin share allocation',
-            paymentMethod: 'manual'
+            paymentMethod: 'manual',
+            amount: coFounderShare.pricing.priceNaira * parseInt(shares), // Use current price for reference
+            currency: 'naira'
         });
         
         // Add shares to user
-        await UserShare.addShares(userId, shares, {
+        await UserShare.addShares(userId, parseInt(shares), {
             transactionId: transaction._id,
-            shares,
-            pricePerShare: 0, // Free allocation
+            shares: parseInt(shares),
+            pricePerShare: coFounderShare.pricing.priceNaira, // Use current price for reference
             currency: 'naira',
-            totalAmount: 0,
+            totalAmount: coFounderShare.pricing.priceNaira * parseInt(shares),
             paymentMethod: 'co-founder',
             status: 'completed',
             tierBreakdown: {
@@ -714,8 +765,31 @@ exports.adminAddCoFounderShares = async (req, res) => {
         });
         
         // Update co-founder shares sold
-        coFounderShare.sharesSold += shares;
+        coFounderShare.sharesSold += parseInt(shares);
         await coFounderShare.save();
+        
+        // Process referral commissions for admin-added shares - ONLY for completed transactions
+        try {
+            // Get the user to check if they were referred
+            const user = await User.findById(userId);
+            
+            if (user && user.referralInfo && user.referralInfo.code) {
+                // Verify the transaction is completed
+                const referralResult = await processReferralCommission(
+                    userId,
+                    transaction._id,
+                    coFounderShare.pricing.priceNaira * parseInt(shares), // Use current market price for commission calculation
+                    'naira',
+                    'cofounder',
+                    'PaymentTransaction'
+                );
+                
+                console.log('Referral commission process result for admin-added shares:', referralResult);
+            }
+        } catch (referralError) {
+            console.error('Error processing referral commissions for admin-added shares:', referralError);
+            // Continue with the process despite referral error
+        }
         
         // Notify user
         const user = await User.findById(userId);
@@ -819,7 +893,7 @@ exports.getCoFounderShareStatistics = async (req, res) => {
         // Get current co-founder share configuration
         const coFounderShare = await CoFounderShare.findOne();
         
-        // Get investor count
+        // Get investor count (only count completed transactions)
         const investorCount = await PaymentTransaction.countDocuments({
             type: 'co-founder',
             status: 'completed'

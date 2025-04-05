@@ -7,6 +7,7 @@ const axios = require('axios');
 const { ethers } = require('ethers');
 const { sendEmail } = require('../utils/emailService');
 const SiteConfig = require('../models/SiteConfig');
+const { processReferralCommission } = require('../utils/referralUtils');
 
 // Generate a unique transaction ID
 const generateTransactionId = () => {
@@ -237,6 +238,35 @@ exports.verifyPaystackPayment = async (req, res) => {
       'completed'
     );
     
+    // Process referral commissions ONLY FOR COMPLETED TRANSACTIONS
+    try {
+      // First update the transaction status, then process referrals
+      // This ensures we're only processing for completed transactions
+      const updatedUserShare = await UserShare.findOne({
+        'transactions.transactionId': reference
+      });
+      
+      const updatedTransaction = updatedUserShare.transactions.find(
+        t => t.transactionId === reference
+      );
+      
+      if (updatedTransaction.status === 'completed') {
+        const referralResult = await processReferralCommission(
+          userShareRecord.user,
+          reference,
+          transaction.totalAmount,
+          transaction.currency,
+          'share',
+          'UserShare'
+        );
+        
+        console.log('Referral commission process result:', referralResult);
+      }
+    } catch (referralError) {
+      console.error('Error processing referral commissions:', referralError);
+      // Continue with the verification process despite referral error
+    }
+    
     // Get user details for notification
     const user = await User.findById(userShareRecord.user);
     
@@ -453,6 +483,25 @@ exports.adminAddShares = async (req, res) => {
     shareConfig.sharesSold += parseInt(shares);
     shareConfig.tierSales.tier1Sold += parseInt(shares);
     await shareConfig.save();
+    
+    // Process referral commissions if the user was referred
+    try {
+      if (user.referralInfo && user.referralInfo.code) {
+        const referralResult = await processReferralCommission(
+          userId,
+          transactionId,
+          priceNaira * parseInt(shares),
+          'naira',
+          'share',
+          'UserShare'
+        );
+        
+        console.log('Referral commission process result:', referralResult);
+      }
+    } catch (referralError) {
+      console.error('Error processing referral commissions:', referralError);
+      // Continue with the process despite referral error
+    }
     
     // Notify user
     if (user.email) {
@@ -835,15 +884,13 @@ exports.verifyWeb3Transaction = async (req, res) => {
     const status = verificationSuccess ? 'completed' : 'pending';
     
     // Record the transaction
-   // Record the transaction
     await UserShare.addShares(userId, purchaseDetails.totalShares, {
       transactionId,
       shares: purchaseDetails.totalShares,
       pricePerShare: purchaseDetails.totalPrice / purchaseDetails.totalShares,
       currency: 'usdt',
       totalAmount: paymentAmount > 0 ? paymentAmount : purchaseDetails.totalPrice,
-      paymentMethod: 'crypto',  // Changed from 'web3' to 'crypto'
-      status,
+      paymentMethod: 'crypto',status,
       txHash,
       tierBreakdown: purchaseDetails.tierBreakdown,
       adminNote: verificationSuccess ? 
@@ -851,7 +898,7 @@ exports.verifyWeb3Transaction = async (req, res) => {
         `Failed auto-verification: ${verificationError}. Transaction Hash: ${txHash}, From Wallet: ${walletAddress}`
     });
     
-    // If verification successful, update global share counts
+    // If verification successful, update global share counts AND process referrals
     if (verificationSuccess) {
       const shareConfig = await Share.getCurrentConfig();
       shareConfig.sharesSold += purchaseDetails.totalShares;
@@ -862,6 +909,24 @@ exports.verifyWeb3Transaction = async (req, res) => {
       shareConfig.tierSales.tier3Sold += purchaseDetails.tierBreakdown.tier3;
       
       await shareConfig.save();
+      
+      // Process referral commissions ONLY for completed transactions
+      try {
+        // First ensure the transaction is marked as completed
+        const referralResult = await processReferralCommission(
+          userId,
+          transactionId,  // Use transactionId for consistency
+          paymentAmount > 0 ? paymentAmount : purchaseDetails.totalPrice,
+          'usdt',
+          'share',
+          'UserShare'
+        );
+        
+        console.log('Referral commission process result:', referralResult);
+      } catch (referralError) {
+        console.error('Error processing referral commissions:', referralError);
+        // Continue with the verification process despite referral error
+      }
       
       // Get user details for notification
       const user = await User.findById(userId);
@@ -885,6 +950,9 @@ exports.verifyWeb3Transaction = async (req, res) => {
         }
       }
     } else {
+      // For pending transactions, we DON'T process referral commissions
+      // They'll be processed when the transaction is verified and marked as completed
+      
       // Notify admin about pending verification
       const user = await User.findById(userId);
       try {
@@ -1067,191 +1135,218 @@ async function verifyTransactionOnChain(txHash, companyWallet, senderWallet) {
 
 // Admin: Verify web3 payment
 exports.adminVerifyWeb3Transaction = async (req, res) => {
-try {
-  const { transactionId, approved, adminNote } = req.body;
-  const adminId = req.user.id;
-
-  // Check if admin
-  const admin = await User.findById(adminId);
-  if (!admin || !admin.isAdmin) {
-    return res.status(403).json({
-      success: false,
-      message: 'Unauthorized: Admin access required'
-    });
-  }
-
-  // Find the transaction
-  const userShareRecord = await UserShare.findOne({
-    'transactions.transactionId': transactionId
-  });
+  try {
+    const { transactionId, approved, adminNote } = req.body;
+    const adminId = req.user.id;
   
-  if (!userShareRecord) {
-    return res.status(404).json({
-      success: false,
-      message: 'Transaction not found'
-    });
-  }
-
-  const transaction = userShareRecord.transactions.find(
-    t => t.transactionId === transactionId && t.paymentMethod === 'web3'
-  );
-
-  if (!transaction) {
-    return res.status(404).json({
-      success: false,
-      message: 'Web3 transaction details not found'
-    });
-  }
-
-  if (transaction.status !== 'pending') {
-    return res.status(400).json({
-      success: false,
-      message: `Transaction already ${transaction.status}`
-    });
-  }
-
-  const newStatus = approved ? 'completed' : 'failed';
-  
-  // Update transaction status
-  await UserShare.updateTransactionStatus(
-    userShareRecord.user,
-    transactionId,
-    newStatus,
-    adminNote
-  );
-  
-  // If approved, update global share counts
-  if (approved) {
-    const shareConfig = await Share.getCurrentConfig();
-    shareConfig.sharesSold += transaction.shares;
-    
-    // Update tier sales
-    shareConfig.tierSales.tier1Sold += transaction.tierBreakdown.tier1;
-    shareConfig.tierSales.tier2Sold += transaction.tierBreakdown.tier2;
-    shareConfig.tierSales.tier3Sold += transaction.tierBreakdown.tier3;
-    
-    await shareConfig.save();
-  }
-  
-  // Notify user
-  const user = await User.findById(userShareRecord.user);
-  if (user && user.email) {
-    try {
-      await sendEmail({
-        email: user.email,
-        subject: `AfriMobile - Web3 Payment ${approved ? 'Approved' : 'Declined'}`,
-        html: `
-          <h2>Share Purchase ${approved ? 'Confirmation' : 'Update'}</h2>
-          <p>Dear ${user.name},</p>
-          <p>Your purchase of ${transaction.shares} shares for $${transaction.totalAmount} USDT has been ${approved ? 'verified and completed' : 'declined'}.</p>
-          <p>Transaction Reference: ${transactionId}</p>
-          ${approved ? 
-            `<p>Thank you for your investment in AfriMobile!</p>` : 
-            `<p>Please contact support if you have any questions.</p>`
-          }
-          ${adminNote ? `<p>Note: ${adminNote}</p>` : ''}
-        `
+    // Check if admin
+    const admin = await User.findById(adminId);
+    if (!admin || !admin.isAdmin) {
+      return res.status(403).json({
+        success: false,
+        message: 'Unauthorized: Admin access required'
       });
-    } catch (emailError) {
-      console.error('Failed to send purchase notification email:', emailError);
     }
-  }
   
-  // Return success
-  res.status(200).json({
-    success: true,
-    message: `Transaction ${approved ? 'approved' : 'declined'} successfully`,
-    status: newStatus
-  });
-} catch (error) {
-  console.error('Error verifying web3 payment:', error);
-  res.status(500).json({
-    success: false,
-    message: 'Failed to verify web3 payment',
-    error: process.env.NODE_ENV === 'development' ? error.message : undefined
-  });
-}
+    // Find the transaction
+    const userShareRecord = await UserShare.findOne({
+      'transactions.transactionId': transactionId
+    });
+    
+    if (!userShareRecord) {
+      return res.status(404).json({
+        success: false,
+        message: 'Transaction not found'
+      });
+    }
+  
+    const transaction = userShareRecord.transactions.find(
+      t => t.transactionId === transactionId && t.paymentMethod === 'crypto'
+    );
+  
+    if (!transaction) {
+      return res.status(404).json({
+        success: false,
+        message: 'Crypto transaction details not found'
+      });
+    }
+  
+    if (transaction.status !== 'pending') {
+      return res.status(400).json({
+        success: false,
+        message: `Transaction already ${transaction.status}`
+      });
+    }
+  
+    const newStatus = approved ? 'completed' : 'failed';
+    
+    // Update transaction status
+    await UserShare.updateTransactionStatus(
+      userShareRecord.user,
+      transactionId,
+      newStatus,
+      adminNote
+    );
+    
+    // If approved, update global share counts and ONLY THEN process referrals
+    if (approved) {
+      const shareConfig = await Share.getCurrentConfig();
+      shareConfig.sharesSold += transaction.shares;
+      
+      // Update tier sales
+      shareConfig.tierSales.tier1Sold += transaction.tierBreakdown.tier1;
+      shareConfig.tierSales.tier2Sold += transaction.tierBreakdown.tier2;
+      shareConfig.tierSales.tier3Sold += transaction.tierBreakdown.tier3;
+      
+      await shareConfig.save();
+      
+      // Process referral commissions ONLY for now-completed transactions
+      try {
+        // Get updated transaction to ensure it's been marked as completed
+        const updatedUserShare = await UserShare.findOne({
+          'transactions.transactionId': transactionId
+        });
+        
+        const updatedTransaction = updatedUserShare.transactions.find(
+          t => t.transactionId === transactionId
+        );
+        
+        if (updatedTransaction.status === 'completed') {
+          const referralResult = await processReferralCommission(
+            userShareRecord.user,
+            transactionId,
+            transaction.totalAmount,
+            transaction.currency,
+            'share',
+            'UserShare'
+          );
+          
+          console.log('Referral commission process result:', referralResult);
+        }
+      } catch (referralError) {
+        console.error('Error processing referral commissions:', referralError);
+        // Continue with the verification process despite referral error
+      }
+    }
+    
+    // Notify user
+    const user = await User.findById(userShareRecord.user);
+    if (user && user.email) {
+      try {
+        await sendEmail({
+          email: user.email,
+          subject: `AfriMobile - Web3 Payment ${approved ? 'Approved' : 'Declined'}`,
+          html: `
+            <h2>Share Purchase ${approved ? 'Confirmation' : 'Update'}</h2>
+            <p>Dear ${user.name},</p>
+            <p>Your purchase of ${transaction.shares} shares for $${transaction.totalAmount} USDT has been ${approved ? 'verified and completed' : 'declined'}.</p>
+            <p>Transaction Reference: ${transactionId}</p>
+            ${approved ? 
+              `<p>Thank you for your investment in AfriMobile!</p>` : 
+              `<p>Please contact support if you have any questions.</p>`
+            }
+            ${adminNote ? `<p>Note: ${adminNote}</p>` : ''}
+          `
+        });
+      } catch (emailError) {
+        console.error('Failed to send purchase notification email:', emailError);
+      }
+    }
+    
+    // Return success
+    res.status(200).json({
+      success: true,
+      message: `Transaction ${approved ? 'approved' : 'declined'} successfully`,
+      status: newStatus
+    });
+  } catch (error) {
+    console.error('Error verifying web3 payment:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to verify web3 payment',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
 };
 
 // Admin: Get Web3 transactions
 exports.adminGetWeb3Transactions = async (req, res) => {
-try {
-  const adminId = req.user.id;
-
-  // Check if admin
-  const admin = await User.findById(adminId);
-  if (!admin || !admin.isAdmin) {
-    return res.status(403).json({
-      success: false,
-      message: 'Unauthorized: Admin access required'
-    });
-  }
-
-  // Query parameters
-  const { status, page = 1, limit = 20 } = req.query;
-  const skip = (parseInt(page) - 1) * parseInt(limit);
+  try {
+    const adminId = req.user.id;
   
-  // Build query
-  const query = { 'transactions.paymentMethod': 'web3' };
-  if (status && ['pending', 'completed', 'failed'].includes(status)) {
-    query['transactions.status'] = status;
-  }
-  
-  // Get user shares with transactions
-  const userShares = await UserShare.find(query)
-    .skip(skip)
-    .limit(parseInt(limit))
-    .populate('user', 'name email walletAddress');
-  
-  // Format response
-  const transactions = [];
-  for (const userShare of userShares) {
-    for (const transaction of userShare.transactions) {
-      // Only include web3 transactions matching status filter
-      if (transaction.paymentMethod !== 'web3' || 
-          (status && transaction.status !== status)) {
-        continue;
-      }
-      
-      transactions.push({
-        transactionId: transaction.transactionId,
-        txHash: transaction.txHash,
-        user: {
-          id: userShare.user._id,
-          name: userShare.user.name,
-          email: userShare.user.email,
-          walletAddress: userShare.user.walletAddress
-        },
-        shares: transaction.shares,
-        pricePerShare: transaction.pricePerShare,
-        currency: transaction.currency,
-        totalAmount: transaction.totalAmount,
-        status: transaction.status,
-        date: transaction.createdAt,
-        adminNote: transaction.adminNote
+    // Check if admin
+    const admin = await User.findById(adminId);
+    if (!admin || !admin.isAdmin) {
+      return res.status(403).json({
+        success: false,
+        message: 'Unauthorized: Admin access required'
       });
     }
-  }
   
-  // Count total
-  const totalCount = await UserShare.countDocuments(query);
-  
-  res.status(200).json({
-    success: true,
-    transactions,
-    pagination: {
-      currentPage: parseInt(page),
-      totalPages: Math.ceil(totalCount / parseInt(limit)),
-      totalCount
+    // Query parameters
+    const { status, page = 1, limit = 20 } = req.query;
+    const skip = (parseInt(page) - 1) * parseInt(limit);
+    
+    // Build query
+    const query = { 'transactions.paymentMethod': 'crypto' };
+    if (status && ['pending', 'completed', 'failed'].includes(status)) {
+      query['transactions.status'] = status;
     }
-  });
-} catch (error) {
-  console.error('Error fetching web3 transactions:', error);
-  res.status(500).json({
-    success: false,
-    message: 'Failed to fetch web3 transactions',
-    error: process.env.NODE_ENV === 'development' ? error.message : undefined
-  });
-}
+    
+    // Get user shares with transactions
+    const userShares = await UserShare.find(query)
+      .skip(skip)
+      .limit(parseInt(limit))
+      .populate('user', 'name email walletAddress');
+    
+    // Format response
+    const transactions = [];
+    for (const userShare of userShares) {
+      for (const transaction of userShare.transactions) {
+        // Only include web3 transactions matching status filter
+        if (transaction.paymentMethod !== 'crypto' || 
+            (status && transaction.status !== status)) {
+          continue;
+        }
+        
+        transactions.push({
+          transactionId: transaction.transactionId,
+          txHash: transaction.txHash,
+          user: {
+            id: userShare.user._id,
+            name: userShare.user.name,
+            email: userShare.user.email,
+            walletAddress: userShare.user.walletAddress
+          },
+          shares: transaction.shares,
+          pricePerShare: transaction.pricePerShare,
+          currency: transaction.currency,
+          totalAmount: transaction.totalAmount,
+          status: transaction.status,
+          date: transaction.createdAt,
+          adminNote: transaction.adminNote
+        });
+      }
+    }
+    
+    // Count total
+    const totalCount = await UserShare.countDocuments(query);
+    
+    res.status(200).json({
+      success: true,
+      transactions,
+      pagination: {
+        currentPage: parseInt(page),
+        totalPages: Math.ceil(totalCount / parseInt(limit)),
+        totalCount
+      }
+    });
+  } catch (error) {
+    console.error('Error fetching web3 transactions:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch web3 transactions',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
 };
-
