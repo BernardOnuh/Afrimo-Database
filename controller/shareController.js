@@ -1350,3 +1350,404 @@ exports.adminGetWeb3Transactions = async (req, res) => {
     });
   }
 };
+
+// Add these functions to the shareController.js file
+
+/**
+ * @desc    Submit manual payment proof
+ * @route   POST /api/shares/manual/submit
+ * @access  Private (User)
+ */
+exports.submitManualPayment = async (req, res) => {
+  try {
+    const { quantity, paymentMethod, bankName, accountName, reference, currency } = req.body;
+    const userId = req.user.id;
+    const paymentProofImage = req.file; // Uploaded file from multer middleware
+    
+    // Validate required fields
+    if (!quantity || !paymentMethod || !paymentProofImage) {
+      return res.status(400).json({
+        success: false,
+        message: 'Please provide quantity, payment method, and payment proof image'
+      });
+    }
+    
+    // Validate currency
+    if (!currency || !['naira', 'usdt'].includes(currency)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Please provide a valid currency (naira or usdt)'
+      });
+    }
+    
+    // Calculate purchase details
+    const purchaseDetails = await Share.calculatePurchase(parseInt(quantity), currency);
+    
+    if (!purchaseDetails.success) {
+      return res.status(400).json({
+        success: false,
+        message: 'Unable to process this purchase amount',
+        details: purchaseDetails
+      });
+    }
+    
+    // Generate transaction ID
+    const transactionId = generateTransactionId();
+    
+    // Save payment proof image to storage
+    // The file path is already provided by multer (req.file.path)
+    const paymentProofPath = paymentProofImage.path;
+    
+    // Record the transaction as "pending verification"
+    await UserShare.addShares(userId, purchaseDetails.totalShares, {
+      transactionId,
+      shares: purchaseDetails.totalShares,
+      pricePerShare: purchaseDetails.totalPrice / purchaseDetails.totalShares,
+      currency,
+      totalAmount: purchaseDetails.totalPrice,
+      paymentMethod: `manual_${paymentMethod}`, // e.g., manual_bank_transfer
+      status: 'pending',
+      tierBreakdown: purchaseDetails.tierBreakdown,
+      paymentProofPath,
+      manualPaymentDetails: {
+        bankName: bankName || null,
+        accountName: accountName || null,
+        reference: reference || null
+      }
+    });
+    
+    // Get user details
+    const user = await User.findById(userId);
+    
+    // Notify admin about new manual payment
+    try {
+      const adminEmail = process.env.ADMIN_EMAIL || 'admin@afrimobile.com';
+      await sendEmail({
+        email: adminEmail,
+        subject: 'AfriMobile - New Manual Payment Requires Verification',
+        html: `
+          <h2>Manual Payment Verification Required</h2>
+          <p>A new manual payment has been submitted:</p>
+          <ul>
+            <li>User: ${user.name} (${user.email})</li>
+            <li>Transaction ID: ${transactionId}</li>
+            <li>Amount: ${currency === 'naira' ? '₦' : '$'}${purchaseDetails.totalPrice}</li>
+            <li>Shares: ${purchaseDetails.totalShares}</li>
+            <li>Payment Method: ${paymentMethod}</li>
+            ${bankName ? `<li>Bank Name: ${bankName}</li>` : ''}
+            ${accountName ? `<li>Account Name: ${accountName}</li>` : ''}
+            ${reference ? `<li>Reference/Receipt No: ${reference}</li>` : ''}
+          </ul>
+          <p>Please verify this payment in the admin dashboard.</p>
+        `
+      });
+    } catch (emailError) {
+      console.error('Failed to send admin notification:', emailError);
+    }
+    
+    // Return success response
+    res.status(200).json({
+      success: true,
+      message: 'Payment proof submitted successfully and awaiting verification',
+      data: {
+        transactionId,
+        shares: purchaseDetails.totalShares,
+        amount: purchaseDetails.totalPrice,
+        status: 'pending'
+      }
+    });
+  } catch (error) {
+    console.error('Error submitting manual payment:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to submit manual payment',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+};
+
+/**
+ * @desc    Admin: Get all manual payment transactions
+ * @route   GET /api/shares/admin/manual/transactions
+ * @access  Private (Admin)
+ */
+exports.adminGetManualTransactions = async (req, res) => {
+  try {
+    const adminId = req.user.id;
+    
+    // Check if admin
+    const admin = await User.findById(adminId);
+    if (!admin || !admin.isAdmin) {
+      return res.status(403).json({
+        success: false,
+        message: 'Unauthorized: Admin access required'
+      });
+    }
+    
+    // Query parameters
+    const { status, page = 1, limit = 20 } = req.query;
+    const skip = (parseInt(page) - 1) * parseInt(limit);
+    
+    // Build query for manual payment methods
+    const query = {
+      'transactions.paymentMethod': { $regex: '^manual_' }
+    };
+    
+    if (status && ['pending', 'completed', 'failed'].includes(status)) {
+      query['transactions.status'] = status;
+    }
+    
+    // Get user shares with transactions
+    const userShares = await UserShare.find(query)
+      .skip(skip)
+      .limit(parseInt(limit))
+      .populate('user', 'name email phone');
+    
+    // Format response
+    const transactions = [];
+    for (const userShare of userShares) {
+      for (const transaction of userShare.transactions) {
+        // Only include manual transactions matching status filter
+        if (!transaction.paymentMethod.startsWith('manual_') || 
+            (status && transaction.status !== status)) {
+          continue;
+        }
+        
+        transactions.push({
+          transactionId: transaction.transactionId,
+          user: {
+            id: userShare.user._id,
+            name: userShare.user.name,
+            email: userShare.user.email,
+            phone: userShare.user.phone
+          },
+          shares: transaction.shares,
+          pricePerShare: transaction.pricePerShare,
+          currency: transaction.currency,
+          totalAmount: transaction.totalAmount,
+          paymentMethod: transaction.paymentMethod.replace('manual_', ''),
+          status: transaction.status,
+          date: transaction.createdAt,
+          paymentProofPath: transaction.paymentProofPath,
+          manualPaymentDetails: transaction.manualPaymentDetails || {},
+          adminNote: transaction.adminNote
+        });
+      }
+    }
+    
+    // Count total
+    const totalCount = await UserShare.countDocuments(query);
+    
+    res.status(200).json({
+      success: true,
+      transactions,
+      pagination: {
+        currentPage: parseInt(page),
+        totalPages: Math.ceil(totalCount / parseInt(limit)),
+        totalCount
+      }
+    });
+  } catch (error) {
+    console.error('Error fetching manual transactions:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch manual transactions',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+};
+
+/**
+ * @desc    Admin: Verify manual payment
+ * @route   POST /api/shares/admin/manual/verify
+ * @access  Private (Admin)
+ */
+exports.adminVerifyManualPayment = async (req, res) => {
+  try {
+    const { transactionId, approved, adminNote } = req.body;
+    const adminId = req.user.id;
+    
+    // Check if admin
+    const admin = await User.findById(adminId);
+    if (!admin || !admin.isAdmin) {
+      return res.status(403).json({
+        success: false,
+        message: 'Unauthorized: Admin access required'
+      });
+    }
+    
+    // Find the transaction
+    const userShareRecord = await UserShare.findOne({
+      'transactions.transactionId': transactionId
+    });
+    
+    if (!userShareRecord) {
+      return res.status(404).json({
+        success: false,
+        message: 'Transaction not found'
+      });
+    }
+    
+    const transaction = userShareRecord.transactions.find(
+      t => t.transactionId === transactionId && t.paymentMethod.startsWith('manual_')
+    );
+    
+    if (!transaction) {
+      return res.status(404).json({
+        success: false,
+        message: 'Manual transaction details not found'
+      });
+    }
+    
+    if (transaction.status !== 'pending') {
+      return res.status(400).json({
+        success: false,
+        message: `Transaction already ${transaction.status}`
+      });
+    }
+    
+    const newStatus = approved ? 'completed' : 'failed';
+    
+    // Update transaction status
+    await UserShare.updateTransactionStatus(
+      userShareRecord.user,
+      transactionId,
+      newStatus,
+      adminNote
+    );
+    
+    // If approved, update global share counts and process referrals
+    if (approved) {
+      const shareConfig = await Share.getCurrentConfig();
+      shareConfig.sharesSold += transaction.shares;
+      
+      // Update tier sales
+      shareConfig.tierSales.tier1Sold += transaction.tierBreakdown.tier1 || 0;
+      shareConfig.tierSales.tier2Sold += transaction.tierBreakdown.tier2 || 0;
+      shareConfig.tierSales.tier3Sold += transaction.tierBreakdown.tier3 || 0;
+      
+      await shareConfig.save();
+      
+      // Process referral commissions ONLY for now-completed transactions
+      try {
+        // Get updated transaction to ensure it's been marked as completed
+        const updatedUserShare = await UserShare.findOne({
+          'transactions.transactionId': transactionId
+        });
+        
+        const updatedTransaction = updatedUserShare.transactions.find(
+          t => t.transactionId === transactionId
+        );
+        
+        if (updatedTransaction.status === 'completed') {
+          const referralResult = await processReferralCommission(
+            userShareRecord.user,
+            transactionId,
+            transaction.totalAmount,
+            transaction.currency,
+            'share',
+            'UserShare'
+          );
+          
+          console.log('Referral commission process result:', referralResult);
+        }
+      } catch (referralError) {
+        console.error('Error processing referral commissions:', referralError);
+        // Continue with the verification process despite referral error
+      }
+    }
+    
+    // Notify user
+    const user = await User.findById(userShareRecord.user);
+    if (user && user.email) {
+      try {
+        await sendEmail({
+          email: user.email,
+          subject: `AfriMobile - Manual Payment ${approved ? 'Approved' : 'Declined'}`,
+          html: `
+            <h2>Share Purchase ${approved ? 'Confirmation' : 'Update'}</h2>
+            <p>Dear ${user.name},</p>
+            <p>Your purchase of ${transaction.shares} shares for ${transaction.currency === 'naira' ? '₦' : '$'}${transaction.totalAmount} has been ${approved ? 'verified and completed' : 'declined'}.</p>
+            <p>Transaction Reference: ${transactionId}</p>
+            ${approved ? 
+              `<p>Thank you for your investment in AfriMobile!</p>` : 
+              `<p>Please contact support if you have any questions.</p>`
+            }
+            ${adminNote ? `<p>Note: ${adminNote}</p>` : ''}
+          `
+        });
+      } catch (emailError) {
+        console.error('Failed to send manual payment notification email:', emailError);
+      }
+    }
+    
+    // Return success
+    res.status(200).json({
+      success: true,
+      message: `Manual payment ${approved ? 'approved' : 'declined'} successfully`,
+      status: newStatus
+    });
+  } catch (error) {
+    console.error('Error verifying manual payment:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to verify manual payment',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+};
+
+/**
+ * @desc    Get payment proof image
+ * @route   GET /api/shares/payment-proof/:transactionId
+ * @access  Private (Admin or transaction owner)
+ */
+exports.getPaymentProof = async (req, res) => {
+  try {
+    const { transactionId } = req.params;
+    const userId = req.user.id;
+    
+    // Find the transaction
+    const userShareRecord = await UserShare.findOne({
+      'transactions.transactionId': transactionId
+    });
+    
+    if (!userShareRecord) {
+      return res.status(404).json({
+        success: false,
+        message: 'Transaction not found'
+      });
+    }
+    
+    const transaction = userShareRecord.transactions.find(
+      t => t.transactionId === transactionId
+    );
+    
+    if (!transaction || !transaction.paymentProofPath) {
+      return res.status(404).json({
+        success: false,
+        message: 'Payment proof not found for this transaction'
+      });
+    }
+    
+    // Check if user is admin or transaction owner
+    const user = await User.findById(userId);
+    if (!(user && (user.isAdmin || userShareRecord.user.toString() === userId))) {
+      return res.status(403).json({
+        success: false,
+        message: 'Unauthorized: You do not have permission to view this payment proof'
+      });
+    }
+    
+    // Send the file
+    res.sendFile(transaction.paymentProofPath, { root: process.cwd() });
+    
+  } catch (error) {
+    console.error('Error fetching payment proof:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch payment proof',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+};

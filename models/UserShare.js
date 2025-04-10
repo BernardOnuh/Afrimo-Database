@@ -34,7 +34,7 @@ const userShareSchema = new mongoose.Schema({
     },
     paymentMethod: {
       type: String,
-      enum: ['paystack', 'crypto', 'web3'],  // Added 'web3'
+      enum: ['paystack', 'crypto', 'web3', 'manual_bank_transfer', 'manual_cash', 'manual_other'],
       required: true
     },
     status: {
@@ -52,6 +52,14 @@ const userShareSchema = new mongoose.Schema({
       default: false
     },
     adminNote: String,
+    // New fields for manual payment
+    txHash: String, // For crypto transactions
+    paymentProofPath: String, // For storing the path to uploaded proof images
+    manualPaymentDetails: {
+      bankName: String,
+      accountName: String,
+      reference: String
+    },
     createdAt: {
       type: Date,
       default: Date.now
@@ -94,7 +102,7 @@ userShareSchema.statics.addShares = async function(userId, shares, transactionDa
 };
 
 // Update transaction status
-userShareSchema.statics.updateTransactionStatus = async function(userId, transactionId, status) {
+userShareSchema.statics.updateTransactionStatus = async function(userId, transactionId, status, adminNote = null) {
   const userShares = await this.findOne({ user: userId, 'transactions.transactionId': transactionId });
   
   if (!userShares) {
@@ -120,6 +128,11 @@ userShareSchema.statics.updateTransactionStatus = async function(userId, transac
   }
   
   transaction.status = status;
+  // Add admin note if provided
+  if (adminNote) {
+    transaction.adminNote = adminNote;
+  }
+  
   userShares.updatedAt = Date.now();
   await userShares.save();
   

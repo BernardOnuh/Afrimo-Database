@@ -259,16 +259,28 @@ const getReferralEarnings = async (req, res) => {
     let targetUser;
     const isAdminRequest = (req.query.userName || req.query.email) && req.user.isAdmin;
     
+    console.log("Request query:", req.query);
+    console.log("Is admin request:", isAdminRequest);
+    
     // If admin is requesting data for another user
     if (isAdminRequest) {
       // Find user by username or email
       if (req.query.userName) {
+        console.log("Searching for userName:", req.query.userName, "Type:", typeof req.query.userName);
+        // Debug: Find all usernames to verify what's in the database
+        const allUsers = await User.find({}, 'userName email');
+        console.log("All usernames in DB:", allUsers.map(u => ({userName: u.userName, email: u.email})));
+        
         targetUser = await User.findOne({ userName: req.query.userName });
+        console.log("Search result by userName:", targetUser);
       } else if (req.query.email) {
+        console.log("Searching for email:", req.query.email);
         targetUser = await User.findOne({ email: req.query.email });
+        console.log("Search result by email:", targetUser);
       }
       
       if (!targetUser) {
+        console.log("User not found in admin request");
         return res.status(404).json({
           success: false,
           message: 'User not found'
@@ -276,9 +288,11 @@ const getReferralEarnings = async (req, res) => {
       }
     } else {
       // Regular user requesting their own data
+      console.log("Regular user request for:", req.user.id);
       targetUser = await User.findById(req.user.id);
       
       if (!targetUser) {
+        console.log("User not found in regular request");
         return res.status(404).json({
           success: false,
           message: 'User not found'
@@ -288,11 +302,14 @@ const getReferralEarnings = async (req, res) => {
     
     // If trying to access another user's data without being admin
     if (targetUser._id.toString() !== req.user.id && !req.user.isAdmin) {
+      console.log("Authorization failure: attempting to access another user's data");
       return res.status(403).json({
         success: false,
         message: 'Not authorized to access this user\'s earnings'
       });
     }
+    
+    console.log("Target user found:", targetUser.userName, targetUser.email);
     
     // Get referral transactions for the target user
     const referralTransactions = await ReferralTransaction.find({ 
@@ -301,6 +318,8 @@ const getReferralEarnings = async (req, res) => {
       })
       .populate('referredUser', 'name userName email')
       .sort({ createdAt: -1 });
+    
+    console.log("Found transactions:", referralTransactions.length);
     
     // Summarize by generation and purchase type
     const summary = {
@@ -359,15 +378,19 @@ const getReferralEarnings = async (req, res) => {
     
     // Get additional referral stats or sync if needed
     let referralStats = await Referral.findOne({ user: targetUser._id });
+    console.log("Referral stats found:", !!referralStats);
     
     // Optionally sync stats if requested
     if (req.query.sync === 'true' || !referralStats) {
+      console.log("Syncing referral stats");
       const syncResult = await syncReferralStats(targetUser._id);
       if (syncResult.success) {
         referralStats = syncResult.stats;
+        console.log("Sync successful");
       }
     }
     
+    console.log("Sending response");
     res.status(200).json({
       success: true,
       user: {
@@ -390,6 +413,7 @@ const getReferralEarnings = async (req, res) => {
     });
   } catch (error) {
     console.error('Error fetching referral earnings:', error);
+    console.error('Error stack:', error.stack);
     res.status(500).json({
       success: false,
       message: 'Failed to fetch referral earnings',
