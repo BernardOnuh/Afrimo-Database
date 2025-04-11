@@ -1518,6 +1518,7 @@ exports.adminGetManualTransactions = async (req, res) => {
           user: {
             id: userShare.user._id,
             name: userShare.user.name,
+            username: userShare.user.username,
             email: userShare.user.email,
             phone: userShare.user.phone
           },
