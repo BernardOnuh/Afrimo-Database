@@ -34,8 +34,8 @@ const fileFilter = (req, file, cb) => {
     cb(new Error('Only image files are allowed'), false);
   }
 };
-
-const upload = multer({ 
+åç
+const upload = multer({
   storage: storage,
   fileFilter: fileFilter,
   limits: {
@@ -70,5 +70,7 @@ router.get('/admin/statistics', protect, adminProtect, shareController.getShareS
 // Admin manual payment routes
 router.get('/admin/manual/transactions', protect, adminProtect, shareController.adminGetManualTransactions);
 router.post('/admin/manual/verify', protect, adminProtect, shareController.adminVerifyManualPayment);
+// NEW ROUTE: Add the cancel manual payment route
+router.post('/admin/manual/cancel', protect, adminProtect, shareController.adminCancelManualPayment);
 
 module.exports = router;

@@ -453,11 +453,124 @@ const syncReferralStats = async (userId) => {
   }
 };
 
+/**
+ * Rollback referral commissions for a canceled transaction
+ * @param {string} userId - The user ID who made the purchase
+ * @param {string} transactionId - The transaction ID
+ * @param {number} amount - The transaction amount
+ * @param {string} currency - The currency used (naira or usdt)
+ * @param {string} purchaseType - The type of transaction (share, etc.)
+ * @param {string} sourceModel - The source model name
+ * @returns {Promise<Object>} - Result of the rollback operation
+ */
+const rollbackReferralCommission = async (userId, transactionId, amount, currency, purchaseType, sourceModel) => {
+  try {
+    // Check if user exists and was referred
+    const user = await User.findById(userId);
+    
+    if (!user || !user.referralInfo || !user.referralInfo.code) {
+      return {
+        success: true,
+        message: 'No referral to rollback'
+      };
+    }
+    
+    // Find the referral transactions that need to be rolled back
+    const referralTransactions = await ReferralTransaction.find({
+      sourceTransaction: transactionId,
+      sourceTransactionModel: sourceModel,
+      status: 'completed'
+    });
+    
+    if (!referralTransactions || referralTransactions.length === 0) {
+      return {
+        success: true,
+        message: 'No referral transactions found for this transaction'
+      };
+    }
+    
+    console.log(`Found ${referralTransactions.length} referral transactions to rollback for transaction ${transactionId}`);
+    
+    // For each referral transaction, rollback the commission
+    for (const referralTx of referralTransactions) {
+      // Mark the transaction as rolled back
+      referralTx.status = 'rolled_back';
+      referralTx.notes = `Rolled back due to transaction cancellation on ${new Date().toISOString()}`;
+      await referralTx.save();
+      
+      // Update referral stats for the beneficiary
+      await updateReferralStatsAfterRollback(
+        referralTx.beneficiary,
+        referralTx.amount,
+        referralTx.generation
+      );
+    }
+    
+    return {
+      success: true,
+      message: `Successfully rolled back ${referralTransactions.length} referral commission(s)`,
+      rollbackCount: referralTransactions.length
+    };
+  } catch (error) {
+    console.error('Error rolling back referral commission:', error);
+    return {
+      success: false,
+      message: `Failed to rollback referral commission: ${error.message}`
+    };
+  }
+};
+
+/**
+ * Update referral statistics after a rollback
+ * @param {string} beneficiaryId - The ID of the user whose commission was rolled back
+ * @param {number} amount - The amount of the commission
+ * @param {number} generation - The generation (1, 2, or 3)
+ */
+const updateReferralStatsAfterRollback = async (beneficiaryId, amount, generation) => {
+  try {
+    // Get the referral record
+    let referral = await Referral.findOne({ user: beneficiaryId });
+    
+    if (!referral) {
+      console.log(`No referral record found for user ${beneficiaryId}`);
+      return;
+    }
+    
+    // Update earnings
+    referral[`generation${generation}`].earnings -= amount;
+    referral.totalEarnings -= amount;
+    
+    // Ensure values don't go negative
+    if (referral[`generation${generation}`].earnings < 0) {
+      referral[`generation${generation}`].earnings = 0;
+    }
+    
+    if (referral.totalEarnings < 0) {
+      referral.totalEarnings = 0;
+    }
+    
+    // We're not decrementing the counts as the user was still referred,
+    // just the commission is being rolled back
+    
+    // Save the updated referral record
+    await referral.save();
+    
+    // Optionally, fully recalculate stats to ensure accuracy
+    await syncReferralStats(beneficiaryId);
+    
+  } catch (error) {
+    console.error('Error updating referral stats after rollback:', error);
+    throw error;
+  }
+};
+
 // Export functions
 module.exports = {
   processReferralCommission,
   processCommission,
   syncReferralStats,
   calculateTotalEarnings,
-  calculateTotalReferredUsers
+  calculateTotalReferredUsers,
+  rollbackReferralCommission,
+  updateReferralStatsAfterRollback
 };

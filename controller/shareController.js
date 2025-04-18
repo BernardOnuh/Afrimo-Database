@@ -7,7 +7,7 @@ const axios = require('axios');
 const { ethers } = require('ethers');
 const { sendEmail } = require('../utils/emailService');
 const SiteConfig = require('../models/SiteConfig');
-const { processReferralCommission } = require('../utils/referralUtils');
+const { processReferralCommission, rollbackReferralCommission } = require('../utils/referralUtils');
 
 // Generate a unique transaction ID
 const generateTransactionId = () => {
@@ -1748,6 +1748,130 @@ exports.getPaymentProof = async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Failed to fetch payment proof',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+};
+
+/**
+ * @desc    Admin: Cancel approved manual payment
+ * @route   POST /api/shares/admin/manual/cancel
+ * @access  Private (Admin)
+ */
+exports.adminCancelManualPayment = async (req, res) => {
+  try {
+    const { transactionId, cancelReason } = req.body;
+    const adminId = req.user.id;
+    
+    // Check if admin
+    const admin = await User.findById(adminId);
+    if (!admin || !admin.isAdmin) {
+      return res.status(403).json({
+        success: false,
+        message: 'Unauthorized: Admin access required'
+      });
+    }
+    
+    // Find the transaction
+    const userShareRecord = await UserShare.findOne({
+      'transactions.transactionId': transactionId
+    });
+    
+    if (!userShareRecord) {
+      return res.status(404).json({
+        success: false,
+        message: 'Transaction not found'
+      });
+    }
+    
+    const transaction = userShareRecord.transactions.find(
+      t => t.transactionId === transactionId && t.paymentMethod.startsWith('manual_')
+    );
+    
+    if (!transaction) {
+      return res.status(404).json({
+        success: false,
+        message: 'Manual transaction details not found'
+      });
+    }
+    
+    if (transaction.status !== 'completed') {
+      return res.status(400).json({
+        success: false,
+        message: `Cannot cancel a transaction that is not completed. Current status: ${transaction.status}`
+      });
+    }
+    
+    // Rollback global share counts
+    const shareConfig = await Share.getCurrentConfig();
+    shareConfig.sharesSold -= transaction.shares;
+    
+    // Rollback tier sales
+    shareConfig.tierSales.tier1Sold -= transaction.tierBreakdown.tier1 || 0;
+    shareConfig.tierSales.tier2Sold -= transaction.tierBreakdown.tier2 || 0;
+    shareConfig.tierSales.tier3Sold -= transaction.tierBreakdown.tier3 || 0;
+    
+    await shareConfig.save();
+    
+    // Rollback any referral commissions if applicable
+    try {
+      const rollbackResult = await rollbackReferralCommission(
+        userShareRecord.user,
+        transactionId,
+        transaction.totalAmount,
+        transaction.currency,
+        'share',
+        'UserShare'
+      );
+      
+      console.log('Referral commission rollback result:', rollbackResult);
+    } catch (referralError) {
+      console.error('Error rolling back referral commissions:', referralError);
+      // Continue with the cancellation process despite referral error
+    }
+    
+    // Update transaction status back to pending
+    await UserShare.updateTransactionStatus(
+      userShareRecord.user,
+      transactionId,
+      'pending',
+      `CANCELLATION: ${cancelReason || 'Approved payment canceled by admin'}`
+    );
+    
+    // Notify user
+    const user = await User.findById(userShareRecord.user);
+    if (user && user.email) {
+      try {
+        await sendEmail({
+          email: user.email,
+          subject: 'AfriMobile - Payment Approval Canceled',
+          html: `
+            <h2>Share Purchase Update</h2>
+            <p>Dear ${user.name},</p>
+            <p>We need to inform you that your previously approved purchase of ${transaction.shares} shares 
+            for ${transaction.currency === 'naira' ? '₦' : '$'}${transaction.totalAmount} has been temporarily placed back into pending status.</p>
+            <p>Transaction Reference: ${transactionId}</p>
+            <p>Reason: ${cancelReason || 'Administrative review required'}</p>
+            <p>Our team will contact you shortly to resolve this matter. We apologize for any inconvenience.</p>
+            <p>If you have any questions, please contact our support team.</p>
+          `
+        });
+      } catch (emailError) {
+        console.error('Failed to send cancellation notification email:', emailError);
+      }
+    }
+    
+    // Return success
+    res.status(200).json({
+      success: true,
+      message: 'Payment approval successfully canceled and returned to pending status',
+      status: 'pending'
+    });
+  } catch (error) {
+    console.error('Error canceling approved payment:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to cancel payment approval',
       error: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }

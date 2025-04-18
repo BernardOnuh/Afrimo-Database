@@ -54,11 +54,14 @@ app.use('/api/shares', require('./routes/coFounderShareRoutes')); // Fixed to us
 // New routes for project stats, leaderboard, and referrals
 app.use('/api/project', require('./routes/projectRoutes'));
 app.use('/api/leaderboard', require('./routes/leaderboardRoutes'));
+
 app.use('/api/referral', require('./routes/referralRoutes'));
 
 app.use('/api/payment', require('./routes/paymentRoutes'));
 
 app.use('/api/withdrawal', require('./routes/withdrawalRoutes'));
+
+app.use('/api/payment-plans', require('./routes/paymentPlanRoutes'));
 
 // Add additional routes here as your application grows
 // app.use('/api/transactions', require('./routes/transactionRoutes'));
