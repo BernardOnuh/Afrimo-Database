@@ -5,6 +5,7 @@ const morgan = require('morgan');
 const path = require('path');
 const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
+const cron = require('node-cron');
 
 // Load environment variables
 require('dotenv').config();
@@ -46,6 +47,9 @@ if (process.env.NODE_ENV === 'development') {
   app.use(morgan('dev'));
 }
 
+// Set up static folder for uploads
+app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+
 // Routes
 app.use('/api/users', require('./routes/userRoutes'));
 app.use('/api/shares', require('./routes/shareRoutes'));
@@ -54,18 +58,24 @@ app.use('/api/shares', require('./routes/coFounderShareRoutes')); // Fixed to us
 // New routes for project stats, leaderboard, and referrals
 app.use('/api/project', require('./routes/projectRoutes'));
 app.use('/api/leaderboard', require('./routes/leaderboardRoutes'));
-
 app.use('/api/referral', require('./routes/referralRoutes'));
-
 app.use('/api/payment', require('./routes/paymentRoutes'));
-
 app.use('/api/withdrawal', require('./routes/withdrawalRoutes'));
 
-app.use('/api/payment-plans', require('./routes/paymentPlanRoutes'));
+// New routes for installment payments
+app.use('/api/installment', require('./routes/installmentRoutes'));
 
 // Add additional routes here as your application grows
 // app.use('/api/transactions', require('./routes/transactionRoutes'));
 // app.use('/api/wallets', require('./routes/walletRoutes'));
+
+// Schedule tasks
+// Setup monthly penalties for overdue installments
+if (process.env.NODE_ENV === 'production') {
+  const installmentScheduler = require('./utils/installmentScheduler');
+  installmentScheduler.scheduleInstallmentPenalties();
+  console.log('Installment penalty scheduler initialized');
+}
 
 // Serve static assets if in production
 if (process.env.NODE_ENV === 'production') {

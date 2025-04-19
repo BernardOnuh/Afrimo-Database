@@ -34,7 +34,7 @@ const fileFilter = (req, file, cb) => {
     cb(new Error('Only image files are allowed'), false);
   }
 };
-åç
+
 const upload = multer({
   storage: storage,
   fileFilter: fileFilter,
