@@ -62,8 +62,7 @@ app.use('/api/referral', require('./routes/referralRoutes'));
 app.use('/api/payment', require('./routes/paymentRoutes'));
 app.use('/api/withdrawal', require('./routes/withdrawalRoutes'));
 
-// New routes for installment payments
-app.use('/api/installment', require('./routes/installmentRoutes'));
+
 
 // Add additional routes here as your application grows
 // app.use('/api/transactions', require('./routes/transactionRoutes'));

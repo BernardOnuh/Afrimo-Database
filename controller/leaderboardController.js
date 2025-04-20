@@ -1,4 +1,5 @@
 // controller/leaderboardController.js
+const User = require('../models/User');
 
 // Helper function to get leaderboard with filter
 const getFilteredLeaderboard = async (filter, limit = 10) => {
@@ -163,7 +164,7 @@ const getFilteredLeaderboard = async (filter, limit = 10) => {
         success: false,
         message: 'Failed to fetch leaderboard',
         error: process.env.NODE_ENV === 'development' ? error.message : undefined
-      });
+      });å
     }
   };
   
