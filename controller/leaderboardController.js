@@ -1,5 +1,7 @@
 // controller/leaderboardController.js
 const User = require('../models/User');
+const Referral = require('../models/Referral');
+const ReferralTransaction = require('../models/ReferralTransaction');
 
 // Helper function to get leaderboard with filter
 const getFilteredLeaderboard = async (filter, limit = 10) => {
@@ -25,7 +27,7 @@ const getFilteredLeaderboard = async (filter, limit = 10) => {
         sortField = { createdAt: -1 };
     }
     
-    // Aggregate to join user data with their shares and referrals
+    // Aggregate to join user data with their shares, referrals, and referral earnings
     const leaderboard = await User.aggregate([
       {
         $lookup: {
@@ -52,10 +54,19 @@ const getFilteredLeaderboard = async (filter, limit = 10) => {
         }
       },
       {
+        $lookup: {
+          from: 'referraltransactions',
+          localField: '_id',
+          foreignField: 'beneficiary',
+          as: 'referralTransactions'
+        }
+      },
+      {
         $addFields: {
           totalShares: { $sum: '$shares.totalShares' },
           totalCofounderShares: { $sum: '$cofounderShares.totalShares' },
           referralCount: { $sum: '$referralData.referredUsers' },
+          referralEarnings: { $sum: '$referralTransactions.amount' },
           totalSpent: { 
             $sum: [
               { $sum: '$shares.transactions.totalAmount' },
@@ -75,6 +86,7 @@ const getFilteredLeaderboard = async (filter, limit = 10) => {
           totalShares: 1,
           totalCofounderShares: 1,
           referralCount: 1,
+          referralEarnings: 1,
           totalSpent: 1,
           createdAt: 1
         }
@@ -164,7 +176,7 @@ const getFilteredLeaderboard = async (filter, limit = 10) => {
         success: false,
         message: 'Failed to fetch leaderboard',
         error: process.env.NODE_ENV === 'development' ? error.message : undefined
-      });å
+      });
     }
   };
   
