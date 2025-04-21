@@ -62,7 +62,8 @@ app.use('/api/referral', require('./routes/referralRoutes'));
 app.use('/api/payment', require('./routes/paymentRoutes'));
 app.use('/api/withdrawal', require('./routes/withdrawalRoutes'));
 
-
+// Add installment payment routes
+app.use('/api/shares/installment', require('./routes/installmentRoutes'));
 
 // Add additional routes here as your application grows
 // app.use('/api/transactions', require('./routes/transactionRoutes'));
@@ -74,6 +75,18 @@ if (process.env.NODE_ENV === 'production') {
   const installmentScheduler = require('./utils/installmentScheduler');
   installmentScheduler.scheduleInstallmentPenalties();
   console.log('Installment penalty scheduler initialized');
+  
+  // Add daily check for late installment payments
+  cron.schedule('0 0 * * *', async () => {
+    try {
+      console.log('Running late installment payment check job...');
+      const { checkLatePayments } = require('./controller/installmentController');
+      await checkLatePayments({ isCronJob: true });
+      console.log('Late installment payment check job completed.');
+    } catch (error) {
+      console.error('Error in late installment payment check job:', error);
+    }
+  });
 }
 
 // Serve static assets if in production
