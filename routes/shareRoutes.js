@@ -2,6 +2,7 @@
 const express = require('express');
 const router = express.Router();
 const shareController = require('../controller/shareController');
+const installmentController = require('../controller/installmentController');
 const { protect, adminProtect } = require('../middleware/auth');
 const multer = require('multer');
 const path = require('path');
@@ -72,5 +73,26 @@ router.get('/admin/manual/transactions', protect, adminProtect, shareController.
 router.post('/admin/manual/verify', protect, adminProtect, shareController.adminVerifyManualPayment);
 // NEW ROUTE: Add the cancel manual payment route
 router.post('/admin/manual/cancel', protect, adminProtect, shareController.adminCancelManualPayment);
+
+// =====================================================================
+// INSTALLMENT PAYMENT ROUTES
+// =====================================================================
+
+// Installment calculation and management
+router.post('/installment/calculate', protect, installmentController.calculateInstallmentPlan);
+router.post('/installment/create', protect, installmentController.createInstallmentPlan);
+router.get('/installment/plans', protect, installmentController.getUserInstallmentPlans);
+router.post('/installment/cancel', protect, installmentController.cancelInstallmentPlan);
+
+// Installment payment methods
+router.post('/installment/paystack/pay', protect, installmentController.payInstallmentWithPaystack);
+router.get('/installment/paystack/verify/:reference', protect, installmentController.verifyInstallmentPaystack);
+router.post('/installment/manual/submit', protect, upload.single('paymentProof'), installmentController.submitManualInstallmentPayment);
+router.get('/installment/payment-proof/:transactionId', protect, installmentController.getInstallmentPaymentProof);
+
+// Admin installment routes
+router.get('/installment/admin/plans', protect, adminProtect, installmentController.adminGetAllInstallmentPlans);
+router.post('/installment/admin/manual/verify', protect, adminProtect, installmentController.adminVerifyManualInstallmentPayment);
+router.post('/installment/admin/check-late-payments', protect, adminProtect, installmentController.checkLatePayments);
 
 module.exports = router;
