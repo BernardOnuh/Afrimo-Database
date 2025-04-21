@@ -25,9 +25,9 @@ async function fixAllUsersReferralEarnings() {
       console.log('Creating default commission rates');
       // Default commission rates if not found
       commissionRates = {
-        generation1: 5, // 5% for first generation
-        generation2: 2, // 2% for second generation
-        generation3: 1  // 1% for third generation
+        generation1: 15, // 5% for first generation
+        generation2: 3, // 2% for second generation
+        generation3: 2  // 1% for third generation
       };
     } else {
       commissionRates = siteConfig.referralCommission;

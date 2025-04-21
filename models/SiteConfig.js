@@ -13,6 +13,21 @@ const siteConfigSchema = new mongoose.Schema({
     contractAddress: String,
     enabled: Boolean
   }],
+  // Add referral commission rates
+  referralCommission: {
+    generation1: {
+      type: Number,
+      default: 15 // 15% for direct referrals
+    },
+    generation2: {
+      type: Number,
+      default: 3  // 3% for second generation
+    },
+    generation3: {
+      type: Number,
+      default: 2  // 2% for third generation
+    }
+  },
   lastUpdated: {
     type: Date,
     default: Date.now
@@ -23,7 +38,22 @@ const siteConfigSchema = new mongoose.Schema({
 siteConfigSchema.statics.getCurrentConfig = async function() {
   let config = await this.findOne({});
   if (!config) {
-    config = await this.create({});
+    config = await this.create({
+      // Make sure default values are set when creating a new config
+      referralCommission: {
+        generation1: 15,
+        generation2: 3,
+        generation3: 2
+      }
+    });
+  } else if (!config.referralCommission) {
+    // If config exists but doesn't have referralCommission, add it
+    config.referralCommission = {
+      generation1: 15,
+      generation2: 3,
+      generation3: 2
+    };
+    await config.save();
   }
   return config;
 };

@@ -115,14 +115,51 @@ const processReferralCommission = async (
     
     // Get commission rates from site config
     const siteConfig = await SiteConfig.getCurrentConfig();
+    
+    // Ensure commission rates exist and are set to the correct values
+    if (!siteConfig.referralCommission) {
+      // Set default values if they don't exist
+      siteConfig.referralCommission = {
+        generation1: 15, // 15% for first generation
+        generation2: 3,  // 3% for second generation
+        generation3: 2   // 2% for third generation
+      };
+      await siteConfig.save();
+      console.log('Created default commission rates: 15%, 3%, 2%');
+    } else {
+      // Check if rates match expected values, update if needed
+      const expectedRates = {
+        generation1: 15,
+        generation2: 3,
+        generation3: 2
+      };
+      
+      let ratesChanged = false;
+      
+      if (siteConfig.referralCommission.generation1 !== expectedRates.generation1) {
+        siteConfig.referralCommission.generation1 = expectedRates.generation1;
+        ratesChanged = true;
+      }
+      
+      if (siteConfig.referralCommission.generation2 !== expectedRates.generation2) {
+        siteConfig.referralCommission.generation2 = expectedRates.generation2;
+        ratesChanged = true;
+      }
+      
+      if (siteConfig.referralCommission.generation3 !== expectedRates.generation3) {
+        siteConfig.referralCommission.generation3 = expectedRates.generation3;
+        ratesChanged = true;
+      }
+      
+      if (ratesChanged) {
+        await siteConfig.save();
+        console.log('Updated commission rates to: 15%, 3%, 2%');
+      }
+    }
+    
     const commissionRates = siteConfig.referralCommission;
     
-    if (!commissionRates) {
-      return {
-        success: false,
-        message: 'Commission rates not configured'
-      };
-    }
+    console.log('Using commission rates:', commissionRates);
     
     // Process Gen 1 commission (direct referrer)
     await processCommission(
@@ -184,6 +221,148 @@ const processReferralCommission = async (
     return {
       success: false,
       message: 'Error processing referral commission',
+      error: error.message
+    };
+  }
+};
+
+/**
+ * Process new user referral (to update referral counts when a user signs up)
+ * @param {string} userId - The ID of the new user
+ * @returns {Promise<Object>} - Result of the referral processing
+ */
+const processNewUserReferral = async (userId) => {
+  try {
+    // Find the user who registered
+    const user = await User.findById(userId);
+    
+    if (!user) {
+      return {
+        success: false,
+        message: 'User not found'
+      };
+    }
+    
+    // Check if user was referred
+    if (!user.referralInfo || !user.referralInfo.code) {
+      return {
+        success: false,
+        message: 'User was not referred by anyone'
+      };
+    }
+    
+    console.log(`Processing new user referral for user ${userId} with referral code ${user.referralInfo.code}`);
+    
+    // Find direct referrer (Gen 1)
+    const referrer = await User.findOne({ userName: user.referralInfo.code });
+    
+    if (!referrer) {
+      return {
+        success: false,
+        message: 'Referrer not found'
+      };
+    }
+    
+    // Update Gen 1 referrer's stats
+    let referralStats = await Referral.findOne({ user: referrer._id });
+    
+    if (!referralStats) {
+      referralStats = new Referral({
+        user: referrer._id,
+        referredUsers: 1,
+        totalEarnings: 0,
+        generation1: { count: 1, earnings: 0 },
+        generation2: { count: 0, earnings: 0 },
+        generation3: { count: 0, earnings: 0 }
+      });
+    } else {
+      // Check if this user is already counted
+      const existingReferralTx = await ReferralTransaction.findOne({
+        beneficiary: referrer._id,
+        referredUser: userId
+      });
+      
+      if (!existingReferralTx) {
+        referralStats.referredUsers += 1;
+        referralStats.generation1.count += 1;
+      }
+    }
+    
+    await referralStats.save();
+    
+    // Process Gen 2 (referrer's referrer)
+    if (referrer.referralInfo && referrer.referralInfo.code) {
+      const gen2Referrer = await User.findOne({ userName: referrer.referralInfo.code });
+      
+      if (gen2Referrer) {
+        let gen2Stats = await Referral.findOne({ user: gen2Referrer._id });
+        
+        if (!gen2Stats) {
+          gen2Stats = new Referral({
+            user: gen2Referrer._id,
+            referredUsers: 0, // Direct referrals only
+            totalEarnings: 0,
+            generation1: { count: 0, earnings: 0 },
+            generation2: { count: 1, earnings: 0 },
+            generation3: { count: 0, earnings: 0 }
+          });
+        } else {
+          // Check if this user is already counted
+          const existingGen2Tx = await ReferralTransaction.findOne({
+            beneficiary: gen2Referrer._id,
+            referredUser: userId
+          });
+          
+          if (!existingGen2Tx) {
+            gen2Stats.generation2.count += 1;
+          }
+        }
+        
+        await gen2Stats.save();
+        
+        // Process Gen 3 (referrer's referrer's referrer)
+        if (gen2Referrer.referralInfo && gen2Referrer.referralInfo.code) {
+          const gen3Referrer = await User.findOne({ userName: gen2Referrer.referralInfo.code });
+          
+          if (gen3Referrer) {
+            let gen3Stats = await Referral.findOne({ user: gen3Referrer._id });
+            
+            if (!gen3Stats) {
+              gen3Stats = new Referral({
+                user: gen3Referrer._id,
+                referredUsers: 0, // Direct referrals only
+                totalEarnings: 0,
+                generation1: { count: 0, earnings: 0 },
+                generation2: { count: 0, earnings: 0 },
+                generation3: { count: 1, earnings: 0 }
+              });
+            } else {
+              // Check if this user is already counted
+              const existingGen3Tx = await ReferralTransaction.findOne({
+                beneficiary: gen3Referrer._id,
+                referredUser: userId
+              });
+              
+              if (!existingGen3Tx) {
+                gen3Stats.generation3.count += 1;
+              }
+            }
+            
+            await gen3Stats.save();
+          }
+        }
+      }
+    }
+    
+    return {
+      success: true,
+      message: 'New user referral processed successfully'
+    };
+  } catch (error) {
+    console.error('Error processing new user referral:', error);
+    return {
+      success: false,
+      message: 'Error processing new user referral',
       error: error.message
     };
   }
@@ -277,7 +456,11 @@ const processCommission = async (
     if (existingTransactions.length === 1 && 
         existingTransactions[0]._id.toString() === transaction._id.toString()) {
       referral[`generation${generation}`].count += 1;
-      referral.referredUsers = await calculateTotalReferredUsers(beneficiaryId);
+      
+      // Only update referredUsers count for generation 1
+      if (generation === 1) {
+        referral.referredUsers = await calculateTotalReferredUsers(beneficiaryId);
+      }
     }
     
     // Add earnings
@@ -392,6 +575,23 @@ const syncReferralStats = async (userId) => {
         success: false,
         message: 'User not found'
       };
+    }
+    
+    // Ensure commission rates are set correctly
+    const siteConfig = await SiteConfig.getCurrentConfig();
+    if (!siteConfig.referralCommission || 
+        siteConfig.referralCommission.generation1 !== 15 || 
+        siteConfig.referralCommission.generation2 !== 3 || 
+        siteConfig.referralCommission.generation3 !== 2) {
+      
+      siteConfig.referralCommission = {
+        generation1: 15,
+        generation2: 3,
+        generation3: 2
+      };
+      
+      await siteConfig.save();
+      console.log('Updated commission rates during sync to: 15%, 3%, 2%');
     }
     
     // Calculate counts for each generation
@@ -567,6 +767,7 @@ const updateReferralStatsAfterRollback = async (beneficiaryId, amount, generatio
 // Export functions
 module.exports = {
   processReferralCommission,
+  processNewUserReferral, // Added this function export
   processCommission,
   syncReferralStats,
   calculateTotalEarnings,

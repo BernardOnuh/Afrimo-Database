@@ -8,6 +8,7 @@ const {
   passwordChangedTemplate,
   welcomeTemplate 
 } = require('../utils/emailTemplates');
+const referralController = require('../controller/referralController');
 
 // Helper function to generate JWT
 const generateToken = (userId) => {
@@ -21,7 +22,6 @@ const isValidEthAddress = (address) => {
   return !address || /^0x[a-fA-F0-9]{40}$/.test(address);
 };
 
-// Register new user
 exports.registerUser = async (req, res) => {
   try {
     const { 
@@ -112,22 +112,16 @@ exports.registerUser = async (req, res) => {
     // Save user to database
     await user.save();
 
-    // Process referral if applicable
+    // Process referral if applicable using the enhanced referral controller
     if (referralCode) {
-      // Find the referring user and update their referrals
-      await User.findOneAndUpdate(
-        { 'referralInfo.code': referralCode },
-        { 
-          $push: { 
-            referrals: {
-              userId: user._id,
-              email: user.email,
-              date: new Date()
-            } 
-          },
-          $inc: { referralCount: 1 }
-        }
-      );
+      try {
+        // Call the processNewUserReferral function with the new user's ID
+        await referralController.processNewUserReferral(user._id);
+        console.log(`Referral processed for new user ${user.email} with code ${referralCode}`);
+      } catch (referralError) {
+        console.error('Error processing referral:', referralError);
+        // Continue with registration even if referral processing fails
+      }
     }
 
     // Generate JWT token
