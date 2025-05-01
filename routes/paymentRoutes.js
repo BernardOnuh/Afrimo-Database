@@ -36,6 +36,10 @@ const upload = multer({
   fileFilter: fileFilter
 });
 
+// Bank account verification routes
+router.get('/banks', protect, paymentController.getBanks);
+router.get('/verify-account', protect, paymentController.verifyBankAccount);
+
 // User payment routes (require authentication)
 router.get('/details', protect, paymentController.getPaymentDetails);
 router.post('/bank-account', protect, paymentController.updateBankAccount);

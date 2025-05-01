@@ -21,6 +21,17 @@ const PaymentSchema = new mongoose.Schema({
     accountNumber: {
       type: String,
       trim: true
+    },
+    bankCode: {
+      type: String,
+      trim: true
+    },
+    verified: {
+      type: Boolean,
+      default: false
+    },
+    verifiedAt: {
+      type: Date
     }
   },
   // Crypto wallet details

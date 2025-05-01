@@ -3,6 +3,7 @@ const User = require('../models/User');
 const Payment = require('../models/Payment');
 const fs = require('fs');
 const path = require('path');
+const axios = require('axios'); // Add axios for API requests
 
 /**
  * Get current user's payment details
@@ -77,6 +78,97 @@ exports.getPaymentDetails = async (req, res) => {
 };
 
 /**
+ * Get list of banks from Lenco API
+ * @route GET /api/payment/banks
+ * @access Private
+ */
+exports.getBanks = async (req, res) => {
+  try {
+    const response = await axios.get('https://api.lenco.co/access/v1/banks', {
+      headers: {
+        'Authorization': `Bearer ${process.env.LENCO_API_KEY}`
+      }
+    });
+    
+    if (response.data && response.data.status && response.data.data) {
+      return res.status(200).json({
+        success: true,
+        data: response.data.data
+      });
+    } else {
+      throw new Error('Invalid response from bank API');
+    }
+  } catch (error) {
+    console.error('Error fetching banks:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch banks list',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+};
+
+/**
+ * Verify bank account with Lenco API
+ * @route GET /api/payment/verify-account
+ * @access Private
+ */
+exports.verifyBankAccount = async (req, res) => {
+  try {
+    const { accountNumber, bankCode } = req.query;
+    
+    // Validate input
+    if (!accountNumber || !bankCode) {
+      return res.status(400).json({
+        success: false,
+        message: 'Account number and bank code are required'
+      });
+    }
+    
+    // Call Lenco API to verify account
+    const response = await axios.get('https://api.lenco.co/access/v1/resolve', {
+      headers: {
+        'Authorization': `Bearer ${process.env.LENCO_API_KEY}`
+      },
+      params: {
+        accountNumber,
+        bankCode
+      }
+    });
+    
+    if (response.data && response.data.status && response.data.data) {
+      return res.status(200).json({
+        success: true,
+        data: response.data.data
+      });
+    } else {
+      return res.status(400).json({
+        success: false,
+        message: 'Account verification failed',
+        data: response.data
+      });
+    }
+  } catch (error) {
+    console.error('Error verifying bank account:', error);
+    
+    // Handle specific API error responses
+    if (error.response && error.response.data) {
+      return res.status(error.response.status || 400).json({
+        success: false,
+        message: 'Account verification failed',
+        error: error.response.data.message || 'Invalid account details'
+      });
+    }
+    
+    res.status(500).json({
+      success: false,
+      message: 'Failed to verify bank account',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+};
+
+/**
  * Update user's bank account details
  * @route POST /api/payment/bank-account
  * @access Private
@@ -84,27 +176,76 @@ exports.getPaymentDetails = async (req, res) => {
 exports.updateBankAccount = async (req, res) => {
   try {
     const userId = req.user.id;
-    const { accountName, bankName, accountNumber } = req.body;
+    const { accountName, bankName, accountNumber, bankCode } = req.body;
 
     // Basic validation
-    if (!accountName || !bankName || !accountNumber) {
+    if (!accountName || !bankName || !accountNumber || !bankCode) {
       return res.status(400).json({
         success: false,
         message: 'Please provide all bank account details'
       });
     }
 
-    // Validate account number format (basic check - adjust as needed)
-    if (!/^\d{8,15}$/.test(accountNumber)) {
+    // Validate account number format (must be 10 digits for Nigerian bank accounts)
+    if (!/^\d{10}$/.test(accountNumber)) {
       return res.status(400).json({
         success: false,
-        message: 'Invalid account number format'
+        message: 'Invalid account number format. Must be 10 digits.'
       });
     }
 
-    // Find or create payment record
+    // Find existing payment record
     let payment = await Payment.findOne({ user: userId });
+    
+    // If payment record exists and bank account is already verified, only admin can update
+    if (payment && payment.bankAccount && payment.isVerified && !req.user.isAdmin) {
+      return res.status(403).json({
+        success: false,
+        message: 'Bank account is already verified. Please contact admin for any changes.'
+      });
+    }
 
+    // Verify with Lenco API
+    try {
+      const verificationResponse = await axios.get('https://api.lenco.co/access/v1/resolve', {
+        headers: {
+          'Authorization': `Bearer ${process.env.LENCO_API_KEY}`
+        },
+        params: {
+          accountNumber,
+          bankCode
+        }
+      });
+      
+      // Check if verification successful and account number matches
+      if (!verificationResponse.data.status || 
+          !verificationResponse.data.data || 
+          verificationResponse.data.data.accountNumber !== accountNumber) {
+        return res.status(400).json({
+          success: false,
+          message: 'Bank account verification failed. Please check your details.'
+        });
+      }
+      
+      // Optional: Check if account name matches (can be enabled if needed)
+      // const apiAccountName = verificationResponse.data.data.accountName.toLowerCase().trim();
+      // const providedAccountName = accountName.toLowerCase().trim();
+      // if (!apiAccountName.includes(providedAccountName) && !providedAccountName.includes(apiAccountName)) {
+      //   return res.status(400).json({
+      //     success: false,
+      //     message: 'Account name does not match bank records'
+      //   });
+      // }
+      
+    } catch (verificationError) {
+      console.error('Bank verification error:', verificationError);
+      return res.status(400).json({
+        success: false,
+        message: 'Could not verify bank account. Please check your details.'
+      });
+    }
+
+    // Create or update payment record
     if (!payment) {
       // Create new payment record if doesn't exist
       payment = new Payment({
@@ -112,16 +253,22 @@ exports.updateBankAccount = async (req, res) => {
         bankAccount: {
           accountName,
           bankName,
-          accountNumber
+          accountNumber,
+          bankCode,
+          verified: true,
+          verifiedAt: new Date()
         },
-        isVerified: false // Any update sets verification to false
+        isVerified: false // Overall verification status still needs admin approval
       });
     } else {
       // Update existing record
       payment.bankAccount = {
         accountName,
         bankName,
-        accountNumber
+        accountNumber,
+        bankCode,
+        verified: true,
+        verifiedAt: new Date()
       };
       payment.isVerified = false; // Reset verification status on update
     }
@@ -130,7 +277,7 @@ exports.updateBankAccount = async (req, res) => {
 
     res.status(200).json({
       success: true,
-      message: 'Bank account details updated successfully',
+      message: 'Bank account details verified and updated successfully',
       data: {
         bankAccount: payment.bankAccount,
         isVerified: payment.isVerified
@@ -172,9 +319,18 @@ exports.updateCryptoWallet = async (req, res) => {
       });
     }
 
-    // Find or create payment record
+    // Find existing payment record
     let payment = await Payment.findOne({ user: userId });
+    
+    // If payment record exists and crypto wallet is already verified, only admin can update
+    if (payment && payment.cryptoWallet && payment.isVerified && !req.user.isAdmin) {
+      return res.status(403).json({
+        success: false,
+        message: 'Crypto wallet is already verified. Please contact admin for any changes.'
+      });
+    }
 
+    // Create or update payment record
     if (!payment) {
       // Create new payment record if doesn't exist
       payment = new Payment({
