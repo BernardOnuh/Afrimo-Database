@@ -5,6 +5,7 @@ const ReferralTransaction = require('../models/ReferralTransaction');
 const Withdrawal = require('../models/Withdrawal');
 const Payment = require('../models/Payment');
 const { sendEmail } = require('../utils/emailService');
+const { generateWithdrawalReceipt } = require('../utils/withdrawalReceiptService.js');
 const axios = require('axios'); // Add axios for API requests
 
 // Minimum withdrawal amount in Naira
@@ -42,6 +43,34 @@ exports.processInstantWithdrawal = async (req, res) => {
       return res.status(400).json({
         success: false,
         message: 'Insufficient balance for this withdrawal'
+      });
+    }
+
+    // Calculate available balance
+    let pendingWithdrawals = 0;
+    const pending = await Withdrawal.find({
+      user: userId,
+      status: 'pending'
+    });
+    
+    if (pending.length > 0) {
+      pendingWithdrawals = pending.reduce((total, w) => total + w.amount, 0);
+    }
+    
+    const withdrawnAmount = await Withdrawal.aggregate([
+      { $match: { user: userId, status: { $in: ['approved', 'paid', 'processing'] } } },
+      { $group: { _id: null, total: { $sum: '$amount' } } }
+    ]);
+    
+    const totalWithdrawn = withdrawnAmount.length > 0 ? withdrawnAmount[0].total : 0;
+    
+    const availableBalance = referralData.totalEarnings - pendingWithdrawals - totalWithdrawn;
+
+    // Check if available balance is enough
+    if (availableBalance < amount) {
+      return res.status(400).json({
+        success: false,
+        message: 'Insufficient available balance for this withdrawal'
       });
     }
 
@@ -115,10 +144,14 @@ exports.processInstantWithdrawal = async (req, res) => {
 
         await transaction.save();
 
+        // Get user info for receipt and notification
+        const user = await User.findById(userId);
+
+        // Generate receipt
+        const receipt = await generateWithdrawalReceipt(withdrawal, user);
+
         // Send confirmation email to user
         try {
-          const user = await User.findById(userId);
-          
           await sendEmail({
             email: user.email,
             subject: 'Withdrawal Processed',
@@ -129,6 +162,7 @@ exports.processInstantWithdrawal = async (req, res) => {
               <p><strong>Transaction Reference:</strong> ${response.data.data.transactionReference}</p>
               <p><strong>Status:</strong> ${response.data.data.status}</p>
               <p>The funds should be credited to your bank account shortly.</p>
+              <p>You can download your receipt from the dashboard or using <a href="${process.env.FRONTEND_URL}/api/withdrawal/receipt/${withdrawal._id}">this link</a>.</p>
               <p>Thank you for using our platform!</p>
             `
           });
@@ -146,7 +180,8 @@ exports.processInstantWithdrawal = async (req, res) => {
             status: withdrawal.status,
             transactionReference: response.data.data.transactionReference,
             clientReference: clientReference,
-            processedAt: withdrawal.processedAt
+            processedAt: withdrawal.processedAt,
+            receiptUrl: receipt.filePath
           }
         });
       } else {
@@ -185,6 +220,121 @@ exports.processInstantWithdrawal = async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Failed to process withdrawal',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+};
+
+/**
+ * Get withdrawal receipt
+ * @route GET /api/withdrawal/receipt/:id
+ * @access Private
+ */
+exports.getWithdrawalReceipt = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const userId = req.user.id;
+
+    // Find the withdrawal
+    const withdrawal = await Withdrawal.findById(id);
+    
+    if (!withdrawal) {
+      return res.status(404).json({
+        success: false,
+        message: 'Withdrawal not found'
+      });
+    }
+    
+    // Check if the withdrawal belongs to the user or the user is admin
+    if (withdrawal.user.toString() !== userId && !req.user.isAdmin) {
+      return res.status(403).json({
+        success: false,
+        message: 'You are not authorized to access this receipt'
+      });
+    }
+
+    // Get user data
+    const user = await User.findById(withdrawal.user);
+    
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
+    }
+    
+    // Generate or retrieve receipt
+    const receipt = await generateWithdrawalReceipt(withdrawal, user);
+    
+    // Return receipt URL
+    res.status(200).json({
+      success: true,
+      data: {
+        receiptUrl: receipt.filePath
+      }
+    });
+  } catch (error) {
+    console.error('Error generating withdrawal receipt:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to generate withdrawal receipt',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+};
+
+/**
+ * Download withdrawal receipt
+ * @route GET /api/withdrawal/download-receipt/:id
+ * @access Private
+ */
+exports.downloadWithdrawalReceipt = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const userId = req.user.id;
+
+    // Find the withdrawal
+    const withdrawal = await Withdrawal.findById(id);
+    
+    if (!withdrawal) {
+      return res.status(404).json({
+        success: false,
+        message: 'Withdrawal not found'
+      });
+    }
+    
+    // Check if the withdrawal belongs to the user or the user is admin
+    if (withdrawal.user.toString() !== userId && !req.user.isAdmin) {
+      return res.status(403).json({
+        success: false,
+        message: 'You are not authorized to access this receipt'
+      });
+    }
+
+    // Get user data
+    const user = await User.findById(withdrawal.user);
+    
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
+    }
+    
+    // Generate receipt
+    const receipt = await generateWithdrawalReceipt(withdrawal, user);
+    
+    // Set headers for download
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename=${receipt.fileName}`);
+    
+    // Send the file
+    res.download(path.join(__dirname, '../public', receipt.filePath), receipt.fileName);
+  } catch (error) {
+    console.error('Error downloading withdrawal receipt:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to download withdrawal receipt',
       error: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
@@ -868,6 +1018,73 @@ exports.getWithdrawalStats = async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Failed to fetch withdrawal statistics',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+};
+/**
+ * Get all instant withdrawals (Admin only)
+ * @route GET /api/withdrawal/admin/instant
+ * @access Private/Admin
+ */
+exports.getInstantWithdrawals = async (req, res) => {
+  try {
+    // Support filtering by status
+    const { status, userId, startDate, endDate } = req.query;
+    
+    // Build query
+    const query = {
+      paymentMethod: 'bank' // Filter to only bank withdrawals (instant ones)
+    };
+    
+    if (status) {
+      query.status = status;
+    }
+    
+    if (userId) {
+      query.user = userId;
+    }
+    
+    // Date range filter
+    if (startDate || endDate) {
+      query.createdAt = {};
+      
+      if (startDate) {
+        query.createdAt.$gte = new Date(startDate);
+      }
+      
+      if (endDate) {
+        query.createdAt.$lte = new Date(endDate);
+      }
+    }
+    
+    // Pagination
+    const page = parseInt(req.query.page, 10) || 1;
+    const limit = parseInt(req.query.limit, 10) || 10;
+    const skip = (page - 1) * limit;
+    
+    // Get all instant withdrawal requests with pagination
+    const withdrawals = await Withdrawal.find(query)
+      .populate('user', 'name email userName')
+      .skip(skip)
+      .limit(limit)
+      .sort({ createdAt: -1 });
+      
+    // Get total count for pagination
+    const total = await Withdrawal.countDocuments(query);
+
+    res.status(200).json({
+      success: true,
+      count: withdrawals.length,
+      totalPages: Math.ceil(total / limit),
+      currentPage: page,
+      data: withdrawals
+    });
+  } catch (error) {
+    console.error('Error fetching instant withdrawals:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch instant withdrawals',
       error: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
