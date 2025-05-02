@@ -12,6 +12,7 @@ router.get('/balance', protect, withdrawalController.getEarningsBalance);
 router.get('/status/:reference', protect, withdrawalController.checkTransactionStatus); // New route to check status
 
 // Admin routes
+router.get('/stats', protect, adminProtect, withdrawalController.getWithdrawalStats);
 router.get('/admin/pending', protect, adminProtect, withdrawalController.getPendingWithdrawals);
 router.put('/admin/approve/:id', protect, adminProtect, withdrawalController.approveWithdrawal);
 router.put('/admin/reject/:id', protect, adminProtect, withdrawalController.rejectWithdrawal);

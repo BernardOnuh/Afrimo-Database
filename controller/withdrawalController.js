@@ -800,4 +800,77 @@ exports.getAllWithdrawals = async (req, res) => {
   }
 };
 
+/**
+ * Get withdrawal statistics (Admin only)
+ * @route GET /api/withdrawal/stats
+ * @access Private/Admin
+ */
+exports.getWithdrawalStats = async (req, res) => {
+  try {
+    // Get total withdrawals count
+    const totalCount = await Withdrawal.countDocuments({});
+    
+    // Get count by status
+    const pendingCount = await Withdrawal.countDocuments({ status: 'pending' });
+    const approvedCount = await Withdrawal.countDocuments({ status: 'approved' });
+    const paidCount = await Withdrawal.countDocuments({ status: 'paid' });
+    const rejectedCount = await Withdrawal.countDocuments({ status: 'failed' }) + 
+                         await Withdrawal.countDocuments({ status: 'rejected' });
+    
+    // Get last 30 days count
+    const thirtyDaysAgo = new Date();
+    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+    
+    const last30DaysCount = await Withdrawal.countDocuments({
+      createdAt: { $gte: thirtyDaysAgo }
+    });
+    
+    // Get total amounts
+    const totalAmountResult = await Withdrawal.aggregate([
+      { $match: { status: { $in: ['approved', 'paid'] } } },
+      { $group: { _id: null, total: { $sum: '$amount' } } }
+    ]);
+    
+    const pendingAmountResult = await Withdrawal.aggregate([
+      { $match: { status: 'pending' } },
+      { $group: { _id: null, total: { $sum: '$amount' } } }
+    ]);
+    
+    const totalAmount = totalAmountResult.length > 0 ? totalAmountResult[0].total : 0;
+    const pendingAmount = pendingAmountResult.length > 0 ? pendingAmountResult[0].total : 0;
+    
+    // Get last 5 withdrawals for quick view
+    const recentWithdrawals = await Withdrawal.find({})
+      .populate('user', 'name email userName')
+      .sort({ createdAt: -1 })
+      .limit(5);
+    
+    res.status(200).json({
+      success: true,
+      data: {
+        counts: {
+          total: totalCount,
+          pending: pendingCount,
+          approved: approvedCount,
+          paid: paidCount,
+          rejected: rejectedCount,
+          last30Days: last30DaysCount
+        },
+        amounts: {
+          total: totalAmount,
+          pending: pendingAmount
+        },
+        recentWithdrawals
+      }
+    });
+  } catch (error) {
+    console.error('Error fetching withdrawal stats:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch withdrawal statistics',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+};
+
 module.exports = exports;
