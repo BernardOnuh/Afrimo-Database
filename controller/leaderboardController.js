@@ -4,7 +4,7 @@ const Referral = require('../models/Referral');
 const ReferralTransaction = require('../models/ReferralTransaction');
 const Withdrawal = require('../models/Withdrawal');
 
-// Helper function to get leaderboard with time filter
+// Main leaderboard aggregation function
 const getTimeFilteredLeaderboard = async (timeFrame, categoryFilter = 'registration', limit = 10) => {
   // Calculate the date threshold based on the time frame
   const now = new Date();
@@ -12,40 +12,32 @@ const getTimeFilteredLeaderboard = async (timeFrame, categoryFilter = 'registrat
   
   switch (timeFrame) {
     case 'daily':
-      // Set to beginning of current day (midnight)
       dateThreshold.setHours(0, 0, 0, 0);
       break;
     case 'weekly':
-      // Set to beginning of current week (Sunday)
-      const dayOfWeek = now.getDay(); // 0 = Sunday, 1 = Monday, etc.
-      dateThreshold.setDate(now.getDate() - dayOfWeek); // Go back to Sunday
+      const dayOfWeek = now.getDay();
+      dateThreshold.setDate(now.getDate() - dayOfWeek);
       dateThreshold.setHours(0, 0, 0, 0);
       break;
     case 'monthly':
-      // Set to beginning of current month
       dateThreshold.setDate(1);
       dateThreshold.setHours(0, 0, 0, 0);
       break;
     case 'yearly':
-      // Set to beginning of current year
-      dateThreshold.setMonth(0, 1); // January 1st
+      dateThreshold.setMonth(0, 1);
       dateThreshold.setHours(0, 0, 0, 0);
       break;
     default:
-      // No time filter, return all results
       dateThreshold = null;
   }
   
-  // Default sort is by registration date
   let sortField = { createdAt: -1 };
   let matchCriteria = {};
   
-  // Apply date filter if specified
   if (dateThreshold) {
     matchCriteria.createdAt = { $gte: dateThreshold };
   }
   
-  // Apply category filter
   switch (categoryFilter) {
     case 'referrals':
       sortField = { referralCount: -1 };
@@ -68,30 +60,24 @@ const getTimeFilteredLeaderboard = async (timeFrame, categoryFilter = 'registrat
       matchCriteria.combinedShares = { $gt: 0 };
       break;
     default:
-      // Registration (default)
       sortField = { createdAt: -1 };
   }
   
-  // For time-based leaderboards, we need to look at transactions within the timeframe
   let transactionField = null;
   if (dateThreshold) {
     switch (categoryFilter) {
       case 'referrals':
-        // We'll need to count referrals added during this period
         transactionField = 'referralData.transactions';
         break;
       case 'spending':
-        // We'll need to sum transactions during this period
         transactionField = 'transactions';
         break;
       case 'earnings':
-        // We'll need to sum earnings during this period
         transactionField = 'referralTransactions';
         break;
     }
   }
   
-  // Aggregate pipeline to join user data with their shares, referrals, and earnings
   const aggregatePipeline = [
     {
       $lookup: {
@@ -135,9 +121,7 @@ const getTimeFilteredLeaderboard = async (timeFrame, categoryFilter = 'registrat
     }
   ];
   
-  // If time filtering is applied and we have a transaction field to filter by
   if (dateThreshold && transactionField) {
-    // Add filtering to only include transactions within the time period
     aggregatePipeline.push({
       $addFields: {
         filteredTransactions: {
@@ -151,11 +135,9 @@ const getTimeFilteredLeaderboard = async (timeFrame, categoryFilter = 'registrat
     });
   }
   
-  // Continue with the standard aggregation pipeline
   aggregatePipeline.push(
     {
       $addFields: {
-        // Share-related metrics
         totalShares: { $sum: '$shares.totalShares' },
         totalCofounderShares: { $sum: '$cofounderShares.totalShares' },
         combinedShares: { 
@@ -164,14 +146,9 @@ const getTimeFilteredLeaderboard = async (timeFrame, categoryFilter = 'registrat
             { $sum: '$cofounderShares.totalShares' }
           ]
         },
-        
-        // Referral metrics
         referralCount: { $sum: '$referralData.referredUsers' },
-        
-        // Financial metrics for all time
         totalEarnings: { $sum: '$referralData.totalEarnings' },
         
-        // For time-filtered data, use the filtered transactions
         ...(dateThreshold && transactionField === 'referralTransactions' ? {
           periodEarnings: { $sum: '$filteredTransactions.amount' }
         } : {}),
@@ -184,7 +161,6 @@ const getTimeFilteredLeaderboard = async (timeFrame, categoryFilter = 'registrat
           periodReferrals: { $size: '$filteredTransactions' }
         } : {}),
         
-        // Withdrawal calculations
         withdrawalAmount: {
           $sum: {
             $map: {
@@ -216,7 +192,6 @@ const getTimeFilteredLeaderboard = async (timeFrame, categoryFilter = 'registrat
     },
     {
       $addFields: {
-        // For time-filtered data, use the period metrics as the primary sort field
         ...(dateThreshold && transactionField === 'referralTransactions' ? {
           sortField: '$periodEarnings'
         } : {}),
@@ -229,7 +204,6 @@ const getTimeFilteredLeaderboard = async (timeFrame, categoryFilter = 'registrat
           sortField: '$periodReferrals'
         } : {}),
         
-        // Current balance after withdrawals
         currentBalance: { 
           $subtract: [
             { $sum: '$referralData.totalEarnings' },
@@ -237,69 +211,52 @@ const getTimeFilteredLeaderboard = async (timeFrame, categoryFilter = 'registrat
           ]
         }
       }
+    },
+    { $match: matchCriteria },
+    dateThreshold && transactionField 
+      ? { $sort: { sortField: -1 } } 
+      : { $sort: sortField },
+    { $limit: limit },
+    {
+      $project: {
+        _id: 1,
+        name: 1,
+        userName: 1,
+        totalShares: 1,
+        totalCofounderShares: 1,
+        combinedShares: 1,
+        referralCount: 1,
+        totalEarnings: 1,
+        currentBalance: 1,
+        withdrawalAmount: 1,
+        totalSpent: 1,
+        createdAt: 1,
+        ...(dateThreshold && transactionField === 'referralTransactions' ? {
+          periodEarnings: 1
+        } : {}),
+        ...(dateThreshold && transactionField === 'transactions' ? {
+          periodSpending: 1
+        } : {}),
+        ...(dateThreshold && transactionField === 'referralData.transactions' ? {
+          periodReferrals: 1
+        } : {})
+      }
     }
   );
   
-  // Apply the match criteria
-  aggregatePipeline.push(
-    { $match: matchCriteria }
-  );
-  
-  // For time-based filters, use the period-specific sort field if available
-  if (dateThreshold && transactionField) {
-    aggregatePipeline.push(
-      { $sort: { sortField: -1 } }
-    );
-  } else {
-    aggregatePipeline.push(
-      { $sort: sortField }
-    );
-  }
-  
-  // Limit the results
-  aggregatePipeline.push(
-    { $limit: limit }
-  );
-  
-  // Project only needed fields
-  aggregatePipeline.push({
-    $project: {
-      _id: 1,
-      name: 1,
-      userName: 1,
-      totalShares: 1,
-      totalCofounderShares: 1,
-      combinedShares: 1,
-      referralCount: 1,
-      totalEarnings: 1,
-      currentBalance: 1,
-      withdrawalAmount: 1,
-      totalSpent: 1,
-      createdAt: 1,
-      // Include time-period specific fields if applicable
-      ...(dateThreshold && transactionField === 'referralTransactions' ? {
-        periodEarnings: 1
-      } : {}),
-      ...(dateThreshold && transactionField === 'transactions' ? {
-        periodSpending: 1
-      } : {}),
-      ...(dateThreshold && transactionField === 'referralData.transactions' ? {
-        periodReferrals: 1
-      } : {})
-    }
-  });
-  
-  // Execute the aggregation
-  const leaderboard = await User.aggregate(aggregatePipeline);
-  
-  return leaderboard;
+  return await User.aggregate(aggregatePipeline.filter(Boolean));
 };
 
-// Get daily leaderboard
+// Wrapper function for non-time-filtered leaderboards
+const getFilteredLeaderboard = async (categoryFilter = 'registration', limit = 10) => {
+  return getTimeFilteredLeaderboard(null, categoryFilter, limit);
+};
+
+// Time-based leaderboards
 exports.getDailyLeaderboard = async (req, res) => {
   try {
     const limit = req.query.limit ? parseInt(req.query.limit) : 10;
-    const filter = req.query.filter || 'earnings'; // Default to earnings for daily leaderboard
+    const filter = req.query.filter || 'earnings';
     const leaderboard = await getTimeFilteredLeaderboard('daily', filter, limit);
     
     res.status(200).json({
@@ -318,11 +275,10 @@ exports.getDailyLeaderboard = async (req, res) => {
   }
 };
 
-// Get weekly leaderboard
 exports.getWeeklyLeaderboard = async (req, res) => {
   try {
     const limit = req.query.limit ? parseInt(req.query.limit) : 10;
-    const filter = req.query.filter || 'earnings'; // Default to earnings for weekly leaderboard
+    const filter = req.query.filter || 'earnings';
     const leaderboard = await getTimeFilteredLeaderboard('weekly', filter, limit);
     
     res.status(200).json({
@@ -341,11 +297,10 @@ exports.getWeeklyLeaderboard = async (req, res) => {
   }
 };
 
-// Get monthly leaderboard
 exports.getMonthlyLeaderboard = async (req, res) => {
   try {
     const limit = req.query.limit ? parseInt(req.query.limit) : 10;
-    const filter = req.query.filter || 'earnings'; // Default to earnings for monthly leaderboard
+    const filter = req.query.filter || 'earnings';
     const leaderboard = await getTimeFilteredLeaderboard('monthly', filter, limit);
     
     res.status(200).json({
@@ -364,11 +319,10 @@ exports.getMonthlyLeaderboard = async (req, res) => {
   }
 };
 
-// Get yearly leaderboard
 exports.getYearlyLeaderboard = async (req, res) => {
   try {
     const limit = req.query.limit ? parseInt(req.query.limit) : 10;
-    const filter = req.query.filter || 'earnings'; // Default to earnings for yearly leaderboard
+    const filter = req.query.filter || 'earnings';
     const leaderboard = await getTimeFilteredLeaderboard('yearly', filter, limit);
     
     res.status(200).json({
@@ -387,20 +341,16 @@ exports.getYearlyLeaderboard = async (req, res) => {
   }
 };
 
-// Update the main getLeaderboard function to also support time filtering
+// Category-based leaderboards
 exports.getLeaderboard = async (req, res) => {
   try {
     const filter = req.query.filter || 'registration';
-    const timeFrame = req.query.timeFrame || null; // Can be daily, weekly, monthly, yearly, or null
+    const timeFrame = req.query.timeFrame || null;
     const limit = req.query.limit ? parseInt(req.query.limit) : 10;
     
-    let leaderboard;
-    
-    if (timeFrame) {
-      leaderboard = await getTimeFilteredLeaderboard(timeFrame, filter, limit);
-    } else {
-      leaderboard = await getFilteredLeaderboard(filter, limit);
-    }
+    const leaderboard = timeFrame 
+      ? await getTimeFilteredLeaderboard(timeFrame, filter, limit)
+      : await getFilteredLeaderboard(filter, limit);
     
     res.status(200).json({
       success: true,
@@ -418,7 +368,6 @@ exports.getLeaderboard = async (req, res) => {
   }
 };
 
-// Get registration leaderboard
 exports.getRegistrationLeaderboard = async (req, res) => {
   try {
     const limit = req.query.limit ? parseInt(req.query.limit) : 10;
@@ -439,7 +388,6 @@ exports.getRegistrationLeaderboard = async (req, res) => {
   }
 };
 
-// Get referral leaderboard
 exports.getReferralLeaderboard = async (req, res) => {
   try {
     const limit = req.query.limit ? parseInt(req.query.limit) : 10;
@@ -460,7 +408,6 @@ exports.getReferralLeaderboard = async (req, res) => {
   }
 };
 
-// Get spending leaderboard
 exports.getSpendingLeaderboard = async (req, res) => {
   try {
     const limit = req.query.limit ? parseInt(req.query.limit) : 10;
@@ -481,7 +428,6 @@ exports.getSpendingLeaderboard = async (req, res) => {
   }
 };
 
-// Get cofounder leaderboard
 exports.getCofounderLeaderboard = async (req, res) => {
   try {
     const limit = req.query.limit ? parseInt(req.query.limit) : 10;
@@ -502,7 +448,6 @@ exports.getCofounderLeaderboard = async (req, res) => {
   }
 };
 
-// Get top earners leaderboard
 exports.getEarningsLeaderboard = async (req, res) => {
   try {
     const limit = req.query.limit ? parseInt(req.query.limit) : 10;
@@ -523,7 +468,6 @@ exports.getEarningsLeaderboard = async (req, res) => {
   }
 };
 
-// Get top shareholders leaderboard
 exports.getSharesLeaderboard = async (req, res) => {
   try {
     const limit = req.query.limit ? parseInt(req.query.limit) : 10;
