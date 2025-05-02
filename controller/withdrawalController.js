@@ -284,7 +284,7 @@ exports.getWithdrawalReceipt = async (req, res) => {
 };
 
 /**
- * Download withdrawal receipt
+ * Generate receipt for a withdrawal
  * @route GET /api/withdrawal/download-receipt/:id
  * @access Private
  */
@@ -303,15 +303,15 @@ exports.downloadWithdrawalReceipt = async (req, res) => {
       });
     }
     
-    // Check if the withdrawal belongs to the user or the user is admin
+    // Ensure the user owns this withdrawal or is an admin
     if (withdrawal.user.toString() !== userId && !req.user.isAdmin) {
       return res.status(403).json({
         success: false,
-        message: 'You are not authorized to access this receipt'
+        message: 'You do not have permission to access this receipt'
       });
     }
 
-    // Get user data
+    // Get user details
     const user = await User.findById(withdrawal.user);
     
     if (!user) {
@@ -320,21 +320,202 @@ exports.downloadWithdrawalReceipt = async (req, res) => {
         message: 'User not found'
       });
     }
-    
-    // Generate receipt
-    const receipt = await generateWithdrawalReceipt(withdrawal, user);
-    
-    // Set headers for download
+
+    // Create PDF document using PDFKit
+    const PDFDocument = require('pdfkit');
+    const doc = new PDFDocument({
+      size: 'A4',
+      margin: 50,
+      info: {
+        Title: 'Withdrawal Receipt',
+        Author: 'Afrimobile',
+        Subject: 'Withdrawal Receipt',
+      }
+    });
+
+    // Set response headers for PDF download
     res.setHeader('Content-Type', 'application/pdf');
-    res.setHeader('Content-Disposition', `attachment; filename=${receipt.fileName}`);
+    res.setHeader('Content-Disposition', `attachment; filename="withdrawal-receipt-${id}.pdf"`);
     
-    // Send the file
-    res.download(path.join(__dirname, '../public', receipt.filePath), receipt.fileName);
+    // Pipe the PDF output to the response
+    doc.pipe(res);
+    
+    // Add Afrimobile logo
+    // Create an SVG logo rather than using an external image
+    const logoSvg = `
+      <svg width="163" height="42" viewBox="0 0 163 42" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <path d="M47.2255 33.8401C49.5229 45.1632 38.8428 32.8107 24.2513 32.8107C9.22957 30.9707 -1.15106 43.5885 2.30986 36.7061C2.30986 25.336 9.64031 0 24.2318 0C38.0777 1.14706 47.2255 22.47 47.2255 33.8401Z" fill="#5A19A0"/>
+        <path d="M6.96559 27.5028C5.00492 31.105 3.46202 32.0245 1.66908 38.7574C1.46521 37.7868 -3.44072 31.7022 4.59019 16.7708C13.2433 2.54858 18.2956 0.0662591 23.857 0.0662631C23.857 11.2275 10.1704 22.6127 6.96559 27.5028Z" fill="#5A19A0"/>
+        <path d="M40.2016 26.7935C42.1623 30.3957 44.9989 33.2649 46.5882 38.8134C46.792 37.8428 54.3406 33.2184 46.3097 18.287C37.6565 4.06475 28.8339 -0.363062 24.3993 0.0289038C27.5519 11.3395 36.8082 23.0793 40.2016 26.7935Z" fill="#5A19A0"/>
+        <path d="M46.3097 38.7574C46.3097 38.8914 36.3839 39 24.1397 39C11.8956 39 1.96973 38.8914 1.96973 38.7574C1.96973 38.6234 14.1482 23.418 23.857 21.7942C29.3241 22.3542 46.3097 38.6234 46.3097 38.7574Z" fill="#5A19A0"/>
+        <path d="M26.8832 19.4258C26.8832 21.1255 25.5117 20.5648 24.0511 20.5648C19.9072 20.5648 21.4898 17.8842 21.9896 15.9455C21.9896 14.2008 24.072 10.59 24.6134 10.8081C26.074 10.8081 27.4247 17.5692 26.8832 19.4258Z" fill="#5A19A0"/>
+      </svg>
+    `;
+    
+    // Add SVG logo  
+    doc.svg(logoSvg, 50, 50, { width: 100 });
+    
+    // Add page title
+    doc.fontSize(20)
+      .fillColor('#5A19A0')
+      .text('WITHDRAWAL RECEIPT', { align: 'center' })
+      .moveDown(1);
+      
+    // Format date nicely
+    const formatDate = (date) => {
+      return new Date(date).toLocaleString('en-US', {
+        weekday: 'long',
+        year: 'numeric',
+        month: 'long',
+        day: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit'
+      });
+    };
+    
+    // Format currency with commas
+    const formatAmount = (amount) => {
+      return amount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    };
+    
+    // Add receipt border
+    doc.rect(50, 130, 500, 450)
+      .lineWidth(1)
+      .stroke('#5A19A0');
+      
+    // Add Transaction Details Section
+    doc.fontSize(14)
+      .fillColor('#333333')
+      .text('TRANSACTION DETAILS', 70, 150)
+      .moveDown(0.5);
+      
+    // Add a line
+    doc.moveTo(70, 175).lineTo(530, 175).stroke('#CCCCCC');
+    
+    // Add transaction details
+    doc.fontSize(10)
+      .text('Transaction ID:', 70, 190)
+      .text(withdrawal._id.toString(), 200, 190)
+      .text('Date:', 70, 215)
+      .text(formatDate(withdrawal.createdAt), 200, 215)
+      .text('Status:', 70, 240)
+      .text(withdrawal.status.charAt(0).toUpperCase() + withdrawal.status.slice(1), 200, 240)
+      .text('Amount:', 70, 265)
+      .text(`₦${formatAmount(withdrawal.amount)}`, 200, 265)
+      .text('Payment Method:', 70, 290)
+      .text(withdrawal.paymentMethod.charAt(0).toUpperCase() + withdrawal.paymentMethod.slice(1), 200, 290);
+      
+    if (withdrawal.transactionReference) {
+      doc.text('Transaction Reference:', 70, 315)
+          .text(withdrawal.transactionReference, 200, 315);
+    }
+    
+    if (withdrawal.clientReference) {
+      doc.text('Client Reference:', 70, withdrawal.transactionReference ? 340 : 315)
+          .text(withdrawal.clientReference, 200, withdrawal.transactionReference ? 340 : 315);
+    }
+    
+    // Add a line
+    let yPos = withdrawal.transactionReference && withdrawal.clientReference ? 365 : 
+              (withdrawal.transactionReference || withdrawal.clientReference) ? 340 : 315;
+    doc.moveTo(70, yPos).lineTo(530, yPos).stroke('#CCCCCC');
+    
+    yPos += 25;
+    
+    // Add User Details Section
+    doc.fontSize(14)
+      .fillColor('#333333')
+      .text('USER DETAILS', 70, yPos)
+      .moveDown(0.5);
+      
+    yPos += 25;
+    
+    // Add a line
+    doc.moveTo(70, yPos).lineTo(530, yPos).stroke('#CCCCCC');
+    
+    yPos += 25;
+    
+    // Add user details
+    doc.fontSize(10)
+      .text('Name:', 70, yPos)
+      .text(user.name, 200, yPos);
+      
+    yPos += 25;
+      
+    doc.text('Email:', 70, yPos)
+      .text(user.email, 200, yPos);
+      
+    yPos += 50;
+    
+    // Add Payment Details Section if available
+    if (withdrawal.paymentDetails) {
+      // Add a line
+      doc.moveTo(70, yPos).lineTo(530, yPos).stroke('#CCCCCC');
+      
+      yPos += 25;
+      
+      doc.fontSize(14)
+        .fillColor('#333333')
+        .text('PAYMENT DETAILS', 70, yPos)
+        .moveDown(0.5);
+        
+      yPos += 25;
+      
+      // Add a line
+      doc.moveTo(70, yPos).lineTo(530, yPos).stroke('#CCCCCC');
+      
+      yPos += 25;
+      
+      // Add specific payment details based on method
+      if (withdrawal.paymentMethod === 'bank') {
+        doc.fontSize(10)
+          .text('Bank Name:', 70, yPos)
+          .text(withdrawal.paymentDetails.bankName || 'N/A', 200, yPos);
+          
+        yPos += 25;
+          
+        doc.text('Account Number:', 70, yPos)
+          .text(withdrawal.paymentDetails.accountNumber || 'N/A', 200, yPos);
+          
+        yPos += 25;
+          
+        doc.text('Account Name:', 70, yPos)
+          .text(withdrawal.paymentDetails.accountName || 'N/A', 200, yPos);
+      } else if (withdrawal.paymentMethod === 'crypto') {
+        doc.fontSize(10)
+          .text('Crypto Type:', 70, yPos)
+          .text(withdrawal.paymentDetails.cryptoType || 'N/A', 200, yPos);
+          
+        yPos += 25;
+          
+        doc.text('Wallet Address:', 70, yPos)
+          .text(withdrawal.paymentDetails.walletAddress || 'N/A', 200, yPos);
+      } else if (withdrawal.paymentMethod === 'mobile_money') {
+        doc.fontSize(10)
+          .text('Mobile Provider:', 70, yPos)
+          .text(withdrawal.paymentDetails.mobileProvider || 'N/A', 200, yPos);
+          
+        yPos += 25;
+          
+        doc.text('Mobile Number:', 70, yPos)
+          .text(withdrawal.paymentDetails.mobileNumber || 'N/A', 200, yPos);
+      }
+    }
+    
+    // Add the footer
+    doc.fontSize(8)
+      .fillColor('#999999')
+      .text('This is an electronically generated receipt', 50, 700, { align: 'center' })
+      .text('Afrimobile - Your Time', 50, 715, { align: 'center' });
+    
+    // Finalize PDF
+    doc.end();
+    
   } catch (error) {
-    console.error('Error downloading withdrawal receipt:', error);
-    res.status(500).json({
+    console.error('Error generating withdrawal receipt:', error);
+    return res.status(500).json({
       success: false,
-      message: 'Failed to download withdrawal receipt',
+      message: 'Failed to generate receipt',
       error: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
