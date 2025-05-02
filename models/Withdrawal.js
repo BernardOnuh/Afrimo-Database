@@ -11,41 +11,35 @@ const WithdrawalSchema = new mongoose.Schema({
     type: Number,
     required: true
   },
-  currency: {
-    type: String,
-    default: 'USD'
-  },
-  status: {
-    type: String,
-    enum: ['pending', 'approved', 'rejected', 'paid'],
-    default: 'pending'
-  },
   paymentMethod: {
     type: String,
     enum: ['bank', 'crypto', 'mobile_money'],
     required: true
   },
   paymentDetails: {
-    // For bank transfers
+    // Bank transfer details
     bankName: String,
     accountName: String,
     accountNumber: String,
+    bankCode: String,
     
-    // For crypto transfers
+    // Crypto wallet details
     cryptoType: String,
     walletAddress: String,
     
-    // For mobile money
+    // Mobile money details
     mobileProvider: String,
     mobileNumber: String
+  },
+  status: {
+    type: String,
+    enum: ['pending', 'approved', 'processing', 'paid', 'failed', 'rejected'],
+    default: 'pending'
   },
   notes: {
     type: String
   },
   adminNotes: {
-    type: String
-  },
-  transactionReference: {
     type: String
   },
   processedBy: {
@@ -56,6 +50,12 @@ const WithdrawalSchema = new mongoose.Schema({
     type: Date
   },
   rejectionReason: {
+    type: String
+  },
+  transactionReference: {
+    type: String
+  },
+  clientReference: {
     type: String
   }
 }, {

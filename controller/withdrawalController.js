@@ -5,6 +5,190 @@ const ReferralTransaction = require('../models/ReferralTransaction');
 const Withdrawal = require('../models/Withdrawal');
 const Payment = require('../models/Payment');
 const { sendEmail } = require('../utils/emailService');
+const axios = require('axios'); // Add axios for API requests
+
+// Minimum withdrawal amount in Naira
+const MINIMUM_WITHDRAWAL_AMOUNT = 20000;
+
+/**
+ * Process an instant withdrawal to bank account
+ * @route POST /api/withdrawal/instant
+ * @access Private
+ */
+exports.processInstantWithdrawal = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const { amount, notes } = req.body;
+
+    // Basic validation
+    if (!amount || amount <= 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'Please provide a valid withdrawal amount'
+      });
+    }
+
+    // Check minimum withdrawal amount
+    if (amount < MINIMUM_WITHDRAWAL_AMOUNT) {
+      return res.status(400).json({
+        success: false,
+        message: `Minimum withdrawal amount is ₦${MINIMUM_WITHDRAWAL_AMOUNT.toLocaleString()}`
+      });
+    }
+
+    // Check if user has enough balance
+    const referralData = await Referral.findOne({ user: userId });
+    if (!referralData || referralData.totalEarnings < amount) {
+      return res.status(400).json({
+        success: false,
+        message: 'Insufficient balance for this withdrawal'
+      });
+    }
+
+    // Check if user has verified payment details
+    const paymentData = await Payment.findOne({ user: userId });
+    if (!paymentData || !paymentData.bankAccount) {
+      return res.status(400).json({
+        success: false,
+        message: 'Bank account details not found. Please add your bank details first.'
+      });
+    }
+
+    // Ensure bank account is verified
+    if (!paymentData.bankAccount.verified) {
+      return res.status(400).json({
+        success: false,
+        message: 'Your bank account is not verified. Please verify your account before making withdrawals.'
+      });
+    }
+
+    // Generate a unique client reference
+    const clientReference = `WD-${userId.substr(-6)}-${Date.now()}`;
+
+    // Process the bank transfer using Lenco API
+    try {
+      const response = await axios.post('https://api.lenco.co/access/v1/transactions', {
+        accountId: process.env.LENCO_ACCOUNT_ID, // Your company's Lenco account ID
+        accountNumber: paymentData.bankAccount.accountNumber,
+        bankCode: paymentData.bankAccount.bankCode,
+        amount: amount.toString(),
+        narration: `Afrimobile Earnings Withdrawal`,
+        reference: clientReference,
+        senderName: 'Afrimobile'
+      }, {
+        headers: {
+          'Authorization': `Bearer ${process.env.LENCO_API_KEY}`,
+          'Content-Type': 'application/json'
+        }
+      });
+
+      if (response.data && response.data.status) {
+        // Create a withdrawal record
+        const withdrawal = new Withdrawal({
+          user: userId,
+          amount,
+          paymentMethod: 'bank',
+          paymentDetails: {
+            bankName: paymentData.bankAccount.bankName,
+            accountName: paymentData.bankAccount.accountName,
+            accountNumber: paymentData.bankAccount.accountNumber,
+            bankCode: paymentData.bankAccount.bankCode
+          },
+          notes,
+          status: response.data.data.status === 'successful' ? 'paid' : 'processing',
+          transactionReference: response.data.data.transactionReference,
+          clientReference: clientReference,
+          processedAt: new Date()
+        });
+
+        await withdrawal.save();
+
+        // Create a transaction record for this withdrawal
+        const transaction = new ReferralTransaction({
+          user: userId,
+          type: 'withdrawal',
+          amount: -amount, // Negative amount for withdrawal
+          description: `Withdrawal to ${paymentData.bankAccount.bankName} - ${paymentData.bankAccount.accountNumber}`,
+          status: 'completed',
+          reference: clientReference
+        });
+
+        await transaction.save();
+
+        // Send confirmation email to user
+        try {
+          const user = await User.findById(userId);
+          
+          await sendEmail({
+            email: user.email,
+            subject: 'Withdrawal Processed',
+            html: `
+              <h2>Withdrawal Processed</h2>
+              <p>Hello ${user.name},</p>
+              <p>Your withdrawal of ₦${amount.toLocaleString()} has been processed.</p>
+              <p><strong>Transaction Reference:</strong> ${response.data.data.transactionReference}</p>
+              <p><strong>Status:</strong> ${response.data.data.status}</p>
+              <p>The funds should be credited to your bank account shortly.</p>
+              <p>Thank you for using our platform!</p>
+            `
+          });
+        } catch (emailError) {
+          console.error('Failed to send withdrawal confirmation email:', emailError);
+          // Continue without failing the request
+        }
+
+        return res.status(200).json({
+          success: true,
+          message: 'Withdrawal processed successfully',
+          data: {
+            id: withdrawal._id,
+            amount: withdrawal.amount,
+            status: withdrawal.status,
+            transactionReference: response.data.data.transactionReference,
+            clientReference: clientReference,
+            processedAt: withdrawal.processedAt
+          }
+        });
+      } else {
+        throw new Error('Failed to process transaction with payment provider');
+      }
+    } catch (transferError) {
+      console.error('Bank transfer error:', transferError);
+      
+      // Create a failed withdrawal record
+      const withdrawal = new Withdrawal({
+        user: userId,
+        amount,
+        paymentMethod: 'bank',
+        paymentDetails: {
+          bankName: paymentData.bankAccount.bankName,
+          accountName: paymentData.bankAccount.accountName,
+          accountNumber: paymentData.bankAccount.accountNumber,
+          bankCode: paymentData.bankAccount.bankCode
+        },
+        notes,
+        status: 'failed',
+        clientReference: clientReference,
+        rejectionReason: transferError.response?.data?.message || 'Payment processing failed'
+      });
+
+      await withdrawal.save();
+
+      return res.status(400).json({
+        success: false,
+        message: 'Failed to process withdrawal',
+        error: transferError.response?.data?.message || 'Payment processing failed'
+      });
+    }
+  } catch (error) {
+    console.error('Error processing instant withdrawal:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to process withdrawal',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+};
 
 /**
  * Request a withdrawal of referral earnings
@@ -21,6 +205,14 @@ exports.requestWithdrawal = async (req, res) => {
       return res.status(400).json({
         success: false,
         message: 'Please provide a valid withdrawal amount'
+      });
+    }
+
+    // Check minimum withdrawal amount
+    if (amount < MINIMUM_WITHDRAWAL_AMOUNT) {
+      return res.status(400).json({
+        success: false,
+        message: `Minimum withdrawal amount is ₦${MINIMUM_WITHDRAWAL_AMOUNT.toLocaleString()}`
       });
     }
 
@@ -90,7 +282,7 @@ exports.requestWithdrawal = async (req, res) => {
         html: `
           <h2>New Withdrawal Request Submitted</h2>
           <p><strong>User:</strong> ${user.name} (${user.email})</p>
-          <p><strong>Amount:</strong> $${amount}</p>
+          <p><strong>Amount:</strong> ₦${amount.toLocaleString()}</p>
           <p><strong>Payment Method:</strong> ${paymentMethod}</p>
           <p>Please review this request in the admin dashboard.</p>
         `
@@ -193,7 +385,9 @@ exports.getEarningsBalance = async (req, res) => {
         totalEarnings,
         pendingWithdrawals,
         totalWithdrawn,
-        availableBalance
+        availableBalance,
+        minimumWithdrawalAmount: MINIMUM_WITHDRAWAL_AMOUNT,
+        canWithdraw: availableBalance >= MINIMUM_WITHDRAWAL_AMOUNT
       }
     });
   } catch (error) {
@@ -201,6 +395,79 @@ exports.getEarningsBalance = async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Failed to fetch earnings balance',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+};
+
+/**
+ * Check bank transfer transaction status
+ * @route GET /api/withdrawal/status/:reference
+ * @access Private
+ */
+exports.checkTransactionStatus = async (req, res) => {
+  try {
+    const { reference } = req.params;
+    
+    // Find the withdrawal record
+    const withdrawal = await Withdrawal.findOne({
+      $or: [
+        { clientReference: reference },
+        { transactionReference: reference }
+      ]
+    });
+    
+    if (!withdrawal) {
+      return res.status(404).json({
+        success: false,
+        message: 'Transaction not found'
+      });
+    }
+    
+    // If transaction is still processing, check status with Lenco
+    if (withdrawal.status === 'processing') {
+      try {
+        const response = await axios.get(`https://api.lenco.co/access/v1/transactions/${withdrawal.transactionReference}`, {
+          headers: {
+            'Authorization': `Bearer ${process.env.LENCO_API_KEY}`
+          }
+        });
+        
+        if (response.data && response.data.status) {
+          // Update transaction status
+          if (response.data.data.status === 'successful') {
+            withdrawal.status = 'paid';
+            withdrawal.processedAt = new Date();
+          } else if (response.data.data.status === 'failed') {
+            withdrawal.status = 'failed';
+            withdrawal.rejectionReason = response.data.data.reasonForFailure || 'Transaction failed';
+          }
+          
+          await withdrawal.save();
+        }
+      } catch (apiError) {
+        console.error('Error checking transaction status:', apiError);
+        // Continue without failing the request
+      }
+    }
+    
+    res.status(200).json({
+      success: true,
+      data: {
+        id: withdrawal._id,
+        amount: withdrawal.amount,
+        status: withdrawal.status,
+        transactionReference: withdrawal.transactionReference,
+        clientReference: withdrawal.clientReference,
+        processedAt: withdrawal.processedAt,
+        rejectionReason: withdrawal.rejectionReason
+      }
+    });
+  } catch (error) {
+    console.error('Error checking transaction status:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to check transaction status',
       error: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
@@ -282,7 +549,7 @@ exports.approveWithdrawal = async (req, res) => {
         html: `
           <h2>Withdrawal Request Approved</h2>
           <p>Hello ${user.name},</p>
-          <p>Your withdrawal request for $${withdrawal.amount} has been approved.</p>
+          <p>Your withdrawal request for ₦${withdrawal.amount.toLocaleString()} has been approved.</p>
           <p><strong>Transaction Reference:</strong> ${transactionReference || 'N/A'}</p>
           <p><strong>Status:</strong> Approved, pending payment</p>
           <p>You will receive your funds shortly according to your selected payment method.</p>
@@ -358,7 +625,7 @@ exports.markWithdrawalAsPaid = async (req, res) => {
         html: `
           <h2>Withdrawal Payment Completed</h2>
           <p>Hello ${user.name},</p>
-          <p>Your withdrawal request for $${withdrawal.amount} has been paid.</p>
+          <p>Your withdrawal request for ₦${withdrawal.amount.toLocaleString()} has been paid.</p>
           <p><strong>Transaction Reference:</strong> ${withdrawal.transactionReference || 'N/A'}</p>
           <p><strong>Status:</strong> Paid</p>
           <p>Thank you for using our platform!</p>
@@ -441,7 +708,7 @@ exports.rejectWithdrawal = async (req, res) => {
         html: `
           <h2>Withdrawal Request Rejected</h2>
           <p>Hello ${user.name},</p>
-          <p>Your withdrawal request for $${withdrawal.amount} has been rejected.</p>
+          <p>Your withdrawal request for ₦${withdrawal.amount.toLocaleString()} has been rejected.</p>
           <p><strong>Reason:</strong> ${rejectionReason}</p>
           <p>If you have any questions, please contact our support team.</p>
         `
