@@ -61,7 +61,7 @@ app.use('/api/leaderboard', require('./routes/leaderboardRoutes'));
 app.use('/api/referral', require('./routes/referralRoutes'));
 app.use('/api/payment', require('./routes/paymentRoutes'));
 app.use('/api/withdrawal', require('./routes/withdrawalRoutes'));
-app.use('/apiexchange-rates', require('./routes/exchangeRateRoutes'));
+app.use('/api/exchange-rates', require('./routes/exchangeRateRoutes'));
 
 // Add installment payment routes
 app.use('/api/shares/installment', require('./routes/installmentRoutes'));
