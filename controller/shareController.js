@@ -1708,12 +1708,15 @@ exports.getPaymentProof = async (req, res) => {
     const { transactionId } = req.params;
     const userId = req.user.id;
     
+    console.log(`[getPaymentProof] Received request for transaction: ${transactionId} from user ${userId}`);
+    
     // Find the transaction
     const userShareRecord = await UserShare.findOne({
       'transactions.transactionId': transactionId
     });
     
     if (!userShareRecord) {
+      console.log(`[getPaymentProof] Transaction not found: ${transactionId}`);
       return res.status(404).json({
         success: false,
         message: 'Transaction not found'
@@ -1725,30 +1728,117 @@ exports.getPaymentProof = async (req, res) => {
     );
     
     if (!transaction || !transaction.paymentProofPath) {
+      console.log(`[getPaymentProof] Payment proof path not found for transaction: ${transactionId}`);
       return res.status(404).json({
         success: false,
         message: 'Payment proof not found for this transaction'
       });
     }
     
+    console.log(`[getPaymentProof] Found payment proof path: ${transaction.paymentProofPath}`);
+    
     // Check if user is admin or transaction owner
     const user = await User.findById(userId);
     if (!(user && (user.isAdmin || userShareRecord.user.toString() === userId))) {
+      console.log(`[getPaymentProof] Unauthorized access attempt by user: ${userId}`);
       return res.status(403).json({
         success: false,
         message: 'Unauthorized: You do not have permission to view this payment proof'
       });
     }
+
+    // Check if file exists using fs.promises for better error handling
+    const fs = require('fs').promises;
+    const path = require('path');
     
-    // Send the file
-    res.sendFile(transaction.paymentProofPath, { root: process.cwd() });
+    // First try with the absolute path as stored
+    let filePath = transaction.paymentProofPath;
     
+    // If that doesn't work, try resolving relative to the current working directory
+    if (!filePath.startsWith('/')) {
+      filePath = path.resolve(process.cwd(), filePath);
+    }
+    
+    console.log(`[getPaymentProof] Attempting to access file at: ${filePath}`);
+    
+    try {
+      // Try to get file stats to check if file exists and is readable
+      const stats = await fs.stat(filePath);
+      
+      if (!stats.isFile()) {
+        console.error(`[getPaymentProof] Path exists but is not a file: ${filePath}`);
+        return res.status(404).json({
+          success: false,
+          message: 'Payment proof file not found on server (not a file)'
+        });
+      }
+      
+      console.log(`[getPaymentProof] File found, size: ${stats.size} bytes`);
+      
+      // Determine content type based on file extension
+      const ext = path.extname(filePath).toLowerCase();
+      let contentType = 'application/octet-stream'; // Default
+      
+      if (ext === '.jpg' || ext === '.jpeg') contentType = 'image/jpeg';
+      else if (ext === '.png') contentType = 'image/png';
+      else if (ext === '.gif') contentType = 'image/gif';
+      else if (ext === '.pdf') contentType = 'application/pdf';
+      
+      console.log(`[getPaymentProof] Serving file with content type: ${contentType}`);
+      
+      // Read the file and send it with proper content type
+      const fileData = await fs.readFile(filePath);
+      res.contentType(contentType);
+      return res.send(fileData);
+      
+    } catch (fileError) {
+      console.error(`[getPaymentProof] File error: ${fileError.message} for path: ${filePath}`);
+      
+      // Try one more approach - if the path includes 'uploads', try to extract just that part
+      if (filePath.includes('uploads')) {
+        const uploadPathPart = filePath.substring(filePath.indexOf('uploads'));
+        const alternativePath = path.resolve(process.cwd(), uploadPathPart);
+        
+        console.log(`[getPaymentProof] Trying alternative path: ${alternativePath}`);
+        
+        try {
+          const stats = await fs.stat(alternativePath);
+          
+          if (stats.isFile()) {
+            console.log(`[getPaymentProof] File found at alternative path, size: ${stats.size} bytes`);
+            
+            // Determine content type based on file extension
+            const ext = path.extname(alternativePath).toLowerCase();
+            let contentType = 'application/octet-stream'; // Default
+            
+            if (ext === '.jpg' || ext === '.jpeg') contentType = 'image/jpeg';
+            else if (ext === '.png') contentType = 'image/png';
+            else if (ext === '.gif') contentType = 'image/gif';
+            else if (ext === '.pdf') contentType = 'application/pdf';
+            
+            // Read the file and send it with proper content type
+            const fileData = await fs.readFile(alternativePath);
+            res.contentType(contentType);
+            return res.send(fileData);
+          }
+        } catch (altError) {
+          console.error(`[getPaymentProof] Alternative path error: ${altError.message}`);
+        }
+      }
+      
+      // If all attempts fail, return 404
+      return res.status(404).json({
+        success: false,
+        message: 'Payment proof file not found on server',
+        details: fileError.message
+      });
+    }
   } catch (error) {
-    console.error('Error fetching payment proof:', error);
+    console.error(`[getPaymentProof] Unexpected error: ${error.message}`, error);
     res.status(500).json({
       success: false,
       message: 'Failed to fetch payment proof',
-      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+      error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
     });
   }
 };
