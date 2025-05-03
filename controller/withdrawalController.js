@@ -37,6 +37,19 @@ exports.processInstantWithdrawal = async (req, res) => {
       });
     }
 
+    // Check for pending withdrawals
+    const pendingWithdrawal = await Withdrawal.findOne({
+      user: userId,
+      status: 'pending'
+    });
+
+    if (pendingWithdrawal) {
+      return res.status(400).json({
+        success: false,
+        message: 'You have a pending withdrawal. Wait for it to complete before making another withdrawal request.'
+      });
+    }
+
     // Check if user has enough balance
     const referralData = await Referral.findOne({ user: userId });
     if (!referralData || referralData.totalEarnings < amount) {
@@ -58,7 +71,7 @@ exports.processInstantWithdrawal = async (req, res) => {
     }
     
     const withdrawnAmount = await Withdrawal.aggregate([
-      { $match: { user: userId, status: { $in: ['approved', 'paid', 'processing'] } } },
+      { $match: { user: userId, status: { $in: ['paid', 'processing'] } } },
       { $group: { _id: null, total: { $sum: '$amount' } } }
     ]);
     
@@ -94,6 +107,24 @@ exports.processInstantWithdrawal = async (req, res) => {
     // Generate a unique client reference
     const clientReference = `WD-${userId.substr(-6)}-${Date.now()}`;
 
+    // Create a pending withdrawal record first
+    const withdrawal = new Withdrawal({
+      user: userId,
+      amount,
+      paymentMethod: 'bank',
+      paymentDetails: {
+        bankName: paymentData.bankAccount.bankName,
+        accountName: paymentData.bankAccount.accountName,
+        accountNumber: paymentData.bankAccount.accountNumber,
+        bankCode: paymentData.bankAccount.bankCode
+      },
+      notes,
+      status: 'pending',
+      clientReference: clientReference
+    });
+
+    await withdrawal.save();
+
     // Process the bank transfer using Lenco API
     try {
       const response = await axios.post('https://api.lenco.co/access/v1/transactions', {
@@ -112,68 +143,63 @@ exports.processInstantWithdrawal = async (req, res) => {
       });
 
       if (response.data && response.data.status) {
-        // Create a withdrawal record
-        const withdrawal = new Withdrawal({
-          user: userId,
-          amount,
-          paymentMethod: 'bank',
-          paymentDetails: {
-            bankName: paymentData.bankAccount.bankName,
-            accountName: paymentData.bankAccount.accountName,
-            accountNumber: paymentData.bankAccount.accountNumber,
-            bankCode: paymentData.bankAccount.bankCode
-          },
-          notes,
-          status: response.data.data.status === 'successful' ? 'paid' : 'processing',
-          transactionReference: response.data.data.transactionReference,
-          clientReference: clientReference,
-          processedAt: new Date()
-        });
+        // Update withdrawal with transaction reference
+        withdrawal.transactionReference = response.data.data.transactionReference;
+        
+        // Set status based on immediate response
+        if (response.data.data.status === 'successful') {
+          withdrawal.status = 'paid';
+          withdrawal.processedAt = new Date();
+          
+          // Create a transaction record for successful withdrawal
+          const transaction = new ReferralTransaction({
+            user: userId,
+            type: 'withdrawal',
+            amount: -amount,
+            description: `Withdrawal to ${paymentData.bankAccount.bankName} - ${paymentData.bankAccount.accountNumber}`,
+            status: 'completed',
+            reference: clientReference
+          });
+          await transaction.save();
+        } else if (response.data.data.status === 'failed' || response.data.data.status === 'declined') {
+          withdrawal.status = 'failed';
+          withdrawal.rejectionReason = response.data.data.reasonForFailure || 'Transaction failed';
+        } else {
+          // Status is pending or processing
+          withdrawal.status = 'processing';
+        }
 
         await withdrawal.save();
-
-        // Create a transaction record for this withdrawal
-        const transaction = new ReferralTransaction({
-          user: userId,
-          type: 'withdrawal',
-          amount: -amount, // Negative amount for withdrawal
-          description: `Withdrawal to ${paymentData.bankAccount.bankName} - ${paymentData.bankAccount.accountNumber}`,
-          status: 'completed',
-          reference: clientReference
-        });
-
-        await transaction.save();
 
         // Get user info for receipt and notification
         const user = await User.findById(userId);
 
-        // Generate receipt
-        const receipt = await generateWithdrawalReceipt(withdrawal, user);
-
-        // Send confirmation email to user
-        try {
-          await sendEmail({
-            email: user.email,
-            subject: 'Withdrawal Processed',
-            html: `
-              <h2>Withdrawal Processed</h2>
-              <p>Hello ${user.name},</p>
-              <p>Your withdrawal of ₦${amount.toLocaleString()} has been processed.</p>
-              <p><strong>Transaction Reference:</strong> ${response.data.data.transactionReference}</p>
-              <p><strong>Status:</strong> ${response.data.data.status}</p>
-              <p>The funds should be credited to your bank account shortly.</p>
-              <p>You can download your receipt from the dashboard or using <a href="${process.env.FRONTEND_URL}/api/withdrawal/receipt/${withdrawal._id}">this link</a>.</p>
-              <p>Thank you for using our platform!</p>
-            `
-          });
-        } catch (emailError) {
-          console.error('Failed to send withdrawal confirmation email:', emailError);
-          // Continue without failing the request
+        // Generate receipt for successful payments
+        if (withdrawal.status === 'paid') {
+          const receipt = await generateWithdrawalReceipt(withdrawal, user);
+          
+          // Send confirmation email for successful transaction
+          try {
+            await sendEmail({
+              email: user.email,
+              subject: 'Withdrawal Successful',
+              html: `
+                <h2>Withdrawal Successful</h2>
+                <p>Hello ${user.name},</p>
+                <p>Your withdrawal of ₦${amount.toLocaleString()} has been processed successfully.</p>
+                <p><strong>Transaction Reference:</strong> ${response.data.data.transactionReference}</p>
+                <p>You can download your receipt from the dashboard or using <a href="${process.env.FRONTEND_URL}/api/withdrawal/receipt/${withdrawal._id}">this link</a>.</p>
+                <p>Thank you for using our platform!</p>
+              `
+            });
+          } catch (emailError) {
+            console.error('Failed to send withdrawal confirmation email:', emailError);
+          }
         }
 
         return res.status(200).json({
           success: true,
-          message: 'Withdrawal processed successfully',
+          message: withdrawal.status === 'paid' ? 'Withdrawal processed successfully' : 'Withdrawal initiated, processing in progress',
           data: {
             id: withdrawal._id,
             amount: withdrawal.amount,
@@ -181,7 +207,7 @@ exports.processInstantWithdrawal = async (req, res) => {
             transactionReference: response.data.data.transactionReference,
             clientReference: clientReference,
             processedAt: withdrawal.processedAt,
-            receiptUrl: receipt.filePath
+            receiptUrl: withdrawal.status === 'paid' ? receipt.filePath : null
           }
         });
       } else {
@@ -190,23 +216,9 @@ exports.processInstantWithdrawal = async (req, res) => {
     } catch (transferError) {
       console.error('Bank transfer error:', transferError);
       
-      // Create a failed withdrawal record
-      const withdrawal = new Withdrawal({
-        user: userId,
-        amount,
-        paymentMethod: 'bank',
-        paymentDetails: {
-          bankName: paymentData.bankAccount.bankName,
-          accountName: paymentData.bankAccount.accountName,
-          accountNumber: paymentData.bankAccount.accountNumber,
-          bankCode: paymentData.bankAccount.bankCode
-        },
-        notes,
-        status: 'failed',
-        clientReference: clientReference,
-        rejectionReason: transferError.response?.data?.message || 'Payment processing failed'
-      });
-
+      // Update withdrawal status to failed
+      withdrawal.status = 'failed';
+      withdrawal.rejectionReason = transferError.response?.data?.message || 'Payment processing failed';
       await withdrawal.save();
 
       return res.status(400).json({
@@ -222,6 +234,122 @@ exports.processInstantWithdrawal = async (req, res) => {
       message: 'Failed to process withdrawal',
       error: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
+  }
+};
+
+/**
+ * Verify pending withdrawals
+ * @route GET /api/withdrawal/verify-pending
+ * @access Private
+ */
+exports.verifyPendingWithdrawals = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    
+    // Find all pending withdrawals for the user
+    const pendingWithdrawals = await Withdrawal.find({
+      user: userId,
+      status: 'pending'
+    });
+
+    if (pendingWithdrawals.length === 0) {
+      return res.status(200).json({
+        success: true,
+        message: 'No pending withdrawals found'
+      });
+    }
+
+    // Verify each pending withdrawal
+    for (const withdrawal of pendingWithdrawals) {
+      try {
+        const response = await axios.get(`https://api.lenco.co/access/v1/transaction-by-reference/${withdrawal.clientReference}`, {
+          headers: {
+            'Authorization': `Bearer ${process.env.LENCO_API_KEY}`
+          }
+        });
+
+        if (response.data && response.data.status) {
+          const transactionData = response.data.data;
+          
+          if (transactionData.status === 'successful') {
+            withdrawal.status = 'paid';
+            withdrawal.processedAt = new Date();
+            withdrawal.transactionReference = transactionData.transactionReference;
+            
+            // Create a transaction record for successful withdrawal
+            const transaction = new ReferralTransaction({
+              user: userId,
+              type: 'withdrawal',
+              amount: -withdrawal.amount,
+              description: `Withdrawal to ${withdrawal.paymentDetails.bankName} - ${withdrawal.paymentDetails.accountNumber}`,
+              status: 'completed',
+              reference: withdrawal.clientReference
+            });
+            await transaction.save();
+            
+          } else if (transactionData.status === 'failed' || transactionData.status === 'declined') {
+            withdrawal.status = 'failed';
+            withdrawal.rejectionReason = transactionData.reasonForFailure || 'Transaction failed';
+            
+          } else if (transactionData.status === 'pending') {
+            // Keep it pending, do nothing
+            continue;
+          }
+          
+          await withdrawal.save();
+        }
+      } catch (apiError) {
+        console.error(`Error verifying withdrawal ${withdrawal._id}:`, apiError);
+        // Continue to next withdrawal if this one fails
+      }
+    }
+
+    // Get updated pending withdrawals after verification
+    const updatedPending = await Withdrawal.find({
+      user: userId,
+      status: 'pending'
+    });
+
+    return res.status(200).json({
+      success: true,
+      message: 'Withdrawal verification completed',
+      data: {
+        pendingCount: updatedPending.length,
+        canWithdraw: updatedPending.length === 0
+      }
+    });
+  } catch (error) {
+    console.error('Error verifying pending withdrawals:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to verify pending withdrawals',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+};
+
+/**
+ * Middleware to check for pending withdrawals
+ */
+exports.checkPendingWithdrawal = async (req, res, next) => {
+  try {
+    const userId = req.user.id;
+    
+    const pendingWithdrawal = await Withdrawal.findOne({
+      user: userId,
+      status: 'pending'
+    });
+
+    if (pendingWithdrawal) {
+      // Set a custom property on request for controller to handle
+      req.hasPendingWithdrawal = true;
+      req.pendingWithdrawal = pendingWithdrawal;
+    }
+    
+    next();
+  } catch (error) {
+    console.error('Error checking pending withdrawal:', error);
+    next();
   }
 };
 
@@ -1203,6 +1331,7 @@ exports.getWithdrawalStats = async (req, res) => {
     });
   }
 };
+
 /**
  * Get all instant withdrawals (Admin only)
  * @route GET /api/withdrawal/admin/instant
