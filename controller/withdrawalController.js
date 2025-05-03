@@ -794,7 +794,8 @@ exports.requestWithdrawal = async (req, res) => {
       if (!paymentDetails.bankName || !paymentDetails.accountName || !paymentDetails.accountNumber) {
         return res.status(400).json({
           success: false,
-          message: 'Please provide complete bank details'
+          message: 'Please provide complete bank details'// === Continuation of withdrawalController.js ===
+
         });
       }
     } else if (paymentMethod === 'crypto') {
@@ -949,6 +950,461 @@ exports.getEarningsBalance = async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Failed to fetch earnings balance',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+};
+
+// ========== ADMIN CONTROLLER FUNCTIONS ==========
+
+/**
+ * Get withdrawal statistics (Admin only)
+ * @route GET /api/withdrawal/stats
+ * @access Admin
+ */
+exports.getWithdrawalStats = async (req, res) => {
+  try {
+    // Get overall withdrawal statistics
+    const stats = await Withdrawal.aggregate([
+      {
+        $group: {
+          _id: null,
+          totalWithdrawals: { $sum: 1 },
+          totalAmount: { $sum: '$amount' },
+          totalPaid: { 
+            $sum: { $cond: [{ $eq: ['$status', 'paid'] }, '$amount', 0] } 
+          },
+          totalPending: { 
+            $sum: { $cond: [{ $eq: ['$status', 'pending'] }, '$amount', 0] } 
+          },
+          totalFailed: { 
+            $sum: { $cond: [{ $eq: ['$status', 'failed'] }, '$amount', 0] } 
+          }
+        }
+      }
+    ]);
+
+    // Get withdrawal counts by status
+    const statusCounts = await Withdrawal.aggregate([
+      {
+        $group: {
+          _id: '$status',
+          count: { $sum: 1 }
+        }
+      }
+    ]);
+
+    // Get withdrawal trends by month (last 6 months)
+    const sixMonthsAgo = new Date();
+    sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6);
+
+    const withdrawalTrends = await Withdrawal.aggregate([
+      {
+        $match: {
+          createdAt: { $gte: sixMonthsAgo }
+        }
+      },
+      {
+        $group: {
+          _id: {
+            year: { $year: '$createdAt' },
+            month: { $month: '$createdAt' }
+          },
+          totalAmount: { $sum: '$amount' },
+          count: { $sum: 1 }
+        }
+      },
+      {
+        $sort: { '_id.year': 1, '_id.month': 1 }
+      }
+    ]);
+
+    res.status(200).json({
+      success: true,
+      data: {
+        overview: stats[0] || {
+          totalWithdrawals: 0,
+          totalAmount: 0,
+          totalPaid: 0,
+          totalPending: 0,
+          totalFailed: 0
+        },
+        statusCounts,
+        withdrawalTrends
+      }
+    });
+  } catch (error) {
+    console.error('Error fetching withdrawal stats:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch withdrawal statistics',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+};
+
+/**
+ * Get all instant withdrawals (Admin only)
+ * @route GET /api/withdrawal/admin/instant
+ * @access Admin
+ */
+exports.getInstantWithdrawals = async (req, res) => {
+  try {
+    const { page = 1, limit = 20, status, startDate, endDate } = req.query;
+
+    const query = {};
+    
+    // Filter by status if provided
+    if (status) {
+      query.status = status;
+    }
+
+    // Filter by date range if provided
+    if (startDate && endDate) {
+      query.createdAt = {
+        $gte: new Date(startDate),
+        $lte: new Date(endDate)
+      };
+    }
+
+    const withdrawals = await Withdrawal.find(query)
+      .populate('user', 'name email')
+      .sort({ createdAt: -1 })
+      .limit(limit * 1)
+      .skip((page - 1) * limit);
+
+    const count = await Withdrawal.countDocuments(query);
+
+    res.status(200).json({
+      success: true,
+      count,
+      data: withdrawals,
+      totalPages: Math.ceil(count / limit),
+      currentPage: page
+    });
+  } catch (error) {
+    console.error('Error fetching instant withdrawals:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch instant withdrawals',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+};
+
+/**
+ * Get pending withdrawals (Admin only)
+ * @route GET /api/withdrawal/admin/pending
+ * @access Admin
+ */
+exports.getPendingWithdrawals = async (req, res) => {
+  try {
+    const pendingWithdrawals = await Withdrawal.find({ status: 'pending' })
+      .populate('user', 'name email profileImage')
+      .sort({ createdAt: -1 });
+
+    res.status(200).json({
+      success: true,
+      count: pendingWithdrawals.length,
+      data: pendingWithdrawals
+    });
+  } catch (error) {
+    console.error('Error fetching pending withdrawals:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch pending withdrawals',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+};
+
+/**
+ * Approve a withdrawal request (Admin only)
+ * @route PUT /api/withdrawal/admin/approve/:id
+ * @access Admin
+ */
+exports.approveWithdrawal = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { notes } = req.body;
+
+    const withdrawal = await Withdrawal.findById(id);
+
+    if (!withdrawal) {
+      return res.status(404).json({
+        success: false,
+        message: 'Withdrawal request not found'
+      });
+    }
+
+    if (withdrawal.status !== 'pending') {
+      return res.status(400).json({
+        success: false,
+        message: 'Only pending withdrawals can be approved'
+      });
+    }
+
+    // Update withdrawal status
+    withdrawal.status = 'approved';
+    withdrawal.approvedBy = req.user.id;
+    withdrawal.approvedAt = new Date();
+    withdrawal.adminNotes = notes;
+
+    await withdrawal.save();
+
+    // Get user information
+    const user = await User.findById(withdrawal.user);
+
+    // Send approval notification email
+    try {
+      await sendEmail({
+        email: user.email,
+        subject: 'Withdrawal Request Approved',
+        html: `
+          <h2>Withdrawal Request Approved</h2>
+          <p>Hello ${user.name},</p>
+          <p>Your withdrawal request of ₦${withdrawal.amount.toLocaleString()} has been approved.</p>
+          <p>The payment will be processed shortly.</p>
+          <p>Thank you for using our platform!</p>
+        `
+      });
+    } catch (emailError) {
+      console.error('Failed to send approval email:', emailError);
+    }
+
+    res.status(200).json({
+      success: true,
+      message: 'Withdrawal approved successfully',
+      data: withdrawal
+    });
+  } catch (error) {
+    console.error('Error approving withdrawal:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to approve withdrawal',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+};
+
+/**
+ * Reject a withdrawal request (Admin only)
+ * @route PUT /api/withdrawal/admin/reject/:id
+ * @access Admin
+ */
+exports.rejectWithdrawal = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { rejectionReason, notes } = req.body;
+
+    if (!rejectionReason) {
+      return res.status(400).json({
+        success: false,
+        message: 'Please provide a rejection reason'
+      });
+    }
+
+    const withdrawal = await Withdrawal.findById(id);
+
+    if (!withdrawal) {
+      return res.status(404).json({
+        success: false,
+        message: 'Withdrawal request not found'
+      });
+    }
+
+    if (withdrawal.status !== 'pending') {
+      return res.status(400).json({
+        success: false,
+        message: 'Only pending withdrawals can be rejected'
+      });
+    }
+
+    // Update withdrawal status
+    withdrawal.status = 'rejected';
+    withdrawal.rejectedBy = req.user.id;
+    withdrawal.rejectedAt = new Date();
+    withdrawal.rejectionReason = rejectionReason;
+    withdrawal.adminNotes = notes;
+
+    await withdrawal.save();
+
+    // Get user information
+    const user = await User.findById(withdrawal.user);
+
+    // Send rejection notification email
+    try {
+      await sendEmail({
+        email: user.email,
+        subject: 'Withdrawal Request Rejected',
+        html: `
+          <h2>Withdrawal Request Rejected</h2>
+          <p>Hello ${user.name},</p>
+          <p>Your withdrawal request of ₦${withdrawal.amount.toLocaleString()} has been rejected.</p>
+          <p><strong>Reason:</strong> ${rejectionReason}</p>
+          <p>If you believe this is an error, please contact support.</p>
+        `
+      });
+    } catch (emailError) {
+      console.error('Failed to send rejection email:', emailError);
+    }
+
+    res.status(200).json({
+      success: true,
+      message: 'Withdrawal rejected successfully',
+      data: withdrawal
+    });
+  } catch (error) {
+    console.error('Error rejecting withdrawal:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to reject withdrawal',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+};
+
+/**
+ * Mark a withdrawal as paid (Admin only)
+ * @route PUT /api/withdrawal/admin/mark-paid/:id
+ * @access Admin
+ */
+exports.markWithdrawalAsPaid = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { transactionReference } = req.body;
+
+    const withdrawal = await Withdrawal.findById(id);
+
+    if (!withdrawal) {
+      return res.status(404).json({
+        success: false,
+        message: 'Withdrawal request not found'
+      });
+    }
+
+    if (withdrawal.status !== 'approved' && withdrawal.status !== 'pending') {
+      return res.status(400).json({
+        success: false,
+        message: 'Only approved or pending withdrawals can be marked as paid'
+      });
+    }
+
+    // Update withdrawal status
+    withdrawal.status = 'paid';
+    withdrawal.paidBy = req.user.id;
+    withdrawal.processedAt = new Date();
+    if (transactionReference) {
+      withdrawal.transactionReference = transactionReference;
+    }
+
+    await withdrawal.save();
+
+    // Create a transaction record for the withdrawal
+    const transaction = new ReferralTransaction({
+      user: withdrawal.user,
+      type: 'withdrawal',
+      amount: -withdrawal.amount,
+      description: `Withdrawal to ${withdrawal.paymentMethod}`,
+      status: 'completed',
+      reference: withdrawal.transactionReference || `MANUAL-${withdrawal._id}`
+    });
+    await transaction.save();
+
+    // Get user information
+    const user = await User.findById(withdrawal.user);
+
+    // Generate receipt
+    const receipt = await generateWithdrawalReceipt(withdrawal, user);
+
+    // Send payment confirmation email
+    try {
+      await sendEmail({
+        email: user.email,
+        subject: 'Withdrawal Completed',
+        html: `
+          <h2>Withdrawal Completed</h2>
+          <p>Hello ${user.name},</p>
+          <p>Your withdrawal of ₦${withdrawal.amount.toLocaleString()} has been processed successfully.</p>
+          ${transactionReference ? `<p><strong>Transaction Reference:</strong> ${transactionReference}</p>` : ''}
+          <p>You can download your receipt from the dashboard.</p>
+          <p>Thank you for using our platform!</p>
+        `
+      });
+    } catch (emailError) {
+      console.error('Failed to send payment confirmation email:', emailError);
+    }
+
+    res.status(200).json({
+      success: true,
+      message: 'Withdrawal marked as paid successfully',
+      data: {
+        ...withdrawal.toObject(),
+        receiptUrl: receipt.filePath
+      }
+    });
+  } catch (error) {
+    console.error('Error marking withdrawal as paid:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to mark withdrawal as paid',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+};
+
+/**
+ * Get all withdrawals (Admin only)
+ * @route GET /api/withdrawal/admin/history
+ * @access Admin
+ */
+exports.getAllWithdrawals = async (req, res) => {
+  try {
+    const { page = 1, limit = 20, status, userId, startDate, endDate } = req.query;
+
+    const query = {};
+    
+    // Filter by status if provided
+    if (status) {
+      query.status = status;
+    }
+
+    // Filter by user ID if provided
+    if (userId) {
+      query.user = userId;
+    }
+
+    // Filter by date range if provided
+    if (startDate && endDate) {
+      query.createdAt = {
+        $gte: new Date(startDate),
+        $lte: new Date(endDate)
+      };
+    }
+
+    const withdrawals = await Withdrawal.find(query)
+      .populate('user', 'name email profileImage')
+      .populate('approvedBy', 'name email')
+      .populate('rejectedBy', 'name email')
+      .populate('paidBy', 'name email')
+      .sort({ createdAt: -1 })
+      .limit(limit * 1)
+      .skip((page - 1) * limit);
+
+    const count = await Withdrawal.countDocuments(query);
+
+    res.status(200).json({
+      success: true,
+      count,
+      data: withdrawals,
+      totalPages: Math.ceil(count / limit),
+      currentPage: page
+    });
+  } catch (error) {
+    console.error('Error fetching all withdrawals:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch withdrawals',
       error: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }

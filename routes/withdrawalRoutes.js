@@ -3,11 +3,8 @@ const router = express.Router();
 const withdrawalController = require('../controller/withdrawalController');
 const { protect, adminProtect } = require('../middleware/auth');
 
-// Import the new middleware
-const { checkPendingWithdrawal } = withdrawalController;
-
 // User routes - now with pending withdrawal check for instant withdrawals
-router.post('/instant', protect, checkPendingWithdrawal, withdrawalController.processInstantWithdrawal);
+router.post('/instant', protect, withdrawalController.checkPendingWithdrawal, withdrawalController.processInstantWithdrawal);
 router.post('/request', protect, withdrawalController.requestWithdrawal);
 router.get('/history', protect, withdrawalController.getWithdrawalHistory);
 router.get('/balance', protect, withdrawalController.getEarningsBalance);
