@@ -22,6 +22,20 @@ const ReferralSchema = new mongoose.Schema({
     default: 0
   },
   
+  // NEW FIELDS: Track withdrawal amounts by status
+  totalWithdrawn: {
+    type: Number,
+    default: 0
+  },
+  pendingWithdrawals: {
+    type: Number,
+    default: 0
+  },
+  processingWithdrawals: {
+    type: Number,
+    default: 0
+  },
+  
   // Breakdown of referrals by generation
   generation1: {
     count: {
@@ -79,6 +93,14 @@ const ReferralSchema = new mongoose.Schema({
   timestamps: true
 });
 
+// Virtual for available balance calculation
+ReferralSchema.virtual('availableBalance').get(function() {
+  return this.totalEarnings - 
+         (this.totalWithdrawn || 0) - 
+         (this.pendingWithdrawals || 0) - 
+         (this.processingWithdrawals || 0);
+});
+
 // Static method to create or update referral record
 ReferralSchema.statics.updateReferralStats = async function(userId, referredUserId, generation, earnings = 0) {
   try {
@@ -90,6 +112,9 @@ ReferralSchema.statics.updateReferralStats = async function(userId, referredUser
         user: userId,
         referredUsers: 0,
         totalEarnings: 0,
+        totalWithdrawn: 0,
+        pendingWithdrawals: 0,
+        processingWithdrawals: 0,
         generation1: { count: 0, earnings: 0 },
         generation2: { count: 0, earnings: 0 },
         generation3: { count: 0, earnings: 0 }
@@ -143,6 +168,56 @@ ReferralSchema.statics.updateReferralStats = async function(userId, referredUser
   }
 };
 
+// NEW: Static method to update withdrawal amounts
+ReferralSchema.statics.updateWithdrawalAmounts = async function(userId, options = {}) {
+  try {
+    const updateQuery = { user: userId };
+    const updateObj = { $set: {} };
+    
+    // Check which fields should be updated
+    if (options.totalWithdrawn !== undefined) {
+      updateObj.$set.totalWithdrawn = options.totalWithdrawn;
+    }
+    
+    if (options.pendingWithdrawals !== undefined) {
+      updateObj.$set.pendingWithdrawals = options.pendingWithdrawals;
+    }
+    
+    if (options.processingWithdrawals !== undefined) {
+      updateObj.$set.processingWithdrawals = options.processingWithdrawals;
+    }
+    
+    // If using increment operations
+    if (options.inc) {
+      updateObj.$inc = {};
+      
+      if (options.inc.totalWithdrawn) {
+        updateObj.$inc.totalWithdrawn = options.inc.totalWithdrawn;
+      }
+      
+      if (options.inc.pendingWithdrawals) {
+        updateObj.$inc.pendingWithdrawals = options.inc.pendingWithdrawals;
+      }
+      
+      if (options.inc.processingWithdrawals) {
+        updateObj.$inc.processingWithdrawals = options.inc.processingWithdrawals;
+      }
+    }
+    
+    // Perform the update
+    const updated = await this.findOneAndUpdate(
+      updateQuery,
+      updateObj,
+      { new: true }
+    );
+    
+    return updated;
+  } catch (error) {
+    console.error('Error updating withdrawal amounts:', error);
+    throw error;
+  }
+};
+
 // Static method to get current config (for consistency with other models)
 ReferralSchema.statics.getCurrentConfig = async function() {
   let config = await this.findOne();
@@ -151,6 +226,9 @@ ReferralSchema.statics.getCurrentConfig = async function() {
     config = new this({
       referredUsers: 0,
       totalEarnings: 0,
+      totalWithdrawn: 0,
+      pendingWithdrawals: 0,
+      processingWithdrawals: 0,
       generation1: { count: 0, earnings: 0 },
       generation2: { count: 0, earnings: 0 },
       generation3: { count: 0, earnings: 0 }

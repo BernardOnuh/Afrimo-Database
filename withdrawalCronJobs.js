@@ -10,29 +10,47 @@ const { generateWithdrawalReceipt } = require('./utils/withdrawalReceiptService.
 // Log whether API key is configured
 console.log('LENCO_API_KEY configured:', process.env.LENCO_API_KEY ? 'Yes' : 'No');
 
+
 /**
  * Utility function to update user's balance after withdrawal
- * Only counts paid withdrawals, not processing or pending ones
  */
 const updateUserBalance = async (userId) => {
   try {
-    // MODIFIED: Only count paid withdrawals for the totalWithdrawn field
+    // Count withdrawals by status
     const paidWithdrawals = await Withdrawal.find({
       user: userId,
       status: 'paid'
     });
     
-    // Calculate total withdrawn amount (paid withdrawals only)
-    const totalWithdrawn = paidWithdrawals.reduce((sum, withdrawal) => sum + withdrawal.amount, 0);
+    const pendingWithdrawals = await Withdrawal.find({
+      user: userId,
+      status: 'pending'
+    });
     
-    // Update the user's referral data with the calculated total withdrawn
+    const processingWithdrawals = await Withdrawal.find({
+      user: userId,
+      status: 'processing'
+    });
+    
+    // Calculate totals for each status
+    const totalWithdrawn = paidWithdrawals.reduce((sum, withdrawal) => sum + withdrawal.amount, 0);
+    const totalPending = pendingWithdrawals.reduce((sum, withdrawal) => sum + withdrawal.amount, 0);
+    const totalProcessing = processingWithdrawals.reduce((sum, withdrawal) => sum + withdrawal.amount, 0);
+    
+    // Update the user's referral data with all amounts
     const updated = await Referral.findOneAndUpdate(
       { user: userId },
-      { $set: { totalWithdrawn: totalWithdrawn } },
+      { 
+        $set: { 
+          totalWithdrawn: totalWithdrawn,
+          pendingWithdrawals: totalPending,
+          processingWithdrawals: totalProcessing
+        } 
+      },
       { new: true }
     );
     
-    console.log(`Updated balance for user ${userId} - total withdrawn: ${totalWithdrawn}`);
+    console.log(`Updated balance for user ${userId} - total withdrawn: ${totalWithdrawn}, pending: ${totalPending}, processing: ${totalProcessing}`);
     return updated;
   } catch (error) {
     console.error(`Error updating user balance: ${error.message}`);
@@ -162,6 +180,7 @@ const updateWithdrawalStatus = async (withdrawal, newStatus, additionalData = {}
   }
 };
 
+
 /**
  * Cron job to verify and update processing withdrawals
  * Runs every 2 minutes
@@ -196,6 +215,10 @@ const verifyProcessingWithdrawals = cron.schedule('*/2 * * * *', async () => {
     
     // Process each withdrawal
     for (const withdrawal of processingWithdrawals) {
+      // Start a session for this withdrawal update
+      const session = await mongoose.startSession();
+      session.startTransaction();
+      
       try {
         console.log(`Checking withdrawal ${withdrawal._id} with Lenco API using reference: ${withdrawal.clientReference}`);
         
@@ -216,6 +239,18 @@ const verifyProcessingWithdrawals = cron.schedule('*/2 * * * *', async () => {
           // Update transaction status based on Lenco response
           if (transactionData.status === 'successful') {
             console.log(`Withdrawal ${withdrawal._id} marked as PAID`);
+            
+            // Move amount from processing to totalWithdrawn
+            await Referral.findOneAndUpdate(
+              { user: withdrawal.user },
+              { 
+                $inc: { 
+                  processingWithdrawals: -withdrawal.amount,
+                  totalWithdrawn: withdrawal.amount 
+                } 
+              },
+              { session }
+            );
             
             // Create a transaction record for successful withdrawal
             await createTransactionRecord(withdrawal, 'processing');
@@ -250,22 +285,25 @@ const verifyProcessingWithdrawals = cron.schedule('*/2 * * * *', async () => {
               console.log(`User ${withdrawal.user} not found for email notification`);
             }
             
-            // Update withdrawal status after all other operations
-            const updated = await updateWithdrawalStatus(withdrawal, 'paid', {
-              processedAt: new Date(),
-              transactionReference: transactionData.transactionReference
-            });
+            // Update withdrawal status
+            withdrawal.status = 'paid';
+            withdrawal.processedAt = new Date();
+            withdrawal.transactionReference = transactionData.transactionReference;
+            await withdrawal.save({ session });
             
-            if (updated) {
-              updatedCount++;
-              
-              // Update user's balance - NOW only happens when status changes to 'paid'
-              await updateUserBalance(withdrawal.user);
-              console.log(`User balance updated after withdrawal ${withdrawal._id} marked as paid`);
-            }
+            await session.commitTransaction();
+            session.endSession();
             
+            updatedCount++;
           } else if (transactionData.status === 'failed' || transactionData.status === 'declined') {
             console.log(`Withdrawal ${withdrawal._id} marked as FAILED: ${transactionData.reasonForFailure || 'Transaction failed'}`);
+            
+            // Remove amount from processingWithdrawals since it failed
+            await Referral.findOneAndUpdate(
+              { user: withdrawal.user },
+              { $inc: { processingWithdrawals: -withdrawal.amount } },
+              { session }
+            );
             
             // Get user info for notification
             const user = await User.findById(withdrawal.user);
@@ -290,26 +328,31 @@ const verifyProcessingWithdrawals = cron.schedule('*/2 * * * *', async () => {
               }
             }
             
-            // Update withdrawal status after all other operations
-            const updated = await updateWithdrawalStatus(withdrawal, 'failed', {
-              failedAt: transactionData.failedAt || new Date(),
-              rejectionReason: transactionData.reasonForFailure || 'Transaction failed'
-            });
+            // Update withdrawal status
+            withdrawal.status = 'failed';
+            withdrawal.failedAt = transactionData.failedAt || new Date();
+            withdrawal.rejectionReason = transactionData.reasonForFailure || 'Transaction failed';
+            await withdrawal.save({ session });
             
-            if (updated) {
-              updatedCount++;
-              
-              // Update user's balance - to ensure any temporary deductions are reversed
-              await updateUserBalance(withdrawal.user);
-              console.log(`User balance updated after withdrawal ${withdrawal._id} marked as failed`);
-            }
+            await session.commitTransaction();
+            session.endSession();
+            
+            updatedCount++;
           } else {
+            // No status change needed
+            await session.abortTransaction();
+            session.endSession();
             console.log(`No status change needed for withdrawal ${withdrawal._id}. Lenco status still: ${transactionData.status}`);
           }
         } else {
+          await session.abortTransaction();
+          session.endSession();
           console.log(`No valid data in Lenco response for withdrawal ${withdrawal._id}`);
         }
       } catch (apiError) {
+        await session.abortTransaction();
+        session.endSession();
+        
         console.error(`Error verifying withdrawal ${withdrawal._id}:`, apiError.message);
         if (apiError.response) {
           console.error(`API Response Error:`, JSON.stringify(apiError.response.data, null, 2));
@@ -363,6 +406,10 @@ const verifyPendingWithdrawals = cron.schedule('*/2 * * * *', async () => {
     
     // Process each withdrawal
     for (const withdrawal of pendingWithdrawals) {
+      // Start a session for this withdrawal update
+      const session = await mongoose.startSession();
+      session.startTransaction();
+      
       try {
         console.log(`Checking pending withdrawal ${withdrawal._id} with Lenco API using reference: ${withdrawal.clientReference}`);
         
@@ -383,6 +430,18 @@ const verifyPendingWithdrawals = cron.schedule('*/2 * * * *', async () => {
           // Update transaction status based on Lenco response
           if (transactionData.status === 'successful') {
             console.log(`Pending withdrawal ${withdrawal._id} marked as PAID`);
+            
+            // Move amount from pending to totalWithdrawn
+            await Referral.findOneAndUpdate(
+              { user: withdrawal.user },
+              { 
+                $inc: { 
+                  pendingWithdrawals: -withdrawal.amount,
+                  totalWithdrawn: withdrawal.amount 
+                } 
+              },
+              { session }
+            );
             
             // Create a transaction record for successful withdrawal
             await createTransactionRecord(withdrawal, 'pending');
@@ -415,22 +474,25 @@ const verifyPendingWithdrawals = cron.schedule('*/2 * * * *', async () => {
               }
             }
             
-            // Update withdrawal status after all other operations
-            const updated = await updateWithdrawalStatus(withdrawal, 'paid', {
-              processedAt: new Date(),
-              transactionReference: transactionData.transactionReference
-            });
+            // Update withdrawal status
+            withdrawal.status = 'paid';
+            withdrawal.processedAt = new Date();
+            withdrawal.transactionReference = transactionData.transactionReference;
+            await withdrawal.save({ session });
             
-            if (updated) {
-              updatedCount++;
-              
-              // Update user's balance - NOW only happens when status changes to 'paid'
-              await updateUserBalance(withdrawal.user);
-              console.log(`User balance updated after withdrawal ${withdrawal._id} marked as paid`);
-            }
+            await session.commitTransaction();
+            session.endSession();
             
+            updatedCount++;
           } else if (transactionData.status === 'failed' || transactionData.status === 'declined') {
             console.log(`Pending withdrawal ${withdrawal._id} marked as FAILED: ${transactionData.reasonForFailure || 'Transaction failed'}`);
+            
+            // Remove amount from pendingWithdrawals since it failed
+            await Referral.findOneAndUpdate(
+              { user: withdrawal.user },
+              { $inc: { pendingWithdrawals: -withdrawal.amount } },
+              { session }
+            );
             
             // Get user info for notification
             const user = await User.findById(withdrawal.user);
@@ -455,40 +517,53 @@ const verifyPendingWithdrawals = cron.schedule('*/2 * * * *', async () => {
               }
             }
             
-            // Update withdrawal status after all other operations
-            const updated = await updateWithdrawalStatus(withdrawal, 'failed', {
-              failedAt: transactionData.failedAt || new Date(),
-              rejectionReason: transactionData.reasonForFailure || 'Transaction failed'
-            });
+            // Update withdrawal status
+            withdrawal.status = 'failed';
+            withdrawal.failedAt = transactionData.failedAt || new Date();
+            withdrawal.rejectionReason = transactionData.reasonForFailure || 'Transaction failed';
+            await withdrawal.save({ session });
             
-            if (updated) {
-              updatedCount++;
-              
-              // Update user's balance - to ensure any temporary deductions are reversed
-              await updateUserBalance(withdrawal.user);
-              console.log(`User balance updated after withdrawal ${withdrawal._id} marked as failed`);
-            }
+            await session.commitTransaction();
+            session.endSession();
             
+            updatedCount++;
           } else if (transactionData.status === 'processing') {
             console.log(`Pending withdrawal ${withdrawal._id} moved to PROCESSING state`);
             
-            // Update withdrawal status
-            const updated = await updateWithdrawalStatus(withdrawal, 'processing');
-            if (updated) {
-              updatedCount++;
-              
-              // NOTE: We do NOT update the user's balance when changing to 'processing'
-              // This ensures balance is only deducted when transaction is fully paid
-              console.log(`Withdrawal ${withdrawal._id} moved to processing, but balance not deducted yet`);
-            }
+            // Move amount from pending to processing
+            await Referral.findOneAndUpdate(
+              { user: withdrawal.user },
+              { 
+                $inc: { 
+                  pendingWithdrawals: -withdrawal.amount,
+                  processingWithdrawals: withdrawal.amount 
+                } 
+              },
+              { session }
+            );
             
+            // Update withdrawal status
+            withdrawal.status = 'processing';
+            await withdrawal.save({ session });
+            
+            await session.commitTransaction();
+            session.endSession();
+            
+            updatedCount++;
           } else {
+            await session.abortTransaction();
+            session.endSession();
             console.log(`No status change needed for pending withdrawal ${withdrawal._id}. Lenco status: ${transactionData.status}`);
           }
         } else {
+          await session.abortTransaction();
+          session.endSession();
           console.log(`No valid data in Lenco response for pending withdrawal ${withdrawal._id}`);
         }
       } catch (apiError) {
+        await session.abortTransaction();
+        session.endSession();
+        
         console.error(`Error verifying pending withdrawal ${withdrawal._id}:`, apiError.message);
         if (apiError.response) {
           console.error(`API Response Error:`, JSON.stringify(apiError.response.data, null, 2));
@@ -507,6 +582,7 @@ const verifyPendingWithdrawals = cron.schedule('*/2 * * * *', async () => {
 }, {
   scheduled: false // Don't start automatically
 });
+
 
 /**
  * Utility function to manually force update all user balances
@@ -535,6 +611,7 @@ const forceUpdateAllBalances = async () => {
     return false;
   }
 };
+
 
 // Export the cron jobs
 module.exports = {

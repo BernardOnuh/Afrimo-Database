@@ -228,7 +228,13 @@ const getTimeFilteredLeaderboard = async (timeFrame, categoryFilter = 'registrat
         currentBalance: { 
           $subtract: [
             { $sum: '$referralData.totalEarnings' },
-            { $ifNull: ['$withdrawalAmount', 0] } // Only deduct paid/approved withdrawals
+            { 
+              $add: [
+                { $ifNull: ['$referralData.totalWithdrawn', 0] },
+                { $ifNull: ['$referralData.pendingWithdrawals', 0] },
+                { $ifNull: ['$referralData.processingWithdrawals', 0] }
+              ] 
+            }
           ]
         }
       }
