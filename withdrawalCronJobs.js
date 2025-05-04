@@ -4,7 +4,7 @@ const ReferralTransaction = require('./models/ReferralTransaction.js');
 const axios = require('axios');
 const User = require('./models/User.js');
 const { sendEmail } = require('./utils/emailService.js');
-const { generateWithdrawalReceipt } = require('./utils/withdrawalReceiptService.js.js');
+const { generateWithdrawalReceipt } = require('./utils/withdrawalReceiptService.js');
 
 /**
  * Cron job to verify and update processing withdrawals
