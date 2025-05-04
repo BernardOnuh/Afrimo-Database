@@ -3,14 +3,17 @@ const router = express.Router();
 const withdrawalController = require('../controller/withdrawalController');
 const { protect, adminProtect } = require('../middleware/auth');
 
-// User routes - now with pending withdrawal check for instant withdrawals
-router.post('/instant', protect, withdrawalController.checkPendingWithdrawal, withdrawalController.processInstantWithdrawal);
-router.post('/request', protect, withdrawalController.requestWithdrawal);
+// User routes - with comprehensive withdrawal status check
+router.post('/instant', protect, withdrawalController.checkExistingWithdrawals, withdrawalController.processInstantWithdrawal);
+router.post('/request', protect, withdrawalController.checkExistingWithdrawals, withdrawalController.requestWithdrawal);
 router.get('/history', protect, withdrawalController.getWithdrawalHistory);
 router.get('/balance', protect, withdrawalController.getEarningsBalance);
 router.get('/status/:reference', protect, withdrawalController.checkTransactionStatus);
 
-// New verification route for checking pending withdrawal status
+// Status check endpoint
+router.get('/status', protect, withdrawalController.getWithdrawalStatus);
+
+// Verification route for checking pending withdrawal status
 router.get('/verify-pending', protect, withdrawalController.verifyPendingWithdrawals);
 
 // Receipt routes
