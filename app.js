@@ -72,16 +72,42 @@ app.use('/api/exchange-rates', require('./routes/exchangeRateRoutes'));
 // Add installment payment routes
 app.use('/api/shares/installment', require('./routes/installmentRoutes'));
 
-// Add additional routes here as your application grows
-// app.use('/api/transactions', require('./routes/transactionRoutes'));
-// app.use('/api/wallets', require('./routes/walletRoutes'));
-
 // Simple test cron job to verify cron is working (runs every minute)
 cron.schedule('* * * * *', () => {
+  console.log('\n\n');
   console.log('======================================');
   console.log('TEST CRON: This should run every minute');
   console.log('Current time:', new Date().toISOString());
   console.log('======================================');
+  console.log('\n\n');
+});
+
+// Create a simple test job that just logs withdrawals (runs every minute)
+cron.schedule('* * * * *', async () => {
+  console.log('\n\n');
+  console.log('**********************************************');
+  console.log('*  TEST WITHDRAWAL JOB RUNNING              *');
+  console.log('*  ' + new Date().toISOString() + '  *');
+  console.log('**********************************************');
+  
+  try {
+    // Just find withdrawals and log them
+    const Withdrawal = require('./models/Withdrawal');
+    const processingWithdrawals = await Withdrawal.find({ status: 'processing' });
+    console.log(`Found ${processingWithdrawals.length} processing withdrawals`);
+    
+    if (processingWithdrawals.length > 0) {
+      for (const w of processingWithdrawals) {
+        console.log(`- ID: ${w._id}, ClientRef: ${w.clientReference}, Status: ${w.status}`);
+      }
+    }
+  } catch (error) {
+    console.error('Error in test job:', error);
+    console.error(error.stack);
+  }
+  
+  console.log('**********************************************');
+  console.log('\n\n');
 });
 
 // Schedule tasks
@@ -104,58 +130,77 @@ if (process.env.NODE_ENV === 'production') {
       console.error('Error in late installment payment check job:', error);
     }
   });
-  
-  // Start withdrawal verification cron jobs
-  console.log('======================================');
-  console.log('ATTEMPTING TO START WITHDRAWAL CRON JOBS');
-  console.log(`Current NODE_ENV: ${process.env.NODE_ENV}`);
-  
-  try {
-    const withdrawalCronJobs = require('./withdrawalCronJobs');
-    console.log('Withdrawal cron jobs module loaded successfully');
-    withdrawalCronJobs.startAll();
-  } catch (error) {
-    console.error('ERROR LOADING WITHDRAWAL CRON JOBS:', error);
-    console.error(error.stack);
-  }
-  
-  console.log('======================================');
-} else {
-  console.log('Not in production environment, skipping production-only cron jobs');
-  console.log('To force cron jobs to run, set NODE_ENV=production');
-  
-  // Uncomment this section to force cron jobs to run in any environment
-  /*
-  console.log('======================================');
-  console.log('FORCE STARTING WITHDRAWAL CRON JOBS (DEVELOPMENT MODE)');
-  
-  try {
-    const withdrawalCronJobs = require('./withdrawalCronJobs');
-    console.log('Withdrawal cron jobs module loaded successfully');
-    withdrawalCronJobs.startAll();
-  } catch (error) {
-    console.error('ERROR LOADING WITHDRAWAL CRON JOBS:', error);
-    console.error(error.stack);
-  }
-  
-  console.log('======================================');
-  */
 }
+
+// FORCE START WITHDRAWAL VERIFICATION CRON JOBS REGARDLESS OF ENVIRONMENT
+console.log('\n\n');
+console.log('======================================');
+console.log('FORCE STARTING WITHDRAWAL CRON JOBS');
+console.log(`Current NODE_ENV: ${process.env.NODE_ENV}`);
+
+try {
+  const withdrawalCronJobs = require('./withdrawalCronJobs');
+  console.log('Withdrawal cron jobs module loaded successfully');
+  
+  // Force start the processing job directly
+  withdrawalCronJobs.verifyProcessingWithdrawals.start();
+  console.log('Processing withdrawals job started');
+  
+  // Force start the pending job directly
+  withdrawalCronJobs.verifyPendingWithdrawals.start();
+  console.log('Pending withdrawals job started');
+  
+  console.log('All withdrawal verification cron jobs started');
+} catch (error) {
+  console.error('ERROR LOADING WITHDRAWAL CRON JOBS:', error);
+  console.error(error.stack);
+}
+console.log('======================================');
+console.log('\n\n');
 
 // One-time immediate check for withdrawals when app starts
 setTimeout(async () => {
+  console.log('\n\n');
   console.log('======================================');
   console.log('Running immediate one-time withdrawal verification check...');
   try {
+    // Only proceed if LENCO_API_KEY is configured
+    if (!process.env.LENCO_API_KEY) {
+      console.error('LENCO_API_KEY is not configured! API calls will fail.');
+      return;
+    }
+    
     const Withdrawal = require('./models/Withdrawal');
+    const axios = require('axios');
+    
     const processingWithdrawals = await Withdrawal.find({ status: 'processing' });
     console.log(`Found ${processingWithdrawals.length} processing withdrawals`);
     
     if (processingWithdrawals.length > 0) {
       console.log('Processing withdrawals:');
-      processingWithdrawals.forEach(w => {
+      for (const w of processingWithdrawals) {
         console.log(`- ID: ${w._id}, ClientRef: ${w.clientReference}, Status: ${w.status}, Created: ${w.createdAt}`);
-      });
+        
+        // Try a direct API call to Lenco for the first withdrawal
+        if (processingWithdrawals.indexOf(w) === 0) {
+          console.log(`Testing direct API call for withdrawal ${w._id}`);
+          try {
+            const response = await axios.get(`https://api.lenco.co/access/v1/transaction-by-reference/${w.clientReference}`, {
+              headers: {
+                'Authorization': `Bearer ${process.env.LENCO_API_KEY}`
+              }
+            });
+            
+            console.log('Lenco API Direct Test Response:');
+            console.log(JSON.stringify(response.data, null, 2));
+          } catch (apiError) {
+            console.error('Error in direct API call test:', apiError.message);
+            if (apiError.response) {
+              console.error('API Response Error:', JSON.stringify(apiError.response.data, null, 2));
+            }
+          }
+        }
+      }
     }
     
     const pendingWithdrawals = await Withdrawal.find({ status: 'pending' });
@@ -174,6 +219,7 @@ setTimeout(async () => {
     console.error(error.stack);
   }
   console.log('======================================');
+  console.log('\n\n');
 }, 5000); // Run 5 seconds after startup
 
 // Serve static assets if in production
@@ -189,6 +235,46 @@ if (process.env.NODE_ENV === 'production') {
 // Root route - Health check
 app.get('/', (req, res) => {
   res.send('AfriMobile API is running');
+});
+
+// Add a test route for manually checking Lenco API
+app.get('/api/test-lenco/:reference', async (req, res) => {
+  try {
+    console.log('Testing Lenco API directly...');
+    const { reference } = req.params;
+    
+    // Log API key status
+    console.log(`LENCO_API_KEY configured: ${process.env.LENCO_API_KEY ? 'Yes' : 'No'}`);
+    
+    if (!process.env.LENCO_API_KEY) {
+      return res.status(400).json({
+        success: false,
+        message: 'LENCO_API_KEY not configured in environment variables'
+      });
+    }
+    
+    const response = await axios.get(`https://api.lenco.co/access/v1/transaction-by-reference/${reference}`, {
+      headers: {
+        'Authorization': `Bearer ${process.env.LENCO_API_KEY}`
+      }
+    });
+    
+    return res.json({
+      success: true,
+      data: response.data
+    });
+  } catch (error) {
+    console.error('Error testing Lenco API:', error.message);
+    if (error.response) {
+      console.error('API Response Error:', JSON.stringify(error.response.data, null, 2));
+    }
+    
+    return res.status(500).json({
+      success: false,
+      message: 'Error testing Lenco API',
+      error: error.message
+    });
+  }
 });
 
 // Error handling middleware
@@ -212,7 +298,11 @@ app.use((req, res) => {
 // Start server
 const PORT = process.env.PORT || 5000;
 const server = app.listen(PORT, () => {
+  console.log('\n\n');
+  console.log('**********************************************');
   console.log(`Server running in ${process.env.NODE_ENV || 'development'} mode on port ${PORT}`);
+  console.log('**********************************************');
+  console.log('\n\n');
 });
 
 // Handle graceful shutdown
@@ -220,13 +310,11 @@ process.on('SIGTERM', () => {
   console.log('SIGTERM signal received: closing HTTP server');
   
   // Stop cron jobs if running
-  if (process.env.NODE_ENV === 'production') {
-    try {
-      const withdrawalCronJobs = require('./withdrawalCronJobs');
-      withdrawalCronJobs.stopAll();
-    } catch (error) {
-      console.error('Error stopping withdrawal cron jobs:', error);
-    }
+  try {
+    const withdrawalCronJobs = require('./withdrawalCronJobs');
+    withdrawalCronJobs.stopAll();
+  } catch (error) {
+    console.error('Error stopping withdrawal cron jobs:', error);
   }
   
   server.close(() => {

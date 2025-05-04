@@ -1,13 +1,166 @@
 const cron = require('node-cron');
 const Withdrawal = require('./models/Withdrawal');
 const ReferralTransaction = require('./models/ReferralTransaction');
+const Referral = require('./models/Referral');
 const axios = require('axios');
 const User = require('./models/User');
 const { sendEmail } = require('./utils/emailService');
-const { generateWithdrawalReceipt } = require('./utils/withdrawalReceiptService.js'); // Fixed duplicate .js extension
+const { generateWithdrawalReceipt } = require('./utils/withdrawalReceiptService.js');
 
 // Log whether API key is configured
 console.log('LENCO_API_KEY configured:', process.env.LENCO_API_KEY ? 'Yes' : 'No');
+
+/**
+ * Utility function to update user's balance after withdrawal
+ * Only counts paid withdrawals, not processing or pending ones
+ */
+const updateUserBalance = async (userId) => {
+  try {
+    // MODIFIED: Only count paid withdrawals, NOT processing ones
+    const withdrawals = await Withdrawal.find({
+      user: userId,
+      status: 'paid' // Only paid withdrawals are counted for balance deduction
+    });
+    
+    // Calculate total withdrawn amount
+    const totalWithdrawn = withdrawals.reduce((sum, withdrawal) => sum + withdrawal.amount, 0);
+    
+    // Update the user's referral data with the calculated total withdrawn
+    const updated = await Referral.findOneAndUpdate(
+      { user: userId },
+      { $set: { totalWithdrawn: totalWithdrawn } },
+      { new: true }
+    );
+    
+    console.log(`Updated balance for user ${userId} - total withdrawn: ${totalWithdrawn}`);
+    return updated;
+  } catch (error) {
+    console.error(`Error updating user balance: ${error.message}`);
+    return false;
+  }
+};
+
+/**
+ * Utility function to skip receipt generation errors
+ */
+const safeGenerateReceipt = async (withdrawal, user) => {
+  try {
+    if (typeof generateWithdrawalReceipt === 'function') {
+      const receipt = await generateWithdrawalReceipt(withdrawal, user);
+      console.log(`Receipt generated successfully: ${receipt ? 'Yes' : 'No'}`);
+      return receipt;
+    } else {
+      console.log('generateWithdrawalReceipt function not available, skipping');
+      return null;
+    }
+  } catch (error) {
+    console.error(`Error generating receipt: ${error.message}`);
+    return null;
+  }
+};
+
+/**
+ * Utility function to safely create a transaction record
+ */
+const createTransactionRecord = async (withdrawal, type) => {
+  try {
+    const existingTransaction = await ReferralTransaction.findOne({ reference: withdrawal.clientReference });
+    
+    if (existingTransaction) {
+      console.log(`Transaction record already exists for ${withdrawal._id}`);
+      return existingTransaction;
+    }
+    
+    // Try creating with additional fields
+    try {
+      const transaction = new ReferralTransaction({
+        user: withdrawal.user,
+        type: 'withdrawal',
+        amount: -withdrawal.amount,
+        description: `Withdrawal to ${withdrawal.paymentDetails.bankName} - ${withdrawal.paymentDetails.accountNumber}`,
+        status: 'completed',
+        reference: withdrawal.clientReference,
+        // Add required fields with default values
+        generation: 0,
+        referredUser: withdrawal.user,
+        beneficiary: withdrawal.user
+      });
+      
+      await transaction.save();
+      console.log(`Created ${type} transaction record for withdrawal ${withdrawal._id}`);
+      return transaction;
+    } catch (validationError) {
+      console.error(`Validation error creating transaction: ${validationError.message}`);
+      
+      // If there's a validation error, try with a simpler schema
+      try {
+        // Create a raw document directly to bypass schema validation if needed
+        const result = await ReferralTransaction.collection.insertOne({
+          user: withdrawal.user,
+          type: 'withdrawal',
+          amount: -withdrawal.amount,
+          description: `Withdrawal to ${withdrawal.paymentDetails.bankName} - ${withdrawal.paymentDetails.accountNumber}`,
+          status: 'completed',
+          reference: withdrawal.clientReference,
+          generation: 0,
+          referredUser: withdrawal.user,
+          beneficiary: withdrawal.user,
+          createdAt: new Date(),
+          updatedAt: new Date()
+        });
+        
+        console.log(`Created ${type} transaction record for withdrawal ${withdrawal._id} bypassing validation`);
+        return result;
+      } catch (insertError) {
+        console.error(`Failed to create transaction record: ${insertError.message}`);
+        // Continue despite transaction creation failure
+        return null;
+      }
+    }
+  } catch (error) {
+    console.error(`Error creating transaction record: ${error.message}`);
+    return null;
+  }
+};
+
+/**
+ * Utility function to safely update withdrawal status
+ */
+const updateWithdrawalStatus = async (withdrawal, newStatus, additionalData = {}) => {
+  try {
+    for (const [key, value] of Object.entries(additionalData)) {
+      withdrawal[key] = value;
+    }
+    
+    withdrawal.status = newStatus;
+    await withdrawal.save();
+    console.log(`Successfully updated withdrawal ${withdrawal._id} to status: ${newStatus}`);
+    return true;
+  } catch (error) {
+    console.error(`Error updating withdrawal status: ${error.message}`);
+    
+    // Try updating with findOneAndUpdate as a fallback
+    try {
+      const update = { 
+        status: newStatus,
+        updatedAt: new Date(),
+        ...additionalData
+      };
+      
+      const result = await Withdrawal.findOneAndUpdate(
+        { _id: withdrawal._id },
+        { $set: update },
+        { new: true }
+      );
+      
+      console.log(`Successfully updated withdrawal ${withdrawal._id} to status: ${newStatus} using findOneAndUpdate`);
+      return true;
+    } catch (updateError) {
+      console.error(`Failed to update withdrawal even with findOneAndUpdate: ${updateError.message}`);
+      return false;
+    }
+  }
+};
 
 /**
  * Cron job to verify and update processing withdrawals
@@ -15,8 +168,17 @@ console.log('LENCO_API_KEY configured:', process.env.LENCO_API_KEY ? 'Yes' : 'No
  */
 const verifyProcessingWithdrawals = cron.schedule('*/2 * * * *', async () => {
   try {
-    console.log('=== CRON JOB: Running scheduled withdrawal status verification ===');
-    console.log('Timestamp:', new Date().toISOString());
+    console.log('\n\n');
+    console.log('**********************************************');
+    console.log('* CRON JOB: PROCESSING WITHDRAWALS VERIFICATION *');
+    console.log('* ' + new Date().toISOString() + ' *');
+    console.log('**********************************************');
+    
+    // Check if Lenco API key is configured
+    if (!process.env.LENCO_API_KEY) {
+      console.error('LENCO_API_KEY is not configured! Skipping verification.');
+      return;
+    }
     
     // Find all withdrawals in processing state
     const processingWithdrawals = await Withdrawal.find({
@@ -48,32 +210,15 @@ const verifyProcessingWithdrawals = cron.schedule('*/2 * * * *', async () => {
         
         if (response.data && response.data.status) {
           const transactionData = response.data.data;
-          let statusChanged = false;
           
           console.log(`Current withdrawal status: ${withdrawal.status}, Lenco status: ${transactionData.status}`);
           
           // Update transaction status based on Lenco response
           if (transactionData.status === 'successful') {
-            withdrawal.status = 'paid';
-            withdrawal.processedAt = new Date();
-            withdrawal.transactionReference = transactionData.transactionReference;
-            statusChanged = true;
             console.log(`Withdrawal ${withdrawal._id} marked as PAID`);
             
-            // Create a transaction record for successful withdrawal only if not exists
-            const existingTransaction = await ReferralTransaction.findOne({ reference: withdrawal.clientReference });
-            if (!existingTransaction) {
-              const transaction = new ReferralTransaction({
-                user: withdrawal.user,
-                type: 'withdrawal',
-                amount: -withdrawal.amount,
-                description: `Withdrawal to ${withdrawal.paymentDetails.bankName} - ${withdrawal.paymentDetails.accountNumber}`,
-                status: 'completed',
-                reference: withdrawal.clientReference
-              });
-              await transaction.save();
-              console.log(`Created transaction record for withdrawal ${withdrawal._id}`);
-            }
+            // Create a transaction record for successful withdrawal
+            await createTransactionRecord(withdrawal, 'processing');
             
             // Get user info for notification
             const user = await User.findById(withdrawal.user);
@@ -81,12 +226,7 @@ const verifyProcessingWithdrawals = cron.schedule('*/2 * * * *', async () => {
             if (user) {
               // Generate receipt for successful payment
               console.log(`Generating receipt for user ${user._id}`);
-              try {
-                const receipt = await generateWithdrawalReceipt(withdrawal, user);
-                console.log(`Receipt generated successfully: ${receipt ? 'Yes' : 'No'}`);
-              } catch (receiptError) {
-                console.error(`Error generating receipt: ${receiptError.message}`);
-              }
+              await safeGenerateReceipt(withdrawal, user);
               
               // Send confirmation email
               try {
@@ -110,12 +250,22 @@ const verifyProcessingWithdrawals = cron.schedule('*/2 * * * *', async () => {
               console.log(`User ${withdrawal.user} not found for email notification`);
             }
             
+            // Update withdrawal status after all other operations
+            const updated = await updateWithdrawalStatus(withdrawal, 'paid', {
+              processedAt: new Date(),
+              transactionReference: transactionData.transactionReference
+            });
+            
+            if (updated) {
+              updatedCount++;
+              
+              // Update user's balance - NOW only happens when status changes to 'paid'
+              await updateUserBalance(withdrawal.user);
+              console.log(`User balance updated after withdrawal ${withdrawal._id} marked as paid`);
+            }
+            
           } else if (transactionData.status === 'failed' || transactionData.status === 'declined') {
-            withdrawal.status = 'failed';
-            withdrawal.failedAt = transactionData.failedAt || new Date();
-            withdrawal.rejectionReason = transactionData.reasonForFailure || 'Transaction failed';
-            statusChanged = true;
-            console.log(`Withdrawal ${withdrawal._id} marked as FAILED: ${withdrawal.rejectionReason}`);
+            console.log(`Withdrawal ${withdrawal._id} marked as FAILED: ${transactionData.reasonForFailure || 'Transaction failed'}`);
             
             // Get user info for notification
             const user = await User.findById(withdrawal.user);
@@ -130,7 +280,7 @@ const verifyProcessingWithdrawals = cron.schedule('*/2 * * * *', async () => {
                     <h2>Withdrawal Failed</h2>
                     <p>Hello ${user.name},</p>
                     <p>We're sorry, but your withdrawal of ₦${withdrawal.amount.toLocaleString()} has failed.</p>
-                    <p><strong>Reason:</strong> ${withdrawal.rejectionReason}</p>
+                    <p><strong>Reason:</strong> ${transactionData.reasonForFailure || 'Transaction failed'}</p>
                     <p>The funds have been returned to your account balance. You can try again or contact support if you need assistance.</p>
                   `
                 });
@@ -139,15 +289,22 @@ const verifyProcessingWithdrawals = cron.schedule('*/2 * * * *', async () => {
                 console.error(`Failed to send withdrawal failure email: ${emailError.message}`);
               }
             }
+            
+            // Update withdrawal status after all other operations
+            const updated = await updateWithdrawalStatus(withdrawal, 'failed', {
+              failedAt: transactionData.failedAt || new Date(),
+              rejectionReason: transactionData.reasonForFailure || 'Transaction failed'
+            });
+            
+            if (updated) {
+              updatedCount++;
+              
+              // Update user's balance - to ensure any temporary deductions are reversed
+              await updateUserBalance(withdrawal.user);
+              console.log(`User balance updated after withdrawal ${withdrawal._id} marked as failed`);
+            }
           } else {
             console.log(`No status change needed for withdrawal ${withdrawal._id}. Lenco status still: ${transactionData.status}`);
-          }
-          
-          if (statusChanged) {
-            console.log(`Saving withdrawal ${withdrawal._id} with updated status: ${withdrawal.status}`);
-            await withdrawal.save();
-            updatedCount++;
-            console.log(`Updated withdrawal ${withdrawal._id} to status: ${withdrawal.status}`);
           }
         } else {
           console.log(`No valid data in Lenco response for withdrawal ${withdrawal._id}`);
@@ -162,9 +319,11 @@ const verifyProcessingWithdrawals = cron.schedule('*/2 * * * *', async () => {
     }
     
     console.log(`Updated ${updatedCount} of ${processingWithdrawals.length} processing withdrawals in this cron job run`);
-    console.log('=== CRON JOB: Processing withdrawals verification completed ===');
+    console.log('**********************************************');
+    console.log('\n\n');
   } catch (error) {
     console.error('Error in withdrawal verification cron job:', error);
+    console.error(error.stack);
   }
 }, {
   scheduled: false // Don't start automatically
@@ -176,8 +335,17 @@ const verifyProcessingWithdrawals = cron.schedule('*/2 * * * *', async () => {
  */
 const verifyPendingWithdrawals = cron.schedule('*/2 * * * *', async () => {
   try {
-    console.log('=== CRON JOB: Running scheduled pending withdrawal verification ===');
-    console.log('Timestamp:', new Date().toISOString());
+    console.log('\n\n');
+    console.log('**********************************************');
+    console.log('* CRON JOB: PENDING WITHDRAWALS VERIFICATION *');
+    console.log('* ' + new Date().toISOString() + ' *');
+    console.log('**********************************************');
+    
+    // Check if Lenco API key is configured
+    if (!process.env.LENCO_API_KEY) {
+      console.error('LENCO_API_KEY is not configured! Skipping verification.');
+      return;
+    }
     
     // Find all withdrawals in pending state
     const pendingWithdrawals = await Withdrawal.find({
@@ -209,29 +377,15 @@ const verifyPendingWithdrawals = cron.schedule('*/2 * * * *', async () => {
         
         if (response.data && response.data.status) {
           const transactionData = response.data.data;
-          let statusChanged = false;
           
           console.log(`Current pending withdrawal status: ${withdrawal.status}, Lenco status: ${transactionData.status}`);
           
           // Update transaction status based on Lenco response
           if (transactionData.status === 'successful') {
-            withdrawal.status = 'paid';
-            withdrawal.processedAt = new Date();
-            withdrawal.transactionReference = transactionData.transactionReference;
-            statusChanged = true;
             console.log(`Pending withdrawal ${withdrawal._id} marked as PAID`);
             
             // Create a transaction record for successful withdrawal
-            const transaction = new ReferralTransaction({
-              user: withdrawal.user,
-              type: 'withdrawal',
-              amount: -withdrawal.amount,
-              description: `Withdrawal to ${withdrawal.paymentDetails.bankName} - ${withdrawal.paymentDetails.accountNumber}`,
-              status: 'completed',
-              reference: withdrawal.clientReference
-            });
-            await transaction.save();
-            console.log(`Created transaction record for pending withdrawal ${withdrawal._id}`);
+            await createTransactionRecord(withdrawal, 'pending');
             
             // Get user info for notification
             const user = await User.findById(withdrawal.user);
@@ -239,12 +393,7 @@ const verifyPendingWithdrawals = cron.schedule('*/2 * * * *', async () => {
             if (user) {
               // Generate receipt for successful payment
               console.log(`Generating receipt for user ${user._id}`);
-              try {
-                const receipt = await generateWithdrawalReceipt(withdrawal, user);
-                console.log(`Receipt generated successfully: ${receipt ? 'Yes' : 'No'}`);
-              } catch (receiptError) {
-                console.error(`Error generating receipt: ${receiptError.message}`);
-              }
+              await safeGenerateReceipt(withdrawal, user);
               
               // Send confirmation email
               try {
@@ -266,12 +415,22 @@ const verifyPendingWithdrawals = cron.schedule('*/2 * * * *', async () => {
               }
             }
             
+            // Update withdrawal status after all other operations
+            const updated = await updateWithdrawalStatus(withdrawal, 'paid', {
+              processedAt: new Date(),
+              transactionReference: transactionData.transactionReference
+            });
+            
+            if (updated) {
+              updatedCount++;
+              
+              // Update user's balance - NOW only happens when status changes to 'paid'
+              await updateUserBalance(withdrawal.user);
+              console.log(`User balance updated after withdrawal ${withdrawal._id} marked as paid`);
+            }
+            
           } else if (transactionData.status === 'failed' || transactionData.status === 'declined') {
-            withdrawal.status = 'failed';
-            withdrawal.failedAt = transactionData.failedAt || new Date();
-            withdrawal.rejectionReason = transactionData.reasonForFailure || 'Transaction failed';
-            statusChanged = true;
-            console.log(`Pending withdrawal ${withdrawal._id} marked as FAILED: ${withdrawal.rejectionReason}`);
+            console.log(`Pending withdrawal ${withdrawal._id} marked as FAILED: ${transactionData.reasonForFailure || 'Transaction failed'}`);
             
             // Get user info for notification
             const user = await User.findById(withdrawal.user);
@@ -286,7 +445,7 @@ const verifyPendingWithdrawals = cron.schedule('*/2 * * * *', async () => {
                     <h2>Withdrawal Failed</h2>
                     <p>Hello ${user.name},</p>
                     <p>We're sorry, but your withdrawal of ₦${withdrawal.amount.toLocaleString()} has failed.</p>
-                    <p><strong>Reason:</strong> ${withdrawal.rejectionReason}</p>
+                    <p><strong>Reason:</strong> ${transactionData.reasonForFailure || 'Transaction failed'}</p>
                     <p>The funds have been returned to your account balance. You can try again or contact support if you need assistance.</p>
                   `
                 });
@@ -295,19 +454,36 @@ const verifyPendingWithdrawals = cron.schedule('*/2 * * * *', async () => {
                 console.error(`Failed to send withdrawal failure email: ${emailError.message}`);
               }
             }
+            
+            // Update withdrawal status after all other operations
+            const updated = await updateWithdrawalStatus(withdrawal, 'failed', {
+              failedAt: transactionData.failedAt || new Date(),
+              rejectionReason: transactionData.reasonForFailure || 'Transaction failed'
+            });
+            
+            if (updated) {
+              updatedCount++;
+              
+              // Update user's balance - to ensure any temporary deductions are reversed
+              await updateUserBalance(withdrawal.user);
+              console.log(`User balance updated after withdrawal ${withdrawal._id} marked as failed`);
+            }
+            
           } else if (transactionData.status === 'processing') {
-            withdrawal.status = 'processing';
-            statusChanged = true;
             console.log(`Pending withdrawal ${withdrawal._id} moved to PROCESSING state`);
+            
+            // Update withdrawal status
+            const updated = await updateWithdrawalStatus(withdrawal, 'processing');
+            if (updated) {
+              updatedCount++;
+              
+              // NOTE: We do NOT update the user's balance when changing to 'processing'
+              // This ensures balance is only deducted when transaction is fully paid
+              console.log(`Withdrawal ${withdrawal._id} moved to processing, but balance not deducted yet`);
+            }
+            
           } else {
             console.log(`No status change needed for pending withdrawal ${withdrawal._id}. Lenco status: ${transactionData.status}`);
-          }
-          
-          if (statusChanged) {
-            console.log(`Saving pending withdrawal ${withdrawal._id} with updated status: ${withdrawal.status}`);
-            await withdrawal.save();
-            updatedCount++;
-            console.log(`Updated pending withdrawal ${withdrawal._id} to status: ${withdrawal.status}`);
           }
         } else {
           console.log(`No valid data in Lenco response for pending withdrawal ${withdrawal._id}`);
@@ -322,23 +498,69 @@ const verifyPendingWithdrawals = cron.schedule('*/2 * * * *', async () => {
     }
     
     console.log(`Updated ${updatedCount} of ${pendingWithdrawals.length} pending withdrawals in this cron job run`);
-    console.log('=== CRON JOB: Pending withdrawals verification completed ===');
+    console.log('**********************************************');
+    console.log('\n\n');
   } catch (error) {
     console.error('Error in pending withdrawal verification cron job:', error);
+    console.error(error.stack);
   }
 }, {
   scheduled: false // Don't start automatically
 });
 
+/**
+ * Utility function to manually force update all user balances
+ * This can be used if balance calculations are out of sync
+ */
+const forceUpdateAllBalances = async () => {
+  try {
+    console.log('Force updating all user balances...');
+    
+    // Get all users with withdrawals
+    const withdrawalUsers = await Withdrawal.distinct('user');
+    console.log(`Found ${withdrawalUsers.length} users with withdrawals`);
+    
+    let updatedCount = 0;
+    
+    // Update each user's balance
+    for (const userId of withdrawalUsers) {
+      const updated = await updateUserBalance(userId);
+      if (updated) updatedCount++;
+    }
+    
+    console.log(`Updated balances for ${updatedCount} users`);
+    return true;
+  } catch (error) {
+    console.error('Error force updating balances:', error);
+    return false;
+  }
+};
+
 // Export the cron jobs
 module.exports = {
   verifyProcessingWithdrawals,
   verifyPendingWithdrawals,
+  updateUserBalance,          // Export the balance update function
+  forceUpdateAllBalances,     // Export the force update function
   startAll: () => {
-    console.log('Starting all withdrawal verification cron jobs...');
+    console.log('\n\n');
+    console.log('**********************************************');
+    console.log('* STARTING ALL WITHDRAWAL VERIFICATION JOBS *');
+    console.log('**********************************************');
+    
+    if (!process.env.LENCO_API_KEY) {
+      console.error('WARNING: LENCO_API_KEY is not configured! Jobs will run but API calls will fail.');
+    }
+    
     verifyProcessingWithdrawals.start();
+    console.log('Processing withdrawals job started');
+    
     verifyPendingWithdrawals.start();
+    console.log('Pending withdrawals job started');
+    
     console.log('All withdrawal verification cron jobs started');
+    console.log('**********************************************');
+    console.log('\n\n');
   },
   stopAll: () => {
     console.log('Stopping all withdrawal verification cron jobs...');

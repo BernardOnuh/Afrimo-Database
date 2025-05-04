@@ -59,7 +59,7 @@ exports.processInstantWithdrawal = async (req, res) => {
       });
     }
 
-    // Calculate available balance
+    // Calculate available balance - ONLY count paid withdrawals, not processing ones
     let pendingWithdrawals = 0;
     const pending = await Withdrawal.find({
       user: userId,
@@ -70,8 +70,9 @@ exports.processInstantWithdrawal = async (req, res) => {
       pendingWithdrawals = pending.reduce((total, w) => total + w.amount, 0);
     }
     
+    // CHANGE: Only count 'paid' withdrawals, not 'processing' ones
     const withdrawnAmount = await Withdrawal.aggregate([
-      { $match: { user: userId, status: { $in: ['paid', 'processing'] } } },
+      { $match: { user: userId, status: { $in: ['paid'] } } },
       { $group: { _id: null, total: { $sum: '$amount' } } }
     ]);
     
@@ -128,7 +129,7 @@ exports.processInstantWithdrawal = async (req, res) => {
     // Process the bank transfer using Lenco API
     try {
       const response = await axios.post('https://api.lenco.co/access/v1/transactions', {
-        accountId: process.env.LENCO_ACCOUNT_ID, // Your company's Lenco account ID
+        accountId: process.env.LENCO_ACCOUNT_ID,
         accountNumber: paymentData.bankAccount.accountNumber,
         bankCode: paymentData.bankAccount.bankCode,
         amount: amount.toString(),
@@ -152,13 +153,18 @@ exports.processInstantWithdrawal = async (req, res) => {
           withdrawal.processedAt = new Date();
           
           // Create a transaction record for successful withdrawal
+          // BUT don't update the user's totalWithdrawn amount - let the cron job handle it
           const transaction = new ReferralTransaction({
             user: userId,
             type: 'withdrawal',
             amount: -amount,
             description: `Withdrawal to ${paymentData.bankAccount.bankName} - ${paymentData.bankAccount.accountNumber}`,
             status: 'completed',
-            reference: clientReference
+            reference: clientReference,
+            // Add required fields with default values
+            generation: 0,
+            referredUser: userId,
+            beneficiary: userId
           });
           await transaction.save();
         } else if (response.data.data.status === 'failed' || response.data.data.status === 'declined') {
@@ -175,25 +181,30 @@ exports.processInstantWithdrawal = async (req, res) => {
         const user = await User.findById(userId);
 
         // Generate receipt for successful payments
+        let receipt = null;
         if (withdrawal.status === 'paid') {
-          const receipt = await generateWithdrawalReceipt(withdrawal, user);
-          
-          // Send confirmation email for successful transaction
           try {
-            await sendEmail({
-              email: user.email,
-              subject: 'Withdrawal Successful',
-              html: `
-                <h2>Withdrawal Successful</h2>
-                <p>Hello ${user.name},</p>
-                <p>Your withdrawal of ₦${amount.toLocaleString()} has been processed successfully.</p>
-                <p><strong>Transaction Reference:</strong> ${response.data.data.transactionReference}</p>
-                <p>You can download your receipt from the dashboard or using <a href="${process.env.FRONTEND_URL}/api/withdrawal/receipt/${withdrawal._id}">this link</a>.</p>
-                <p>Thank you for using our platform!</p>
-              `
-            });
-          } catch (emailError) {
-            console.error('Failed to send withdrawal confirmation email:', emailError);
+            receipt = await generateWithdrawalReceipt(withdrawal, user);
+            
+            // Send confirmation email for successful transaction
+            try {
+              await sendEmail({
+                email: user.email,
+                subject: 'Withdrawal Successful',
+                html: `
+                  <h2>Withdrawal Successful</h2>
+                  <p>Hello ${user.name},</p>
+                  <p>Your withdrawal of ₦${amount.toLocaleString()} has been processed successfully.</p>
+                  <p><strong>Transaction Reference:</strong> ${response.data.data.transactionReference}</p>
+                  <p>You can download your receipt from the dashboard or using <a href="${process.env.FRONTEND_URL}/api/withdrawal/receipt/${withdrawal._id}">this link</a>.</p>
+                  <p>Thank you for using our platform!</p>
+                `
+              });
+            } catch (emailError) {
+              console.error('Failed to send withdrawal confirmation email:', emailError);
+            }
+          } catch (receiptError) {
+            console.error('Failed to generate receipt:', receiptError);
           }
         }
 
@@ -207,7 +218,7 @@ exports.processInstantWithdrawal = async (req, res) => {
             transactionReference: response.data.data.transactionReference,
             clientReference: clientReference,
             processedAt: withdrawal.processedAt,
-            receiptUrl: withdrawal.status === 'paid' ? receipt.filePath : null
+            receiptUrl: receipt?.filePath || null
           }
         });
       } else {
@@ -895,10 +906,10 @@ exports.getWithdrawalHistory = async (req, res) => {
   }
 };
 
+
 /**
  * Get user's current earnings balance
- * @route GET /api/withdrawal/balance
- * @access Private
+ * Only counts paid withdrawals, not processing ones
  */
 exports.getEarningsBalance = async (req, res) => {
   try {
@@ -925,13 +936,24 @@ exports.getEarningsBalance = async (req, res) => {
       pendingWithdrawals = pending.reduce((total, w) => total + w.amount, 0);
     }
     
+    // CHANGE: Only count paid withdrawals, NOT processing
     const withdrawnAmount = await Withdrawal.aggregate([
-      { $match: { user: userId, status: { $in: ['approved', 'paid'] } } },
+      { $match: { user: userId, status: { $in: ['paid'] } } },
       { $group: { _id: null, total: { $sum: '$amount' } } }
     ]);
     
     const totalWithdrawn = withdrawnAmount.length > 0 ? withdrawnAmount[0].total : 0;
     
+    // Get processing withdrawals separately (for display purposes)
+    const processing = await Withdrawal.find({
+      user: userId,
+      status: 'processing'
+    });
+    
+    const processingAmount = processing.length > 0 ? 
+      processing.reduce((total, w) => total + w.amount, 0) : 0;
+    
+    // Available balance doesn't include processing withdrawals
     const availableBalance = totalEarnings - pendingWithdrawals - totalWithdrawn;
 
     res.status(200).json({
@@ -939,6 +961,7 @@ exports.getEarningsBalance = async (req, res) => {
       data: {
         totalEarnings,
         pendingWithdrawals,
+        processingWithdrawals: processingAmount,
         totalWithdrawn,
         availableBalance,
         minimumWithdrawalAmount: MINIMUM_WITHDRAWAL_AMOUNT,
