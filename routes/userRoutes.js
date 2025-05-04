@@ -19,4 +19,9 @@ router.put('/password', protect, userController.updatePassword);
 // Admin routes
 router.post('/admin/grant-rights', protect, adminProtect, userController.grantAdminRights);
 
+// Ban management routes (admin only)
+router.post('/admin/users/:userId/ban', protect, adminProtect, userController.banUser);
+router.post('/admin/users/:userId/unban', protect, adminProtect, userController.unbanUser);
+router.get('/admin/users/banned', protect, adminProtect, userController.getBannedUsers);
+
 module.exports = router;

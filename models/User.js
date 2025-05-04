@@ -50,6 +50,35 @@ const userSchema = new mongoose.Schema({
     type: Boolean,
     default: false
   },
+  // Ban-related fields
+  isBanned: {
+    type: Boolean,
+    default: false
+  },
+  banReason: {
+    type: String,
+    trim: true,
+    default: null
+  },
+  bannedAt: {
+    type: Date,
+    default: null
+  },
+  bannedBy: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User',
+    default: null
+  },
+  unbannedAt: {
+    type: Date,
+    default: null
+  },
+  unbannedBy: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User',
+    default: null
+  },
+  // Existing fields
   resetPasswordToken: String,
   resetPasswordExpire: Date,
   referralInfo: {

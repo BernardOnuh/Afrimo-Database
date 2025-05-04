@@ -184,9 +184,9 @@ exports.loginUser = async (req, res) => {
     // Check if user exists by email or username
     let user;
     if (email) {
-      user = await User.findOne({ email });
+      user = await User.findOne({ email }).select('+password');
     } else {
-      user = await User.findOne({ userName: username });
+      user = await User.findOne({ userName: username }).select('+password');
     }
 
     if (!user) {
@@ -205,6 +205,16 @@ exports.loginUser = async (req, res) => {
       });
     }
 
+    // Check if user is banned
+    if (user.isBanned) {
+      return res.status(403).json({
+        success: false,
+        message: 'Your account has been suspended',
+        reason: user.banReason || 'Violation of terms of service',
+        bannedAt: user.bannedAt
+      });
+    }
+
     // Generate token
     const token = generateToken(user._id);
 
@@ -220,10 +230,9 @@ exports.loginUser = async (req, res) => {
         email: user.email,
         walletAddress: user.walletAddress,
         country: user.country,
-        state: user.state,
-        city: user.city,
         interest: user.interest,
-        phone: user.phone
+        phone: user.phone,
+        isAdmin: user.isAdmin
       }
     });
   } catch (error) {
@@ -235,6 +244,7 @@ exports.loginUser = async (req, res) => {
     });
   }
 };
+
 
 // Forgot Password - Generate Reset Token
 exports.forgotPassword = async (req, res) => {
@@ -485,6 +495,16 @@ exports.loginWithWallet = async (req, res) => {
       });
     }
 
+    // Check if user is banned
+    if (user.isBanned) {
+      return res.status(403).json({
+        success: false,
+        message: 'Your account has been suspended',
+        reason: user.banReason || 'Violation of terms of service',
+        bannedAt: user.bannedAt
+      });
+    }
+
     // Generate token
     const token = generateToken(user._id);
 
@@ -500,10 +520,9 @@ exports.loginWithWallet = async (req, res) => {
         email: user.email,
         walletAddress: user.walletAddress,
         country: user.country,
-        state: user.state,
-        city: user.city,
         interest: user.interest,
-        phone: user.phone
+        phone: user.phone,
+        isAdmin: user.isAdmin
       }
     });
   } catch (error) {
@@ -896,6 +915,158 @@ exports.grantAdminRights = async (req, res) => {
     });
   } catch (error) {
     console.error('Error granting admin rights:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Internal server error',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+};
+
+// Add these to your userController.js file
+
+// Ban user
+exports.banUser = async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const { reason } = req.body;
+
+    // Verify the current user is an admin
+    if (!req.user.isAdmin) {
+      return res.status(403).json({
+        success: false,
+        message: 'Permission denied: Admin access required'
+      });
+    }
+
+    // Find user to ban
+    const userToBan = await User.findById(userId);
+
+    if (!userToBan) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
+    }
+
+    // Don't allow banning other admins
+    if (userToBan.isAdmin) {
+      return res.status(403).json({
+        success: false,
+        message: 'Cannot ban an admin user'
+      });
+    }
+
+    // Update user status
+    userToBan.isBanned = true;
+    userToBan.banReason = reason || 'Violation of terms of service';
+    userToBan.bannedAt = new Date();
+    userToBan.bannedBy = req.user.id;
+
+    await userToBan.save();
+
+    res.status(200).json({
+      success: true,
+      message: `User ${userToBan.email} has been banned`,
+      user: {
+        id: userToBan._id,
+        email: userToBan.email,
+        isBanned: true,
+        banReason: userToBan.banReason,
+        bannedAt: userToBan.bannedAt
+      }
+    });
+  } catch (error) {
+    console.error('Error banning user:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Internal server error',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+};
+
+// Unban user
+exports.unbanUser = async (req, res) => {
+  try {
+    const { userId } = req.params;
+
+    // Verify the current user is an admin
+    if (!req.user.isAdmin) {
+      return res.status(403).json({
+        success: false,
+        message: 'Permission denied: Admin access required'
+      });
+    }
+
+    // Find user to unban
+    const userToUnban = await User.findById(userId);
+
+    if (!userToUnban) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
+    }
+
+    // Check if user is already unbanned
+    if (!userToUnban.isBanned) {
+      return res.status(400).json({
+        success: false,
+        message: 'User is not currently banned'
+      });
+    }
+
+    // Update user status
+    userToUnban.isBanned = false;
+    userToUnban.banReason = undefined;
+    userToUnban.unbannedAt = new Date();
+    userToUnban.unbannedBy = req.user.id;
+
+    await userToUnban.save();
+
+    res.status(200).json({
+      success: true,
+      message: `User ${userToUnban.email} has been unbanned`,
+      user: {
+        id: userToUnban._id,
+        email: userToUnban.email,
+        isBanned: false,
+        unbannedAt: userToUnban.unbannedAt
+      }
+    });
+  } catch (error) {
+    console.error('Error unbanning user:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Internal server error',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+};
+
+// Get all banned users
+exports.getBannedUsers = async (req, res) => {
+  try {
+    // Verify the current user is an admin
+    if (!req.user.isAdmin) {
+      return res.status(403).json({
+        success: false,
+        message: 'Permission denied: Admin access required'
+      });
+    }
+
+    const bannedUsers = await User.find({ isBanned: true })
+      .select('name email isBanned banReason bannedAt bannedBy')
+      .populate('bannedBy', 'name email');
+
+    res.status(200).json({
+      success: true,
+      count: bannedUsers.length,
+      data: bannedUsers
+    });
+  } catch (error) {
+    console.error('Error fetching banned users:', error);
     res.status(500).json({
       success: false,
       message: 'Internal server error',

@@ -45,7 +45,17 @@ exports.protect = async (req, res, next) => {
         });
       }
       
-      // Check if user is active
+      // Check if user is banned
+      if (user.isBanned) {
+        return res.status(403).json({
+          success: false,
+          message: 'Your account has been suspended.',
+          reason: user.banReason || 'Violation of terms of service',
+          bannedAt: user.bannedAt
+        });
+      }
+      
+      // Check if user is active (keep existing status checks)
       if (user.status === 'inactive' || user.status === 'suspended') {
         return res.status(403).json({
           success: false,
