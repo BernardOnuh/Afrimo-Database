@@ -135,110 +135,159 @@ const getTimeFilteredLeaderboard = async (timeFrame, categoryFilter = 'registrat
     });
   }
   
-  aggregatePipeline.push(
-    {
-      $addFields: {
-        totalShares: { $sum: '$shares.totalShares' },
-        totalCofounderShares: { $sum: '$cofounderShares.totalShares' },
-        combinedShares: { 
-          $sum: [
-            { $sum: '$shares.totalShares' }, 
-            { $sum: '$cofounderShares.totalShares' }
-          ]
-        },
-        referralCount: { $sum: '$referralData.referredUsers' },
-        totalEarnings: { $sum: '$referralData.totalEarnings' },
-        
-        ...(dateThreshold && transactionField === 'referralTransactions' ? {
-          periodEarnings: { $sum: '$filteredTransactions.amount' }
-        } : {}),
-        
-        ...(dateThreshold && transactionField === 'transactions' ? {
-          periodSpending: { $sum: '$filteredTransactions.totalAmount' }
-        } : {}),
-        
-        ...(dateThreshold && transactionField === 'referralData.transactions' ? {
-          periodReferrals: { $size: '$filteredTransactions' }
-        } : {}),
-        
-        withdrawalAmount: {
-          $sum: {
-            $map: {
-              input: {
-                $filter: {
-                  input: '$withdrawals',
-                  as: 'withdrawal',
-                  cond: { 
-                    $and: [
-                      { $in: ['$$withdrawal.status', ['paid', 'approved']] }, // Remove 'processing'
-                      ...(dateThreshold ? [{ $gte: ['$$withdrawal.createdAt', dateThreshold] }] : [])
-                    ]
-                  }
+  // First, safely access the referral data as an object
+  aggregatePipeline.push({
+    $addFields: {
+      // Safely get the first element from the referralData array
+      referralInfo: { 
+        $cond: { 
+          if: { $gt: [{ $size: "$referralData" }, 0] }, 
+          then: { $arrayElemAt: ["$referralData", 0] }, 
+          else: {
+            totalEarnings: 0,
+            totalWithdrawn: 0,
+            pendingWithdrawals: 0,
+            processingWithdrawals: 0
+          } 
+        } 
+      },
+      
+      totalShares: { $sum: '$shares.totalShares' },
+      totalCofounderShares: { $sum: '$cofounderShares.totalShares' },
+      combinedShares: { 
+        $sum: [
+          { $sum: '$shares.totalShares' }, 
+          { $sum: '$cofounderShares.totalShares' }
+        ]
+      },
+      
+      withdrawalAmount: {
+        $sum: {
+          $map: {
+            input: {
+              $filter: {
+                input: '$withdrawals',
+                as: 'withdrawal',
+                cond: { 
+                  $and: [
+                    { $in: ['$$withdrawal.status', ['paid', 'approved']] }, // Only completed withdrawals
+                    ...(dateThreshold ? [{ $gte: ['$$withdrawal.createdAt', dateThreshold] }] : [])
+                  ]
                 }
-              },
-              as: 'validWithdrawal',
-              in: '$$validWithdrawal.amount'
-            }
+              }
+            },
+            as: 'validWithdrawal',
+            in: '$$validWithdrawal.amount'
           }
-        },
+        }
+      },
 
-        processingWithdrawals: {
-          $sum: {
-            $map: {
-              input: {
-                $filter: {
-                  input: '$withdrawals',
-                  as: 'withdrawal',
-                  cond: { 
-                    $and: [
-                      { $eq: ['$$withdrawal.status', 'processing'] },
-                      ...(dateThreshold ? [{ $gte: ['$$withdrawal.createdAt', dateThreshold] }] : [])
-                    ]
-                  }
+      processingWithdrawalsAmount: {
+        $sum: {
+          $map: {
+            input: {
+              $filter: {
+                input: '$withdrawals',
+                as: 'withdrawal',
+                cond: { 
+                  $and: [
+                    { $eq: ['$$withdrawal.status', 'processing'] },
+                    ...(dateThreshold ? [{ $gte: ['$$withdrawal.createdAt', dateThreshold] }] : [])
+                  ]
                 }
-              },
-              as: 'processingWithdrawal',
-              in: '$$processingWithdrawal.amount'
-            }
+              }
+            },
+            as: 'processingWithdrawal',
+            in: '$$processingWithdrawal.amount'
           }
-        },
-        
-        totalSpent: { 
-          $sum: [
-            { $sum: '$shares.transactions.totalAmount' },
-            { $sum: '$cofounderShares.transactions.totalAmount' }
-          ]
         }
-      }
-    },
-    {
-      $addFields: {
-        ...(dateThreshold && transactionField === 'referralTransactions' ? {
-          sortField: '$periodEarnings'
-        } : {}),
-        
-        ...(dateThreshold && transactionField === 'transactions' ? {
-          sortField: '$periodSpending'
-        } : {}),
-        
-        ...(dateThreshold && transactionField === 'referralData.transactions' ? {
-          sortField: '$periodReferrals'
-        } : {}),
-        
-        currentBalance: { 
-          $subtract: [
-            { $sum: '$referralData.totalEarnings' },
-            { 
-              $add: [
-                { $ifNull: ['$referralData.totalWithdrawn', 0] },
-                { $ifNull: ['$referralData.pendingWithdrawals', 0] },
-                { $ifNull: ['$referralData.processingWithdrawals', 0] }
-              ] 
-            }
-          ]
+      },
+      
+      pendingWithdrawalsAmount: {
+        $sum: {
+          $map: {
+            input: {
+              $filter: {
+                input: '$withdrawals',
+                as: 'withdrawal',
+                cond: { 
+                  $and: [
+                    { $eq: ['$$withdrawal.status', 'pending'] },
+                    ...(dateThreshold ? [{ $gte: ['$$withdrawal.createdAt', dateThreshold] }] : [])
+                  ]
+                }
+              }
+            },
+            as: 'pendingWithdrawal',
+            in: '$$pendingWithdrawal.amount'
+          }
         }
+      },
+      
+      totalSpent: { 
+        $sum: [
+          { $sum: '$shares.transactions.totalAmount' },
+          { $sum: '$cofounderShares.transactions.totalAmount' }
+        ]
       }
-    },
+    }
+  });
+  
+  // Now calculate the derived fields
+  aggregatePipeline.push({
+    $addFields: {
+      // Use the referralInfo object to safely access fields
+      referralCount: { $ifNull: ["$referralInfo.referredUsers", 0] },
+      totalEarnings: { $ifNull: ["$referralInfo.totalEarnings", 0] },
+      
+      ...(dateThreshold && transactionField === 'referralTransactions' ? {
+        periodEarnings: { $sum: '$filteredTransactions.amount' }
+      } : {}),
+      
+      ...(dateThreshold && transactionField === 'transactions' ? {
+        periodSpending: { $sum: '$filteredTransactions.totalAmount' }
+      } : {}),
+      
+      ...(dateThreshold && transactionField === 'referralData.transactions' ? {
+        periodReferrals: { $size: '$filteredTransactions' }
+      } : {}),
+    }
+  });
+  
+  // Calculate the current balance
+  aggregatePipeline.push({
+    $addFields: {
+      // Sort field for time period filtering
+      ...(dateThreshold && transactionField === 'referralTransactions' ? {
+        sortField: '$periodEarnings'
+      } : {}),
+      
+      ...(dateThreshold && transactionField === 'transactions' ? {
+        sortField: '$periodSpending'
+      } : {}),
+      
+      ...(dateThreshold && transactionField === 'referralData.transactions' ? {
+        sortField: '$periodReferrals'
+      } : {}),
+      
+      // Calculate available balance using the properly accessed fields
+      currentBalance: { 
+        $subtract: [
+          { $ifNull: ["$referralInfo.totalEarnings", 0] },
+          {
+            $add: [
+              { $ifNull: ["$referralInfo.totalWithdrawn", 0] },
+              { $ifNull: ["$referralInfo.pendingWithdrawals", 0] },
+              { $ifNull: ["$referralInfo.processingWithdrawals", 0] }
+            ]
+          }
+        ]
+      }
+    }
+  });
+  
+  // Final stages for filtering, sorting, limiting and projection
+  aggregatePipeline.push(
     { $match: matchCriteria },
     dateThreshold && transactionField 
       ? { $sort: { sortField: -1 } } 
@@ -256,6 +305,8 @@ const getTimeFilteredLeaderboard = async (timeFrame, categoryFilter = 'registrat
         totalEarnings: 1,
         currentBalance: 1,
         withdrawalAmount: 1,
+        pendingWithdrawalsAmount: 1,
+        processingWithdrawalsAmount: 1,
         totalSpent: 1,
         createdAt: 1,
         ...(dateThreshold && transactionField === 'referralTransactions' ? {
