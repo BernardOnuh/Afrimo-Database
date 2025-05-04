@@ -1,3 +1,5 @@
+// Add this line at the top of the file with your other imports
+const mongoose = require('mongoose');
 const cron = require('node-cron');
 const Withdrawal = require('./models/Withdrawal');
 const ReferralTransaction = require('./models/ReferralTransaction');
@@ -6,7 +8,6 @@ const axios = require('axios');
 const User = require('./models/User');
 const { sendEmail } = require('./utils/emailService');
 const { generateWithdrawalReceipt } = require('./utils/withdrawalReceiptService.js');
-
 // Log whether API key is configured
 console.log('LENCO_API_KEY configured:', process.env.LENCO_API_KEY ? 'Yes' : 'No');
 
