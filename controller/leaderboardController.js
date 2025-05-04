@@ -170,7 +170,7 @@ const getTimeFilteredLeaderboard = async (timeFrame, categoryFilter = 'registrat
                   as: 'withdrawal',
                   cond: { 
                     $and: [
-                      { $in: ['$$withdrawal.status', ['paid', 'approved', 'processing']] },
+                      { $in: ['$$withdrawal.status', ['paid', 'approved']] }, // Remove 'processing'
                       ...(dateThreshold ? [{ $gte: ['$$withdrawal.createdAt', dateThreshold] }] : [])
                     ]
                   }
@@ -178,6 +178,27 @@ const getTimeFilteredLeaderboard = async (timeFrame, categoryFilter = 'registrat
               },
               as: 'validWithdrawal',
               in: '$$validWithdrawal.amount'
+            }
+          }
+        },
+
+        processingWithdrawals: {
+          $sum: {
+            $map: {
+              input: {
+                $filter: {
+                  input: '$withdrawals',
+                  as: 'withdrawal',
+                  cond: { 
+                    $and: [
+                      { $eq: ['$$withdrawal.status', 'processing'] },
+                      ...(dateThreshold ? [{ $gte: ['$$withdrawal.createdAt', dateThreshold] }] : [])
+                    ]
+                  }
+                }
+              },
+              as: 'processingWithdrawal',
+              in: '$$processingWithdrawal.amount'
             }
           }
         },
@@ -207,7 +228,7 @@ const getTimeFilteredLeaderboard = async (timeFrame, categoryFilter = 'registrat
         currentBalance: { 
           $subtract: [
             { $sum: '$referralData.totalEarnings' },
-            { $ifNull: ['$withdrawalAmount', 0] }
+            { $ifNull: ['$withdrawalAmount', 0] } // Only deduct paid/approved withdrawals
           ]
         }
       }
