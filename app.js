@@ -88,6 +88,10 @@ if (process.env.NODE_ENV === 'production') {
       console.error('Error in late installment payment check job:', error);
     }
   });
+  
+  // Start withdrawal verification cron jobs
+  const withdrawalCronJobs = require('./withdrawalCronJobs');
+  withdrawalCronJobs.startAll();
 }
 
 // Serve static assets if in production
@@ -125,8 +129,27 @@ app.use((req, res) => {
 
 // Start server
 const PORT = process.env.PORT || 5000;
-app.listen(PORT, () => {
+const server = app.listen(PORT, () => {
   console.log(`Server running in ${process.env.NODE_ENV || 'development'} mode on port ${PORT}`);
+});
+
+// Handle graceful shutdown
+process.on('SIGTERM', () => {
+  console.log('SIGTERM signal received: closing HTTP server');
+  
+  // Stop cron jobs if running
+  if (process.env.NODE_ENV === 'production') {
+    const withdrawalCronJobs = require('./withdrawalCronJobs');
+    withdrawalCronJobs.stopAll();
+  }
+  
+  server.close(() => {
+    console.log('HTTP server closed');
+    mongoose.connection.close(false, () => {
+      console.log('MongoDB connection closed');
+      process.exit(0);
+    });
+  });
 });
 
 // For testing purposes
