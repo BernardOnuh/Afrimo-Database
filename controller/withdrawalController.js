@@ -10,7 +10,6 @@ const axios = require('axios'); // Add axios for API requests
 
 // Minimum withdrawal amount in Naira
 const MINIMUM_WITHDRAWAL_AMOUNT = 20000;
-
 /**
  * Process an instant withdrawal to bank account
  * @route POST /api/withdrawal/instant
@@ -132,23 +131,29 @@ exports.processInstantWithdrawal = async (req, res) => {
 
       console.log(`Making API call to Lenco for withdrawal...`);
       
-      // Process the bank transfer using Lenco API
-      const response = await axios.post('https://api.lenco.co/access/v1/transactions', {
-        accountId: process.env.LENCO_API_KEY,
+      // Process the bank transfer using Lenco API with detailed logging
+      const lencoPayload = {
+        accountId: process.env.LENCO_ACCOUNT_ID,
         accountNumber: paymentData.bankAccount.accountNumber,
         bankCode: paymentData.bankAccount.bankCode,
         amount: amount.toString(),
         narration: `Afrimobile Earnings Withdrawal`,
         reference: clientReference,
         senderName: 'Afrimobile'
-      }, {
+      };
+      
+      console.log('Lenco request payload:', JSON.stringify(lencoPayload));
+      console.log('Using Lenco account ID:', process.env.LENCO_ACCOUNT_ID);
+      
+      const response = await axios.post('https://api.lenco.co/access/v1/transactions', lencoPayload, {
         headers: {
           'Authorization': `Bearer ${process.env.LENCO_API_KEY}`,
           'Content-Type': 'application/json'
         }
       });
 
-      console.log(`Lenco API response received:`, response.data);
+      console.log(`Lenco API response status:`, response.status);
+      console.log(`Lenco API response:`, JSON.stringify(response.data));
 
       if (response.data && response.data.status) {
         // Update withdrawal with transaction reference
@@ -274,7 +279,8 @@ exports.processInstantWithdrawal = async (req, res) => {
       await session.abortTransaction();
       session.endSession();
       
-      console.error('Bank transfer error:', transferError);
+      console.error('Bank transfer error:', transferError.message);
+      console.error('Detailed error:', transferError.response ? JSON.stringify(transferError.response.data) : 'No detailed response');
       
       // Update withdrawal status to failed
       const withdrawal = await Withdrawal.findOne({ clientReference });
@@ -291,7 +297,7 @@ exports.processInstantWithdrawal = async (req, res) => {
       });
     }
   } catch (error) {
-    console.error('Error processing instant withdrawal:', error);
+    console.error('Error processing instant withdrawal:', error.message);
     res.status(500).json({
       success: false,
       message: 'Failed to process withdrawal',
@@ -299,7 +305,6 @@ exports.processInstantWithdrawal = async (req, res) => {
     });
   }
 };
-
 /**
  * Middleware to check if user has any pending or processing withdrawal
  * Can be used across multiple routes to prevent new withdrawals
