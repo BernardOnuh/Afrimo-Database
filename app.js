@@ -13,6 +13,12 @@ require('dotenv').config();
 // Initialize express app
 const app = express();
 
+// Display important environment variables (without exposing sensitive data)
+console.log('======================================');
+console.log(`NODE_ENV: ${process.env.NODE_ENV}`);
+console.log(`LENCO_API_KEY configured: ${process.env.LENCO_API_KEY ? 'Yes' : 'No'}`);
+console.log('======================================');
+
 // Security middleware
 app.use(helmet());
 
@@ -70,9 +76,19 @@ app.use('/api/shares/installment', require('./routes/installmentRoutes'));
 // app.use('/api/transactions', require('./routes/transactionRoutes'));
 // app.use('/api/wallets', require('./routes/walletRoutes'));
 
+// Simple test cron job to verify cron is working (runs every minute)
+cron.schedule('* * * * *', () => {
+  console.log('======================================');
+  console.log('TEST CRON: This should run every minute');
+  console.log('Current time:', new Date().toISOString());
+  console.log('======================================');
+});
+
 // Schedule tasks
 // Setup monthly penalties for overdue installments
 if (process.env.NODE_ENV === 'production') {
+  console.log('Setting up production-only cron jobs...');
+  
   const installmentScheduler = require('./utils/installmentScheduler');
   installmentScheduler.scheduleInstallmentPenalties();
   console.log('Installment penalty scheduler initialized');
@@ -90,9 +106,75 @@ if (process.env.NODE_ENV === 'production') {
   });
   
   // Start withdrawal verification cron jobs
-  const withdrawalCronJobs = require('./withdrawalCronJobs');
-  withdrawalCronJobs.startAll();
+  console.log('======================================');
+  console.log('ATTEMPTING TO START WITHDRAWAL CRON JOBS');
+  console.log(`Current NODE_ENV: ${process.env.NODE_ENV}`);
+  
+  try {
+    const withdrawalCronJobs = require('./withdrawalCronJobs');
+    console.log('Withdrawal cron jobs module loaded successfully');
+    withdrawalCronJobs.startAll();
+  } catch (error) {
+    console.error('ERROR LOADING WITHDRAWAL CRON JOBS:', error);
+    console.error(error.stack);
+  }
+  
+  console.log('======================================');
+} else {
+  console.log('Not in production environment, skipping production-only cron jobs');
+  console.log('To force cron jobs to run, set NODE_ENV=production');
+  
+  // Uncomment this section to force cron jobs to run in any environment
+  /*
+  console.log('======================================');
+  console.log('FORCE STARTING WITHDRAWAL CRON JOBS (DEVELOPMENT MODE)');
+  
+  try {
+    const withdrawalCronJobs = require('./withdrawalCronJobs');
+    console.log('Withdrawal cron jobs module loaded successfully');
+    withdrawalCronJobs.startAll();
+  } catch (error) {
+    console.error('ERROR LOADING WITHDRAWAL CRON JOBS:', error);
+    console.error(error.stack);
+  }
+  
+  console.log('======================================');
+  */
 }
+
+// One-time immediate check for withdrawals when app starts
+setTimeout(async () => {
+  console.log('======================================');
+  console.log('Running immediate one-time withdrawal verification check...');
+  try {
+    const Withdrawal = require('./models/Withdrawal');
+    const processingWithdrawals = await Withdrawal.find({ status: 'processing' });
+    console.log(`Found ${processingWithdrawals.length} processing withdrawals`);
+    
+    if (processingWithdrawals.length > 0) {
+      console.log('Processing withdrawals:');
+      processingWithdrawals.forEach(w => {
+        console.log(`- ID: ${w._id}, ClientRef: ${w.clientReference}, Status: ${w.status}, Created: ${w.createdAt}`);
+      });
+    }
+    
+    const pendingWithdrawals = await Withdrawal.find({ status: 'pending' });
+    console.log(`Found ${pendingWithdrawals.length} pending withdrawals`);
+    
+    if (pendingWithdrawals.length > 0) {
+      console.log('Pending withdrawals:');
+      pendingWithdrawals.forEach(w => {
+        console.log(`- ID: ${w._id}, ClientRef: ${w.clientReference}, Status: ${w.status}, Created: ${w.createdAt}`);
+      });
+    }
+    
+    console.log('Immediate check complete');
+  } catch (error) {
+    console.error('Error in one-time check:', error);
+    console.error(error.stack);
+  }
+  console.log('======================================');
+}, 5000); // Run 5 seconds after startup
 
 // Serve static assets if in production
 if (process.env.NODE_ENV === 'production') {
@@ -139,8 +221,12 @@ process.on('SIGTERM', () => {
   
   // Stop cron jobs if running
   if (process.env.NODE_ENV === 'production') {
-    const withdrawalCronJobs = require('./withdrawalCronJobs');
-    withdrawalCronJobs.stopAll();
+    try {
+      const withdrawalCronJobs = require('./withdrawalCronJobs');
+      withdrawalCronJobs.stopAll();
+    } catch (error) {
+      console.error('Error stopping withdrawal cron jobs:', error);
+    }
   }
   
   server.close(() => {
