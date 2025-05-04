@@ -59,26 +59,18 @@ exports.processInstantWithdrawal = async (req, res) => {
       });
     }
 
-    // Calculate available balance - ONLY count paid withdrawals, not processing ones
-    let pendingWithdrawals = 0;
-    const pending = await Withdrawal.find({
-      user: userId,
-      status: 'pending'
-    });
-    
-    if (pending.length > 0) {
-      pendingWithdrawals = pending.reduce((total, w) => total + w.amount, 0);
-    }
-    
-    // CHANGE: Only count 'paid' withdrawals, not 'processing' ones
+    // FIXED: Calculate available balance by counting ALL non-failed withdrawals
     const withdrawnAmount = await Withdrawal.aggregate([
-      { $match: { user: userId, status: { $in: ['paid'] } } },
+      { $match: { 
+          user: userId, 
+          status: { $in: ['paid', 'pending', 'processing'] } 
+        } 
+      },
       { $group: { _id: null, total: { $sum: '$amount' } } }
     ]);
     
     const totalWithdrawn = withdrawnAmount.length > 0 ? withdrawnAmount[0].total : 0;
-    
-    const availableBalance = referralData.totalEarnings - pendingWithdrawals - totalWithdrawn;
+    const availableBalance = referralData.totalEarnings - totalWithdrawn;
 
     // Check if available balance is enough
     if (availableBalance < amount) {
@@ -87,7 +79,6 @@ exports.processInstantWithdrawal = async (req, res) => {
         message: 'Insufficient available balance for this withdrawal'
       });
     }
-
     // Check if user has verified payment details
     const paymentData = await Payment.findOne({ user: userId });
     if (!paymentData || !paymentData.bankAccount) {
@@ -920,31 +911,21 @@ exports.getEarningsBalance = async (req, res) => {
     
     // Calculate available balance
     let totalEarnings = 0;
-    let pendingWithdrawals = 0;
     
     if (referralData) {
       totalEarnings = referralData.totalEarnings || 0;
     }
     
-    // Calculate pending withdrawals
+    // Calculate pending withdrawals - keeping this separate for detailed reporting
     const pending = await Withdrawal.find({
       user: userId,
       status: 'pending'
     });
     
-    if (pending.length > 0) {
-      pendingWithdrawals = pending.reduce((total, w) => total + w.amount, 0);
-    }
+    const pendingWithdrawals = pending.length > 0 ? 
+      pending.reduce((total, w) => total + w.amount, 0) : 0;
     
-    // CHANGE: Only count paid withdrawals, NOT processing
-    const withdrawnAmount = await Withdrawal.aggregate([
-      { $match: { user: userId, status: { $in: ['paid'] } } },
-      { $group: { _id: null, total: { $sum: '$amount' } } }
-    ]);
-    
-    const totalWithdrawn = withdrawnAmount.length > 0 ? withdrawnAmount[0].total : 0;
-    
-    // Get processing withdrawals separately (for display purposes)
+    // Get processing withdrawals separately - keeping this separate for detailed reporting
     const processing = await Withdrawal.find({
       user: userId,
       status: 'processing'
@@ -953,8 +934,20 @@ exports.getEarningsBalance = async (req, res) => {
     const processingAmount = processing.length > 0 ? 
       processing.reduce((total, w) => total + w.amount, 0) : 0;
     
-    // Available balance doesn't include processing withdrawals
-    const availableBalance = totalEarnings - pendingWithdrawals - totalWithdrawn;
+    // FIXED: Count ALL non-failed withdrawals for calculating available balance
+    const withdrawnAmount = await Withdrawal.aggregate([
+      { $match: { 
+          user: userId, 
+          status: { $in: ['paid', 'pending', 'processing'] } 
+        } 
+      },
+      { $group: { _id: null, total: { $sum: '$amount' } } }
+    ]);
+    
+    const totalWithdrawn = withdrawnAmount.length > 0 ? withdrawnAmount[0].total : 0;
+    
+    // Available balance correctly subtracts ALL non-failed withdrawals
+    const availableBalance = totalEarnings - totalWithdrawn;
 
     res.status(200).json({
       success: true,
@@ -962,7 +955,7 @@ exports.getEarningsBalance = async (req, res) => {
         totalEarnings,
         pendingWithdrawals,
         processingWithdrawals: processingAmount,
-        totalWithdrawn,
+        totalWithdrawn: totalWithdrawn - pendingWithdrawals - processingAmount, // Only completed withdrawals
         availableBalance,
         minimumWithdrawalAmount: MINIMUM_WITHDRAWAL_AMOUNT,
         canWithdraw: availableBalance >= MINIMUM_WITHDRAWAL_AMOUNT

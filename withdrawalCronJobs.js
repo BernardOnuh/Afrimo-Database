@@ -16,14 +16,14 @@ console.log('LENCO_API_KEY configured:', process.env.LENCO_API_KEY ? 'Yes' : 'No
  */
 const updateUserBalance = async (userId) => {
   try {
-    // MODIFIED: Only count paid withdrawals, NOT processing ones
-    const withdrawals = await Withdrawal.find({
+    // MODIFIED: Only count paid withdrawals for the totalWithdrawn field
+    const paidWithdrawals = await Withdrawal.find({
       user: userId,
-      status: 'paid' // Only paid withdrawals are counted for balance deduction
+      status: 'paid'
     });
     
-    // Calculate total withdrawn amount
-    const totalWithdrawn = withdrawals.reduce((sum, withdrawal) => sum + withdrawal.amount, 0);
+    // Calculate total withdrawn amount (paid withdrawals only)
+    const totalWithdrawn = paidWithdrawals.reduce((sum, withdrawal) => sum + withdrawal.amount, 0);
     
     // Update the user's referral data with the calculated total withdrawn
     const updated = await Referral.findOneAndUpdate(
