@@ -1,10 +1,10 @@
 const cron = require('node-cron');
-const Withdrawal = require('./models/Withdrawal');
-const ReferralTransaction = require('./models/ReferralTransaction');
+const Withdrawal = require('./models/Withdrawal.js');
+const ReferralTransaction = require('./models/ReferralTransaction.js');
 const axios = require('axios');
-const User = require('./models/User');
-const { sendEmail } = require('./utils/emailService');
-const { generateWithdrawalReceipt } = require('./utils/withdrawalReceiptService.js');
+const User = require('./models/User.js');
+const { sendEmail } = require('./utils/emailService.js');
+const { generateWithdrawalReceipt } = require('./utils/withdrawalReceiptService.js.js');
 
 /**
  * Cron job to verify and update processing withdrawals
