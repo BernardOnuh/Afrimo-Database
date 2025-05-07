@@ -9,7 +9,7 @@ const { protect, adminProtect } = require('../middleware/auth');
 router.get('/stats', protect, referralController.getReferralStats);  
 
 // Get referral tree (people you've referred) 
-router.get('/tree', protect, referralController.getReferralTree);  
+router.get('/treee', protect, referralController.getReferralTree);  
 
 // Get referral earnings (for self)
 router.get('/earnings', protect, referralController.getReferralEarnings);
