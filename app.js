@@ -72,6 +72,28 @@ app.use('/api/exchange-rates', require('./routes/exchangeRateRoutes'));
 // Add installment payment routes
 app.use('/api/shares/installment', require('./routes/installmentRoutes'));
 
+// Manual referral sync endpoint
+app.post('/api/referral/sync-earnings', async (req, res) => {
+  try {
+    console.log('Manual referral sync triggered...');
+    const referralCronJobs = require('./referralCronJobs');
+    const stats = await referralCronJobs.fixAllUsersReferralEarnings();
+    
+    res.json({
+      success: true,
+      message: 'Referral earnings sync completed',
+      stats
+    });
+  } catch (error) {
+    console.error('Manual referral sync failed:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Referral sync failed',
+      error: error.message
+    });
+  }
+});
+
 // Simple test cron job to verify cron is working (runs every minute)
 cron.schedule('* * * * *', () => {
   console.log('\n\n');
@@ -131,6 +153,28 @@ if (process.env.NODE_ENV === 'production') {
     }
   });
 }
+
+// REFERRAL SYNC CRON JOBS SETUP
+console.log('\n======================================');
+console.log('SETTING UP REFERRAL SYNC CRON JOBS');
+console.log('======================================');
+
+try {
+  const referralCronJobs = require('./referralCronJobs');
+  
+  // Start referral sync jobs (you can change this to production only if needed)
+  referralCronJobs.startReferralJobs();
+  console.log('Referral sync cron jobs started');
+  console.log('- Daily sync: 2:00 AM');
+  console.log('- Weekly comprehensive sync: Sunday 3:00 AM');
+  console.log('- Manual trigger: POST /api/referral/sync-earnings');
+  
+} catch (error) {
+  console.error('ERROR LOADING REFERRAL CRON JOBS:', error);
+  console.error(error.stack);
+}
+
+console.log('======================================\n');
 
 // FORCE START WITHDRAWAL VERIFICATION CRON JOBS REGARDLESS OF ENVIRONMENT
 console.log('\n\n');
@@ -313,8 +357,12 @@ process.on('SIGTERM', () => {
   try {
     const withdrawalCronJobs = require('./withdrawalCronJobs');
     withdrawalCronJobs.stopAll();
+    
+    // Stop referral cron jobs
+    const referralCronJobs = require('./referralCronJobs');
+    referralCronJobs.stopReferralJobs();
   } catch (error) {
-    console.error('Error stopping withdrawal cron jobs:', error);
+    console.error('Error stopping cron jobs:', error);
   }
   
   server.close(() => {
