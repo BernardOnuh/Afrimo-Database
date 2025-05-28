@@ -72,23 +72,128 @@ app.use('/api/exchange-rates', require('./routes/exchangeRateRoutes'));
 // Add installment payment routes
 app.use('/api/shares/installment', require('./routes/installmentRoutes'));
 
-// Manual referral sync endpoint
+// Enhanced manual referral sync endpoint with better error handling
 app.post('/api/referral/sync-earnings', async (req, res) => {
   try {
-    console.log('Manual referral sync triggered...');
+    console.log('\n======================================');
+    console.log('MANUAL REFERRAL SYNC TRIGGERED');
+    console.log('======================================');
+    console.log('Time:', new Date().toISOString());
+    
     const referralCronJobs = require('./referralCronJobs');
+    
+    console.log('Starting referral earnings sync...');
     const stats = await referralCronJobs.fixAllUsersReferralEarnings();
+    
+    console.log('Referral sync completed successfully!');
+    console.log('Final stats:', JSON.stringify(stats, null, 2));
     
     res.json({
       success: true,
-      message: 'Referral earnings sync completed',
-      stats
+      message: 'Referral earnings sync completed successfully',
+      stats,
+      timestamp: new Date().toISOString()
     });
   } catch (error) {
-    console.error('Manual referral sync failed:', error);
+    console.error('\n======================================');
+    console.error('MANUAL REFERRAL SYNC FAILED');
+    console.error('======================================');
+    console.error('Error message:', error.message);
+    console.error('Error stack:', error.stack);
+    console.error('======================================');
+    
     res.status(500).json({
       success: false,
       message: 'Referral sync failed',
+      error: error.message,
+      timestamp: new Date().toISOString()
+    });
+  }
+});
+
+// Add a debug endpoint to check referral data structure
+app.get('/api/referral/debug/:userId?', async (req, res) => {
+  try {
+    const User = require('./models/User');
+    const UserShare = require('./models/UserShare');
+    const ReferralTransaction = require('./models/ReferralTransaction');
+    const Referral = require('./models/Referral');
+    
+    const { userId } = req.params;
+    
+    if (userId) {
+      // Debug specific user
+      const user = await User.findById(userId);
+      if (!user) {
+        return res.status(404).json({ success: false, message: 'User not found' });
+      }
+      
+      const userShare = await UserShare.findOne({ user: userId });
+      const referralTransactions = await ReferralTransaction.find({ 
+        $or: [{ beneficiary: userId }, { referredUser: userId }] 
+      });
+      const referralStats = await Referral.findOne({ user: userId });
+      
+      res.json({
+        success: true,
+        user: {
+          id: user._id,
+          name: user.name,
+          userName: user.userName,
+          referralInfo: user.referralInfo
+        },
+        userShare: userShare ? {
+          totalShares: userShare.totalShares,
+          transactionCount: userShare.transactions.length,
+          completedTransactions: userShare.transactions.filter(tx => tx.status === 'completed').length,
+          sampleTransaction: userShare.transactions[0]
+        } : null,
+        referralTransactions: referralTransactions.length,
+        referralStats: referralStats
+      });
+    } else {
+      // General debug info
+      const totalUsers = await User.countDocuments();
+      const usersWithUserNames = await User.countDocuments({ userName: { $exists: true, $ne: null } });
+      const totalUserShares = await UserShare.countDocuments();
+      const totalReferralTransactions = await ReferralTransaction.countDocuments();
+      const totalReferrals = await Referral.countDocuments();
+      
+      // Sample data
+      const sampleUser = await User.findOne({ userName: { $exists: true, $ne: null } });
+      const sampleUserShare = await UserShare.findOne();
+      const sampleReferralTransaction = await ReferralTransaction.findOne();
+      
+      res.json({
+        success: true,
+        counts: {
+          totalUsers,
+          usersWithUserNames,
+          totalUserShares,
+          totalReferralTransactions,
+          totalReferrals
+        },
+        samples: {
+          sampleUser: sampleUser ? {
+            id: sampleUser._id,
+            userName: sampleUser.userName,
+            referralInfo: sampleUser.referralInfo
+          } : null,
+          sampleUserShare: sampleUserShare ? {
+            user: sampleUserShare.user,
+            totalShares: sampleUserShare.totalShares,
+            transactionCount: sampleUserShare.transactions.length,
+            sampleTransaction: sampleUserShare.transactions[0]
+          } : null,
+          sampleReferralTransaction: sampleReferralTransaction
+        }
+      });
+    }
+  } catch (error) {
+    console.error('Debug endpoint error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Debug failed',
       error: error.message
     });
   }
@@ -162,15 +267,17 @@ console.log('======================================');
 try {
   const referralCronJobs = require('./referralCronJobs');
   
-  // Start referral sync jobs (you can change this to production only if needed)
+  // Start referral sync jobs - runs in all environments for testing
+  // Change to production-only if needed: if (process.env.NODE_ENV === 'production')
   referralCronJobs.startReferralJobs();
-  console.log('Referral sync cron jobs started');
-  console.log('- Daily sync: 2:00 AM');
-  console.log('- Weekly comprehensive sync: Sunday 3:00 AM');
-  console.log('- Manual trigger: POST /api/referral/sync-earnings');
+  console.log('✅ Referral sync cron jobs started');
+  console.log('📅 Daily sync: 2:00 AM');
+  console.log('📅 Weekly comprehensive sync: Sunday 3:00 AM');
+  console.log('🔧 Manual trigger: POST /api/referral/sync-earnings');
+  console.log('🐛 Debug endpoint: GET /api/referral/debug');
   
 } catch (error) {
-  console.error('ERROR LOADING REFERRAL CRON JOBS:', error);
+  console.error('❌ ERROR LOADING REFERRAL CRON JOBS:', error.message);
   console.error(error.stack);
 }
 
@@ -297,6 +404,7 @@ app.get('/api/test-lenco/:reference', async (req, res) => {
       });
     }
     
+    const axios = require('axios');
     const response = await axios.get(`https://api.lenco.co/access/v1/transaction-by-reference/${reference}`, {
       headers: {
         'Authorization': `Bearer ${process.env.LENCO_API_KEY}`
@@ -344,7 +452,7 @@ const PORT = process.env.PORT || 5000;
 const server = app.listen(PORT, () => {
   console.log('\n\n');
   console.log('**********************************************');
-  console.log(`Server running in ${process.env.NODE_ENV || 'development'} mode on port ${PORT}`);
+  console.log(`🚀 Server running in ${process.env.NODE_ENV || 'development'} mode on port ${PORT}`);
   console.log('**********************************************');
   console.log('\n\n');
 });
@@ -361,8 +469,9 @@ process.on('SIGTERM', () => {
     // Stop referral cron jobs
     const referralCronJobs = require('./referralCronJobs');
     referralCronJobs.stopReferralJobs();
+    console.log('✅ All cron jobs stopped');
   } catch (error) {
-    console.error('Error stopping cron jobs:', error);
+    console.error('❌ Error stopping cron jobs:', error);
   }
   
   server.close(() => {
