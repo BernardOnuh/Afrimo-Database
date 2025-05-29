@@ -349,7 +349,7 @@ setTimeout(async () => {
             if (apiError.response) {
               console.error('API Response Error:', JSON.stringify(apiError.response.data, null, 2));
             }
-          }
+          } 
         }
       }
     }

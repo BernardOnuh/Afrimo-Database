@@ -1,15 +1,15 @@
 {
-  "date": "2025-05-28T13:12:44.057Z",
+  "date": "2025-05-29T07:41:43.130Z",
   "commissionRates": {
     "generation1": 15,
     "generation2": 3,
     "generation3": 2
   },
   "stats": {
-    "totalProcessed": 394,
-    "usersWithReferrals": 61,
-    "totalReferralTransactions": 125,
-    "totalEarningsGenerated": 819500,
+    "totalProcessed": 399,
+    "usersWithReferrals": 62,
+    "totalReferralTransactions": 128,
+    "totalEarningsGenerated": 859500,
     "processingErrors": 0
   }
 }

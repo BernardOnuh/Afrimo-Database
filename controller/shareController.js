@@ -252,14 +252,11 @@ exports.verifyPaystackPayment = async (req, res) => {
       
       if (updatedTransaction.status === 'completed') {
         const referralResult = await processReferralCommission(
-          userShareRecord.user,
-          reference,
-          transaction.totalAmount,
-          transaction.currency,
-          'share',
-          'UserShare'
+          userShareRecord.user,     // userId
+          transaction.totalAmount,  // purchaseAmount
+          'share',                 // purchaseType
+          reference                // transactionId
         );
-        
         console.log('Referral commission process result:', referralResult);
       }
     } catch (referralError) {
@@ -488,14 +485,12 @@ exports.adminAddShares = async (req, res) => {
     try {
       if (user.referralInfo && user.referralInfo.code) {
         const referralResult = await processReferralCommission(
-          userId,
-          transactionId,
-          priceNaira * parseInt(shares),
-          'naira',
-          'share',
-          'UserShare'
+          userShareRecord.user,    // userId
+          transaction.totalAmount, // purchaseAmount
+          'share',                // purchaseType
+          transactionId           // transactionId
         );
-        
+     
         console.log('Referral commission process result:', referralResult);
       }
     } catch (referralError) {
@@ -914,12 +909,10 @@ exports.verifyWeb3Transaction = async (req, res) => {
       try {
         // First ensure the transaction is marked as completed
         const referralResult = await processReferralCommission(
-          userId,
-          transactionId,  // Use transactionId for consistency
-          paymentAmount > 0 ? paymentAmount : purchaseDetails.totalPrice,
-          'usdt',
-          'share',
-          'UserShare'
+          userId,                                                   // userId
+          paymentAmount > 0 ? paymentAmount : purchaseDetails.totalPrice,  // purchaseAmount
+          'share',                                                 // purchaseType
+          transactionId                                            // transactionId
         );
         
         console.log('Referral commission process result:', referralResult);
@@ -1213,12 +1206,10 @@ exports.adminVerifyWeb3Transaction = async (req, res) => {
         
         if (updatedTransaction.status === 'completed') {
           const referralResult = await processReferralCommission(
-            userShareRecord.user,
-            transactionId,
-            transaction.totalAmount,
-            transaction.currency,
-            'share',
-            'UserShare'
+            userShareRecord.user,    // userId
+            transaction.totalAmount, // purchaseAmount
+            'share',                // purchaseType
+            transactionId           // transactionId
           );
           
           console.log('Referral commission process result:', referralResult);
@@ -1642,14 +1633,12 @@ exports.adminVerifyManualPayment = async (req, res) => {
         
         if (updatedTransaction.status === 'completed') {
           const referralResult = await processReferralCommission(
-            userShareRecord.user,
-            transactionId,
-            transaction.totalAmount,
-            transaction.currency,
-            'share',
-            'UserShare'
+            userShareRecord.user,    // userId
+            transaction.totalAmount, // purchaseAmount
+            'share',                // purchaseType
+            transactionId           // transactionId
           );
-          
+
           console.log('Referral commission process result:', referralResult);
         }
       } catch (referralError) {
@@ -1918,12 +1907,12 @@ exports.adminCancelManualPayment = async (req, res) => {
     // Rollback any referral commissions if applicable
     try {
       const rollbackResult = await rollbackReferralCommission(
-        userShareRecord.user,
-        transactionId,
-        transaction.totalAmount,
-        transaction.currency,
-        'share',
-        'UserShare'
+        userShareRecord.user,    // userId
+        transactionId,          // transactionId
+        transaction.totalAmount, // purchaseAmount
+        transaction.currency,    // currency
+        'share',                // purchaseType
+        'UserShare'             // sourceModel
       );
       
       console.log('Referral commission rollback result:', rollbackResult);

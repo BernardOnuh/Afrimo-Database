@@ -395,17 +395,15 @@ exports.verifyCoFounderPaystackPayment = async (req, res) => {
         transaction.status = 'completed';
         await transaction.save();
         
-        // Process referral commissions ONLY for completed transactions
+        // Process referral commissions ONLY for completed transactions - FIXED PARAMETERS
         try {
             // Ensure the transaction is marked as completed first
             if (transaction.status === 'completed') {
                 const referralResult = await processReferralCommission(
-                    transaction.userId,
-                    transaction._id,
-                    transaction.amount,
-                    'naira',
-                    'cofounder',
-                    'PaymentTransaction'
+                    transaction.userId,   // userId
+                    transaction.amount,   // purchaseAmount
+                    'cofounder',         // purchaseType
+                    transaction._id      // transactionId
                 );
                 
                 console.log('Referral commission process result:', referralResult);
@@ -542,18 +540,16 @@ exports.adminVerifyWeb3Transaction = async (req, res) => {
                 adminNote: adminNotes
             });
             
-            // Process referral commissions - ONLY for now-completed transactions
+            // Process referral commissions - ONLY for now-completed transactions - FIXED PARAMETERS
             try {
                 // Verify again that the transaction is marked as completed
                 const updatedTransaction = await PaymentTransaction.findById(transactionId);
                 if (updatedTransaction.status === 'completed') {
                     const referralResult = await processReferralCommission(
-                        transaction.userId,
-                        transaction._id,
-                        transaction.amount,
-                        transaction.currency,
-                        'cofounder',
-                        'PaymentTransaction'
+                        transaction.userId,  // userId
+                        transaction.amount,  // purchaseAmount
+                        'cofounder',        // purchaseType
+                        transaction._id     // transactionId
                     );
                     
                     console.log('Referral commission process result:', referralResult);
@@ -768,7 +764,7 @@ exports.adminAddCoFounderShares = async (req, res) => {
         coFounderShare.sharesSold += parseInt(shares);
         await coFounderShare.save();
         
-        // Process referral commissions for admin-added shares - ONLY for completed transactions
+        // Process referral commissions for admin-added shares - ONLY for completed transactions - FIXED PARAMETERS
         try {
             // Get the user to check if they were referred
             const user = await User.findById(userId);
@@ -776,12 +772,10 @@ exports.adminAddCoFounderShares = async (req, res) => {
             if (user && user.referralInfo && user.referralInfo.code) {
                 // Verify the transaction is completed
                 const referralResult = await processReferralCommission(
-                    userId,
-                    transaction._id,
-                    coFounderShare.pricing.priceNaira * parseInt(shares), // Use current market price for commission calculation
-                    'naira',
-                    'cofounder',
-                    'PaymentTransaction'
+                    userId,                                               // userId
+                    coFounderShare.pricing.priceNaira * parseInt(shares), // purchaseAmount
+                    'cofounder',                                         // purchaseType
+                    transaction._id                                      // transactionId
                 );
                 
                 console.log('Referral commission process result for admin-added shares:', referralResult);
