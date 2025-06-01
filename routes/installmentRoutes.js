@@ -106,12 +106,14 @@ const paymentSubmissionRateLimiter = createRateLimiter(3, 24 * 60 * 60 * 1000); 
 router.post('/calculate', 
   protect, 
   createInstallmentRateLimiter,
+  installmentController.validateInstallmentInput, // Add validation middleware
   installmentController.calculateInstallmentPlan
 );
 
 router.post('/create', 
   protect, 
   createInstallmentRateLimiter,
+  installmentController.validateInstallmentInput, // Add validation middleware
   installmentController.createInstallmentPlan
 );
 
@@ -126,18 +128,19 @@ router.post('/cancel',
   installmentController.cancelInstallmentPlan
 );
 
-// Payment routes
+// Payment routes - Updated to match second controller
 router.post('/paystack/pay', 
   protect, 
   paymentSubmissionRateLimiter,
   installmentController.payInstallmentWithPaystack
 );
 
-router.get('/paystack/verify/:reference', 
+router.get('/paystack/verify', 
   protect, 
   installmentController.verifyInstallmentPaystack
 );
 
+// Manual payment submission - Updated endpoint name and method
 router.post('/manual/submit', 
   protect, 
   paymentSubmissionRateLimiter,
@@ -146,20 +149,22 @@ router.post('/manual/submit',
   installmentController.submitManualInstallmentPayment
 );
 
-router.get('/payment-proof/:transactionId', 
+// Payment proof retrieval - Updated to match second controller method name
+router.get('/flexible/payment-proof/:transactionId', 
   protect, 
-  installmentController.getInstallmentPaymentProof
+  installmentController.getFlexibleInstallmentPaymentProof
 );
 
-// Admin routes
+// Admin routes - Updated to match second controller
 router.get('/admin/plans', 
   adminProtect, 
   installmentController.adminGetAllInstallmentPlans
 );
 
-router.post('/admin/manual/verify', 
+// Updated admin verification endpoint name
+router.post('/admin/flexible/verify', 
   adminProtect, 
-  installmentController.adminVerifyManualInstallmentPayment
+  installmentController.adminVerifyFlexibleInstallmentPayment
 );
 
 router.post('/admin/check-late-payments', 
@@ -167,9 +172,18 @@ router.post('/admin/check-late-payments',
   installmentController.checkLatePayments
 );
 
-// Global error handler for routes
+// Additional error handling for file cleanup on failed uploads
 router.use((err, req, res, next) => {
-  console.error(err);
+  // Clean up uploaded file if there was an error
+  if (req.file && req.file.path) {
+    fs.unlink(req.file.path, (unlinkErr) => {
+      if (unlinkErr) {
+        console.error('Error cleaning up uploaded file:', unlinkErr);
+      }
+    });
+  }
+  
+  console.error('Route error:', err);
   res.status(500).json({
     success: false,
     message: 'An unexpected error occurred',
