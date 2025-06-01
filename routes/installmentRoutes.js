@@ -98,22 +98,23 @@ const createRateLimiter = (maxRequests, windowMs) => {
   };
 };
 
-// Create rate limiters
-const createInstallmentRateLimiter = createRateLimiter(5, 60 * 60 * 1000); // 5 requests per hour
+// Create rate limiters - More generous for calculations
+const calculateRateLimiter = createRateLimiter(50, 60 * 60 * 1000); // 50 requests per hour for calculations
+const createInstallmentRateLimiter = createRateLimiter(5, 60 * 60 * 1000); // 5 requests per hour for plan creation
 const paymentSubmissionRateLimiter = createRateLimiter(3, 24 * 60 * 60 * 1000); // 3 payment submissions per day
 
 // User routes
 router.post('/calculate', 
   protect, 
-  createInstallmentRateLimiter,
-  installmentController.validateInstallmentInput, // Add validation middleware
+  calculateRateLimiter, // More generous rate limiting for calculations
+  installmentController.validateInstallmentInput,
   installmentController.calculateInstallmentPlan
 );
 
 router.post('/create', 
   protect, 
-  createInstallmentRateLimiter,
-  installmentController.validateInstallmentInput, // Add validation middleware
+  createInstallmentRateLimiter, // Keep strict rate limiting for actual plan creation
+  installmentController.validateInstallmentInput,
   installmentController.createInstallmentPlan
 );
 
