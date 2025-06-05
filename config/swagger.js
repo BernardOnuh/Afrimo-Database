@@ -1,5 +1,16 @@
 const swaggerJsdoc = require('swagger-jsdoc');
 
+// Helper function to get the base URL
+const getBaseUrl = () => {
+  if (process.env.NODE_ENV === 'production') {
+    // Priority: Custom BASE_URL > Render URL > fallback
+    return process.env.BASE_URL || 
+           process.env.RENDER_EXTERNAL_URL || 
+           (process.env.RENDER_SERVICE_NAME ? `https://afrimo-database.onrender.com` : null);
+  }
+  return `http://localhost:${process.env.PORT || 5000}`;
+};
+
 const swaggerOptions = {
   definition: {
     openapi: '3.0.0',
@@ -14,9 +25,7 @@ const swaggerOptions = {
     },
     servers: [
       {
-        url: process.env.NODE_ENV === 'production' 
-          ? 'https://your-production-domain.com/api' 
-          : `http://localhost:${process.env.PORT || 5000}/api`,
+        url: `${getBaseUrl()}/api`,
         description: process.env.NODE_ENV === 'production' ? 'Production server' : 'Development server'
       }
     ],

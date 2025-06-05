@@ -43,11 +43,17 @@ const setupSwagger = (app) => {
     const port = process.env.PORT || 5000;
     console.log(`🌐 Development access: http://localhost:${port}/api-docs`);
   } else {
-    // For production, use environment variables or request host
-    const baseUrl = process.env.BASE_URL || process.env.HEROKU_APP_NAME 
-      ? `https://${process.env.HEROKU_APP_NAME}.herokuapp.com` 
-      : 'your-production-domain.com';
-    console.log(`🌐 Production access: ${baseUrl}/api-docs`);
+    // For production - prioritize custom BASE_URL, then auto-detect Render URL
+    const baseUrl = process.env.BASE_URL || 
+      (process.env.RENDER_EXTERNAL_URL) ||
+      (process.env.RENDER_SERVICE_NAME ? `https://afrimo-database.onrender.com` : null);
+    
+    if (baseUrl) {
+      console.log(`🌐 Production access: ${baseUrl}/api-docs`);
+    } else {
+      console.log('🌐 Production access: [domain]/api-docs');
+      console.log('💡 Set BASE_URL environment variable for exact URL');
+    }
   }
 };
 
