@@ -1,95 +1,15 @@
 const express = require('express');
 const router = express.Router();
-const shareController = require('../controller/shareController');
+const userController = require('../controller/userController');
 const { protect, adminProtect } = require('../middleware/auth');
-const multer = require('multer');
-const path = require('path');
-const fs = require('fs');
-
-// Configure multer for file uploads
-const storage = multer.diskStorage({
-  destination: function(req, file, cb) {
-    const uploadDir = 'uploads/payment-proofs';
-    
-    // Create directory if it doesn't exist
-    if (!fs.existsSync(uploadDir)) {
-      fs.mkdirSync(uploadDir, { recursive: true });
-    }
-    
-    cb(null, uploadDir);
-  },
-  filename: function(req, file, cb) {
-    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
-    const ext = path.extname(file.originalname);
-    cb(null, 'payment-' + uniqueSuffix + ext);
-  }
-});
-
-// File filter for uploads (only accept images)
-const fileFilter = (req, file, cb) => {
-  if (file.mimetype.startsWith('image/')) {
-    cb(null, true);
-  } else {
-    cb(new Error('Only image files are allowed'), false);
-  }
-};
-
-const upload = multer({
-  storage: storage,
-  fileFilter: fileFilter,
-  limits: {
-    fileSize: 5 * 1024 * 1024 // 5MB limit
-  }
-});
-
-// Public routes
 
 /**
  * @swagger
- * /shares/info:
- *   get:
- *     tags: [Shares - Public]
- *     summary: Get share information
- *     description: Retrieve general information about shares including availability and pricing
- *     responses:
- *       200:
- *         description: Share information retrieved successfully
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 success:
- *                   type: boolean
- *                   example: true
- *                 data:
- *                   type: object
- *                   properties:
- *                     totalShares:
- *                       type: integer
- *                       example: 10000
- *                     availableShares:
- *                       type: integer
- *                       example: 7500
- *                     pricePerShare:
- *                       type: number
- *                       format: float
- *                       example: 100.00
- *                     currency:
- *                       type: string
- *                       example: "USD"
- *       500:
- *         $ref: '#/components/responses/ServerError'
- */
-router.get('/info', shareController.getShareInfo);
-
-/**
- * @swagger
- * /shares/calculate:
+ * /users/register:
  *   post:
- *     tags: [Shares - Public]
- *     summary: Calculate purchase amount
- *     description: Calculate total amount for purchasing specified number of shares
+ *     tags: [Authentication]
+ *     summary: Register a new user
+ *     description: Create a new user account
  *     requestBody:
  *       required: true
  *       content:
@@ -97,325 +17,34 @@ router.get('/info', shareController.getShareInfo);
  *           schema:
  *             type: object
  *             required:
- *               - shares
- *             properties:
- *               shares:
- *                 type: integer
- *                 minimum: 1
- *                 example: 10
- *                 description: Number of shares to purchase
- *     responses:
- *       200:
- *         description: Purchase calculation completed
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 success:
- *                   type: boolean
- *                   example: true
- *                 data:
- *                   type: object
- *                   properties:
- *                     shares:
- *                       type: integer
- *                       example: 10
- *                     totalAmount:
- *                       type: number
- *                       format: float
- *                       example: 1000.00
- *                     currency:
- *                       type: string
- *                       example: "USD"
- *       400:
- *         $ref: '#/components/responses/ValidationError'
- *       500:
- *         $ref: '#/components/responses/ServerError'
- */
-router.post('/calculate', shareController.calculatePurchase);
-
-/**
- * @swagger
- * /shares/payment-config:
- *   get:
- *     tags: [Shares - Public]
- *     summary: Get payment configuration
- *     description: Retrieve payment configuration including Paystack and web3 settings
- *     responses:
- *       200:
- *         description: Payment configuration retrieved successfully
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 success:
- *                   type: boolean
- *                   example: true
- *                 data:
- *                   type: object
- *                   properties:
- *                     paystack:
- *                       type: object
- *                       properties:
- *                         publicKey:
- *                           type: string
- *                           example: "pk_test_xxxxxxxxxx"
- *                     web3:
- *                       type: object
- *                       properties:
- *                         walletAddress:
- *                           type: string
- *                           example: "0x742d35Cc6643C673532925e2aC5c48C0F30A37a0"
- *                         supportedTokens:
- *                           type: array
- *                           items:
- *                             type: string
- *                           example: ["USDT", "USDC", "ETH"]
- *       500:
- *         $ref: '#/components/responses/ServerError'
- */
-router.get('/payment-config', shareController.getPaymentConfig);
-
-// User routes (require authentication)
-
-/**
- * @swagger
- * /shares/paystack/initiate:
- *   post:
- *     tags: [Shares - Payments]
- *     summary: Initiate Paystack payment
- *     description: Initialize payment process with Paystack
- *     security:
- *       - bearerAuth: []
- *     requestBody:
- *       required: true
- *       content:
- *         application/json:
- *           schema:
- *             type: object
- *             required:
- *               - shares
+ *               - name
  *               - email
+ *               - password
+ *               - phoneNumber
  *             properties:
- *               shares:
- *                 type: integer
- *                 minimum: 1
- *                 example: 10
+ *               name:
+ *                 type: string
+ *                 example: "John Doe"
  *               email:
  *                 type: string
  *                 format: email
- *                 example: "user@example.com"
- *     responses:
- *       200:
- *         description: Payment initialization successful
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 success:
- *                   type: boolean
- *                   example: true
- *                 data:
- *                   type: object
- *                   properties:
- *                     authorization_url:
- *                       type: string
- *                       example: "https://checkout.paystack.com/xxxxxxxxxx"
- *                     access_code:
- *                       type: string
- *                       example: "xxxxxxxxxx"
- *                     reference:
- *                       type: string
- *                       example: "xxxxxxxxxx"
- *       400:
- *         $ref: '#/components/responses/ValidationError'
- *       401:
- *         $ref: '#/components/responses/UnauthorizedError'
- *       500:
- *         $ref: '#/components/responses/ServerError'
- */
-router.post('/paystack/initiate', protect, shareController.initiatePaystackPayment);
-
-/**
- * @swagger
- * /shares/paystack/verify/{reference}:
- *   get:
- *     tags: [Shares - Payments]
- *     summary: Verify Paystack payment
- *     description: Verify payment status with Paystack
- *     parameters:
- *       - in: path
- *         name: reference
- *         required: true
- *         schema:
- *           type: string
- *         description: Payment reference from Paystack
- *         example: "xxxxxxxxxx"
- *     responses:
- *       200:
- *         description: Payment verification completed
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 success:
- *                   type: boolean
- *                   example: true
- *                 data:
- *                   type: object
- *                   properties:
- *                     status:
- *                       type: string
- *                       example: "success"
- *                     transaction:
- *                       $ref: '#/components/schemas/Transaction'
- *       400:
- *         $ref: '#/components/responses/ValidationError'
- *       404:
- *         $ref: '#/components/responses/NotFoundError'
- *       500:
- *         $ref: '#/components/responses/ServerError'
- */
-router.get('/paystack/verify/:reference', shareController.verifyPaystackPayment);
-
-/**
- * @swagger
- * /shares/web3/verify:
- *   post:
- *     tags: [Shares - Payments]
- *     summary: Verify Web3 transaction
- *     description: Verify blockchain transaction for share purchase
- *     security:
- *       - bearerAuth: []
- *     requestBody:
- *       required: true
- *       content:
- *         application/json:
- *           schema:
- *             type: object
- *             required:
- *               - transactionHash
- *               - shares
- *             properties:
- *               transactionHash:
+ *                 example: "john@example.com"
+ *               password:
  *                 type: string
- *                 example: "0x1234567890abcdef..."
- *               shares:
- *                 type: integer
- *                 minimum: 1
- *                 example: 10
- *               tokenAddress:
+ *                 minLength: 6
+ *                 example: "password123"
+ *               phoneNumber:
  *                 type: string
- *                 example: "0xdAC17F958D2ee523a2206206994597C13D831ec7"
- *               amount:
+ *                 example: "+2341234567890"
+ *               userName:
  *                 type: string
- *                 example: "1000.00"
- *     responses:
- *       200:
- *         description: Web3 transaction verified successfully
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 success:
- *                   type: boolean
- *                   example: true
- *                 data:
- *                   $ref: '#/components/schemas/Transaction'
- *       400:
- *         $ref: '#/components/responses/ValidationError'
- *       401:
- *         $ref: '#/components/responses/UnauthorizedError'
- *       500:
- *         $ref: '#/components/responses/ServerError'
- */
-router.post('/web3/verify', protect, shareController.verifyWeb3Transaction);
-
-/**
- * @swagger
- * /shares/user/shares:
- *   get:
- *     tags: [Shares - User]
- *     summary: Get user shares
- *     description: Retrieve current user's share holdings and transaction history
- *     security:
- *       - bearerAuth: []
- *     responses:
- *       200:
- *         description: User shares retrieved successfully
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 success:
- *                   type: boolean
- *                   example: true
- *                 data:
- *                   type: object
- *                   properties:
- *                     totalShares:
- *                       type: integer
- *                       example: 25
- *                     totalValue:
- *                       type: number
- *                       format: float
- *                       example: 2500.00
- *                     transactions:
- *                       type: array
- *                       items:
- *                         $ref: '#/components/schemas/Transaction'
- *       401:
- *         $ref: '#/components/responses/UnauthorizedError'
- *       500:
- *         $ref: '#/components/responses/ServerError'
- */
-router.get('/user/shares', protect, shareController.getUserShares);
-
-// Manual payment routes
-
-/**
- * @swagger
- * /shares/manual/submit:
- *   post:
- *     tags: [Shares - Manual Payments]
- *     summary: Submit manual payment
- *     description: Submit manual payment with proof of payment
- *     security:
- *       - bearerAuth: []
- *     requestBody:
- *       required: true
- *       content:
- *         multipart/form-data:
- *           schema:
- *             type: object
- *             required:
- *               - shares
- *               - paymentMethod
- *               - paymentProof
- *             properties:
- *               shares:
- *                 type: integer
- *                 minimum: 1
- *                 example: 10
- *               paymentMethod:
+ *                 example: "johndoe"
+ *               referralCode:
  *                 type: string
- *                 example: "Bank Transfer"
- *               paymentDetails:
- *                 type: string
- *                 example: "Transfer from GT Bank Account"
- *               paymentProof:
- *                 type: string
- *                 format: binary
- *                 description: Payment proof image (max 5MB)
+ *                 example: "REF123456"
  *     responses:
  *       201:
- *         description: Manual payment submitted successfully
+ *         description: User registered successfully
  *         content:
  *           application/json:
  *             schema:
@@ -426,67 +55,29 @@ router.get('/user/shares', protect, shareController.getUserShares);
  *                   example: true
  *                 message:
  *                   type: string
- *                   example: "Manual payment submitted successfully"
+ *                   example: "User registered successfully"
  *                 data:
- *                   $ref: '#/components/schemas/Transaction'
+ *                   type: object
+ *                   properties:
+ *                     user:
+ *                       $ref: '#/components/schemas/User'
+ *                     token:
+ *                       type: string
+ *                       example: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
  *       400:
  *         $ref: '#/components/responses/ValidationError'
- *       401:
- *         $ref: '#/components/responses/UnauthorizedError'
  *       500:
  *         $ref: '#/components/responses/ServerError'
  */
-router.post('/manual/submit', protect, upload.single('paymentProof'), shareController.submitManualPayment);
+router.post('/register', userController.registerUser);
 
 /**
  * @swagger
- * /shares/payment-proof/{transactionId}:
- *   get:
- *     tags: [Shares - Manual Payments]
- *     summary: Get payment proof
- *     description: Retrieve payment proof image for a transaction
- *     security:
- *       - bearerAuth: []
- *     parameters:
- *       - in: path
- *         name: transactionId
- *         required: true
- *         schema:
- *           type: string
- *         description: Transaction ID
- *         example: "60f7c6b4c8f1a2b3c4d5e6f7"
- *     responses:
- *       200:
- *         description: Payment proof retrieved successfully
- *         content:
- *           image/jpeg:
- *             schema:
- *               type: string
- *               format: binary
- *           image/png:
- *             schema:
- *               type: string
- *               format: binary
- *       401:
- *         $ref: '#/components/responses/UnauthorizedError'
- *       404:
- *         $ref: '#/components/responses/NotFoundError'
- *       500:
- *         $ref: '#/components/responses/ServerError'
- */
-router.get('/payment-proof/:transactionId', protect, shareController.getPaymentProof);
-
-// Admin routes
-
-/**
- * @swagger
- * /shares/admin/web3/verify:
+ * /users/login:
  *   post:
- *     tags: [Shares - Admin]
- *     summary: Admin verify Web3 transaction
- *     description: Admin verification of Web3 transactions (admin only)
- *     security:
- *       - adminAuth: []
+ *     tags: [Authentication]
+ *     summary: Login user
+ *     description: Authenticate user and return JWT token
  *     requestBody:
  *       required: true
  *       content:
@@ -494,76 +85,19 @@ router.get('/payment-proof/:transactionId', protect, shareController.getPaymentP
  *           schema:
  *             type: object
  *             required:
- *               - transactionId
- *               - status
+ *               - email
+ *               - password
  *             properties:
- *               transactionId:
+ *               email:
  *                 type: string
- *                 example: "60f7c6b4c8f1a2b3c4d5e6f7"
- *               status:
+ *                 format: email
+ *                 example: "john@example.com"
+ *               password:
  *                 type: string
- *                 enum: [approved, rejected]
- *                 example: "approved"
- *               notes:
- *                 type: string
- *                 example: "Transaction verified on blockchain"
+ *                 example: "password123"
  *     responses:
  *       200:
- *         description: Web3 transaction verified by admin
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/Success'
- *             example:
- *               success: true
- *               message: "Transaction verified successfully"
- *       400:
- *         $ref: '#/components/responses/ValidationError'
- *       401:
- *         $ref: '#/components/responses/UnauthorizedError'
- *       403:
- *         $ref: '#/components/responses/ForbiddenError'
- *       404:
- *         $ref: '#/components/responses/NotFoundError'
- *       500:
- *         $ref: '#/components/responses/ServerError'
- */
-router.post('/admin/web3/verify', protect, adminProtect, shareController.adminVerifyWeb3Transaction);
-
-/**
- * @swagger
- * /shares/admin/web3/transactions:
- *   get:
- *     tags: [Shares - Admin]
- *     summary: Get Web3 transactions
- *     description: Get all Web3 transactions for admin review (admin only)
- *     security:
- *       - adminAuth: []
- *     parameters:
- *       - in: query
- *         name: status
- *         schema:
- *           type: string
- *           enum: [pending, approved, rejected]
- *         description: Filter by transaction status
- *       - in: query
- *         name: page
- *         schema:
- *           type: integer
- *           minimum: 1
- *           default: 1
- *         description: Page number for pagination
- *       - in: query
- *         name: limit
- *         schema:
- *           type: integer
- *           minimum: 1
- *           maximum: 100
- *           default: 10
- *         description: Number of transactions per page
- *     responses:
- *       200:
- *         description: Web3 transactions retrieved successfully
+ *         description: Login successful
  *         content:
  *           application/json:
  *             schema:
@@ -572,33 +106,40 @@ router.post('/admin/web3/verify', protect, adminProtect, shareController.adminVe
  *                 success:
  *                   type: boolean
  *                   example: true
+ *                 message:
+ *                   type: string
+ *                   example: "Login successful"
  *                 data:
  *                   type: object
  *                   properties:
- *                     transactions:
- *                       type: array
- *                       items:
- *                         $ref: '#/components/schemas/Transaction'
- *                     pagination:
- *                       $ref: '#/components/schemas/Pagination'
+ *                     user:
+ *                       $ref: '#/components/schemas/User'
+ *                     token:
+ *                       type: string
+ *                       example: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+ *       400:
+ *         $ref: '#/components/responses/ValidationError'
  *       401:
- *         $ref: '#/components/responses/UnauthorizedError'
- *       403:
- *         $ref: '#/components/responses/ForbiddenError'
+ *         description: Invalid credentials
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *             example:
+ *               success: false
+ *               message: "Invalid email or password"
  *       500:
  *         $ref: '#/components/responses/ServerError'
  */
-router.get('/admin/web3/transactions', protect, adminProtect, shareController.adminGetWeb3Transactions);
+router.post('/login', userController.loginUser);
 
 /**
  * @swagger
- * /shares/admin/update-pricing:
+ * /users/forgot-password:
  *   post:
- *     tags: [Shares - Admin]
- *     summary: Update share pricing
- *     description: Update the price per share (admin only)
- *     security:
- *       - adminAuth: []
+ *     tags: [Authentication]
+ *     summary: Request password reset
+ *     description: Send password reset email to user
  *     requestBody:
  *       required: true
  *       content:
@@ -606,43 +147,85 @@ router.get('/admin/web3/transactions', protect, adminProtect, shareController.ad
  *           schema:
  *             type: object
  *             required:
- *               - pricePerShare
+ *               - email
  *             properties:
- *               pricePerShare:
- *                 type: number
- *                 format: float
- *                 minimum: 0
- *                 example: 150.00
+ *               email:
+ *                 type: string
+ *                 format: email
+ *                 example: "john@example.com"
  *     responses:
  *       200:
- *         description: Share pricing updated successfully
+ *         description: Password reset email sent
  *         content:
  *           application/json:
  *             schema:
  *               $ref: '#/components/schemas/Success'
  *             example:
  *               success: true
- *               message: "Share pricing updated successfully"
+ *               message: "Password reset email sent"
  *       400:
  *         $ref: '#/components/responses/ValidationError'
- *       401:
- *         $ref: '#/components/responses/UnauthorizedError'
- *       403:
- *         $ref: '#/components/responses/ForbiddenError'
+ *       404:
+ *         $ref: '#/components/responses/NotFoundError'
  *       500:
  *         $ref: '#/components/responses/ServerError'
  */
-router.post('/admin/update-pricing', protect, adminProtect, shareController.updateSharePricing);
+router.post('/forgot-password', userController.forgotPassword);
 
 /**
  * @swagger
- * /shares/admin/add-shares:
+ * /users/verify-reset-token/{token}:
+ *   get:
+ *     tags: [Authentication]
+ *     summary: Verify password reset token
+ *     description: Verify if password reset token is valid
+ *     parameters:
+ *       - in: path
+ *         name: token
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Password reset token
+ *         example: "abc123def456"
+ *     responses:
+ *       200:
+ *         description: Token is valid
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Success'
+ *             example:
+ *               success: true
+ *               message: "Token is valid"
+ *       400:
+ *         description: Invalid or expired token
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *             example:
+ *               success: false
+ *               message: "Invalid or expired token"
+ *       500:
+ *         $ref: '#/components/responses/ServerError'
+ */
+router.get('/verify-reset-token/:token', userController.verifyResetToken);
+
+/**
+ * @swagger
+ * /users/reset-password/{token}:
  *   post:
- *     tags: [Shares - Admin]
- *     summary: Add more shares
- *     description: Add additional shares to the total pool (admin only)
- *     security:
- *       - adminAuth: []
+ *     tags: [Authentication]
+ *     summary: Reset password
+ *     description: Reset user password using reset token
+ *     parameters:
+ *       - in: path
+ *         name: token
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Password reset token
+ *         example: "abc123def456"
  *     requestBody:
  *       required: true
  *       content:
@@ -650,42 +233,36 @@ router.post('/admin/update-pricing', protect, adminProtect, shareController.upda
  *           schema:
  *             type: object
  *             required:
- *               - additionalShares
+ *               - password
  *             properties:
- *               additionalShares:
- *                 type: integer
- *                 minimum: 1
- *                 example: 1000
+ *               password:
+ *                 type: string
+ *                 minLength: 6
+ *                 example: "newpassword123"
  *     responses:
  *       200:
- *         description: Shares added successfully
+ *         description: Password reset successful
  *         content:
  *           application/json:
  *             schema:
  *               $ref: '#/components/schemas/Success'
  *             example:
  *               success: true
- *               message: "1000 shares added successfully"
+ *               message: "Password reset successful"
  *       400:
  *         $ref: '#/components/responses/ValidationError'
- *       401:
- *         $ref: '#/components/responses/UnauthorizedError'
- *       403:
- *         $ref: '#/components/responses/ForbiddenError'
  *       500:
  *         $ref: '#/components/responses/ServerError'
  */
-router.post('/admin/add-shares', protect, adminProtect, shareController.adminAddShares);
+router.post('/reset-password/:token', userController.resetPassword);
 
 /**
  * @swagger
- * /shares/admin/update-wallet:
+ * /users/login-with-wallet:
  *   post:
- *     tags: [Shares - Admin]
- *     summary: Update company wallet
- *     description: Update company wallet address for Web3 payments (admin only)
- *     security:
- *       - adminAuth: []
+ *     tags: [Authentication]
+ *     summary: Login with wallet address
+ *     description: Authenticate user using wallet address
  *     requestBody:
  *       required: true
  *       content:
@@ -698,228 +275,171 @@ router.post('/admin/add-shares', protect, adminProtect, shareController.adminAdd
  *               walletAddress:
  *                 type: string
  *                 example: "0x742d35Cc6643C673532925e2aC5c48C0F30A37a0"
+ *               signature:
+ *                 type: string
+ *                 example: "0x123456789abcdef..."
  *     responses:
  *       200:
- *         description: Company wallet updated successfully
+ *         description: Wallet login successful
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *                   example: "Wallet login successful"
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     user:
+ *                       $ref: '#/components/schemas/User'
+ *                     token:
+ *                       type: string
+ *                       example: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+ *       400:
+ *         $ref: '#/components/responses/ValidationError'
+ *       401:
+ *         $ref: '#/components/responses/UnauthorizedError'
+ *       500:
+ *         $ref: '#/components/responses/ServerError'
+ */
+router.post('/login-with-wallet', userController.loginWithWallet);
+
+/**
+ * @swagger
+ * /users/profile:
+ *   get:
+ *     tags: [Users]
+ *     summary: Get user profile
+ *     description: Get current user's profile information
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: User profile retrieved successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 data:
+ *                   $ref: '#/components/schemas/User'
+ *       401:
+ *         $ref: '#/components/responses/UnauthorizedError'
+ *       500:
+ *         $ref: '#/components/responses/ServerError'
+ */
+router.get('/profile', protect, userController.getUserProfile);
+
+/**
+ * @swagger
+ * /users/profile:
+ *   put:
+ *     tags: [Users]
+ *     summary: Update user profile
+ *     description: Update current user's profile information
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               name:
+ *                 type: string
+ *                 example: "John Doe Updated"
+ *               phoneNumber:
+ *                 type: string
+ *                 example: "+2341234567890"
+ *               userName:
+ *                 type: string
+ *                 example: "johndoe_updated"
+ *     responses:
+ *       200:
+ *         description: Profile updated successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *                   example: "Profile updated successfully"
+ *                 data:
+ *                   $ref: '#/components/schemas/User'
+ *       400:
+ *         $ref: '#/components/responses/ValidationError'
+ *       401:
+ *         $ref: '#/components/responses/UnauthorizedError'
+ *       500:
+ *         $ref: '#/components/responses/ServerError'
+ */
+router.put('/profile', protect, userController.updateUserProfile);
+
+/**
+ * @swagger
+ * /users/password:
+ *   put:
+ *     tags: [Users]
+ *     summary: Update user password
+ *     description: Update current user's password
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - currentPassword
+ *               - newPassword
+ *             properties:
+ *               currentPassword:
+ *                 type: string
+ *                 example: "oldpassword123"
+ *               newPassword:
+ *                 type: string
+ *                 minLength: 6
+ *                 example: "newpassword123"
+ *     responses:
+ *       200:
+ *         description: Password updated successfully
  *         content:
  *           application/json:
  *             schema:
  *               $ref: '#/components/schemas/Success'
  *             example:
  *               success: true
- *               message: "Company wallet updated successfully"
+ *               message: "Password updated successfully"
  *       400:
  *         $ref: '#/components/responses/ValidationError'
  *       401:
  *         $ref: '#/components/responses/UnauthorizedError'
- *       403:
- *         $ref: '#/components/responses/ForbiddenError'
  *       500:
  *         $ref: '#/components/responses/ServerError'
  */
-router.post('/admin/update-wallet', protect, adminProtect, shareController.updateCompanyWallet);
+router.put('/password', protect, userController.updatePassword);
 
 /**
  * @swagger
- * /shares/admin/transactions:
- *   get:
- *     tags: [Shares - Admin]
- *     summary: Get all transactions
- *     description: Get all share transactions across all users (admin only)
- *     security:
- *       - adminAuth: []
- *     parameters:
- *       - in: query
- *         name: status
- *         schema:
- *           type: string
- *           enum: [pending, confirmed, failed, cancelled]
- *         description: Filter by transaction status
- *       - in: query
- *         name: paymentMethod
- *         schema:
- *           type: string
- *           enum: [paystack, web3, manual]
- *         description: Filter by payment method
- *       - in: query
- *         name: page
- *         schema:
- *           type: integer
- *           minimum: 1
- *           default: 1
- *         description: Page number for pagination
- *       - in: query
- *         name: limit
- *         schema:
- *           type: integer
- *           minimum: 1
- *           maximum: 100
- *           default: 10
- *         description: Number of transactions per page
- *     responses:
- *       200:
- *         description: All transactions retrieved successfully
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 success:
- *                   type: boolean
- *                   example: true
- *                 data:
- *                   type: object
- *                   properties:
- *                     transactions:
- *                       type: array
- *                       items:
- *                         $ref: '#/components/schemas/Transaction'
- *                     pagination:
- *                       $ref: '#/components/schemas/Pagination'
- *       401:
- *         $ref: '#/components/responses/UnauthorizedError'
- *       403:
- *         $ref: '#/components/responses/ForbiddenError'
- *       500:
- *         $ref: '#/components/responses/ServerError'
- */
-router.get('/admin/transactions', protect, adminProtect, shareController.getAllTransactions);
-
-/**
- * @swagger
- * /shares/admin/statistics:
- *   get:
- *     tags: [Shares - Admin]
- *     summary: Get share statistics
- *     description: Get comprehensive statistics about shares and transactions (admin only)
- *     security:
- *       - adminAuth: []
- *     responses:
- *       200:
- *         description: Share statistics retrieved successfully
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 success:
- *                   type: boolean
- *                   example: true
- *                 data:
- *                   type: object
- *                   properties:
- *                     totalShares:
- *                       type: integer
- *                       example: 10000
- *                     soldShares:
- *                       type: integer
- *                       example: 2500
- *                     availableShares:
- *                       type: integer
- *                       example: 7500
- *                     totalRevenue:
- *                       type: number
- *                       format: float
- *                       example: 250000.00
- *                     transactionCount:
- *                       type: integer
- *                       example: 150
- *                     paymentMethodBreakdown:
- *                       type: object
- *                       properties:
- *                         paystack:
- *                           type: integer
- *                           example: 75
- *                         web3:
- *                           type: integer
- *                           example: 50
- *                         manual:
- *                           type: integer
- *                           example: 25
- *       401:
- *         $ref: '#/components/responses/UnauthorizedError'
- *       403:
- *         $ref: '#/components/responses/ForbiddenError'
- *       500:
- *         $ref: '#/components/responses/ServerError'
- */
-router.get('/admin/statistics', protect, adminProtect, shareController.getShareStatistics);
-
-// Admin manual payment routes
-
-/**
- * @swagger
- * /shares/admin/manual/transactions:
- *   get:
- *     tags: [Shares - Admin Manual Payments]
- *     summary: Get manual payment transactions
- *     description: Get all manual payment transactions for admin review (admin only)
- *     security:
- *       - adminAuth: []
- *     parameters:
- *       - in: query
- *         name: status
- *         schema:
- *           type: string
- *           enum: [pending, verified, cancelled]
- *         description: Filter by transaction status
- *       - in: query
- *         name: page
- *         schema:
- *           type: integer
- *           minimum: 1
- *           default: 1
- *         description: Page number for pagination
- *       - in: query
- *         name: limit
- *         schema:
- *           type: integer
- *           minimum: 1
- *           maximum: 100
- *           default: 10
- *         description: Number of transactions per page
- *     responses:
- *       200:
- *         description: Manual payment transactions retrieved successfully
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 success:
- *                   type: boolean
- *                   example: true
- *                 data:
- *                   type: object
- *                   properties:
- *                     transactions:
- *                       type: array
- *                       items:
- *                         allOf:
- *                           - $ref: '#/components/schemas/Transaction'
- *                           - type: object
- *                             properties:
- *                               paymentProofUrl:
- *                                 type: string
- *                                 example: "/api/shares/payment-proof/60f7c6b4c8f1a2b3c4d5e6f7"
- *                     pagination:
- *                       $ref: '#/components/schemas/Pagination'
- *       401:
- *         $ref: '#/components/responses/UnauthorizedError'
- *       403:
- *         $ref: '#/components/responses/ForbiddenError'
- *       500:
- *         $ref: '#/components/responses/ServerError'
- */
-router.get('/admin/manual/transactions', protect, adminProtect, shareController.adminGetManualTransactions);
-
-/**
- * @swagger
- * /shares/admin/manual/verify:
+ * /users/admin/grant-rights:
  *   post:
- *     tags: [Shares - Admin Manual Payments]
- *     summary: Verify manual payment
- *     description: Verify or reject a manual payment transaction (admin only)
+ *     tags: [Admin]
+ *     summary: Grant admin rights to user
+ *     description: Grant administrative privileges to a user (admin only)
  *     security:
  *       - adminAuth: []
  *     requestBody:
@@ -929,29 +449,21 @@ router.get('/admin/manual/transactions', protect, adminProtect, shareController.
  *           schema:
  *             type: object
  *             required:
- *               - transactionId
- *               - status
+ *               - userId
  *             properties:
- *               transactionId:
+ *               userId:
  *                 type: string
  *                 example: "60f7c6b4c8f1a2b3c4d5e6f7"
- *               status:
- *                 type: string
- *                 enum: [verified, rejected]
- *                 example: "verified"
- *               notes:
- *                 type: string
- *                 example: "Payment verified from bank statement"
  *     responses:
  *       200:
- *         description: Manual payment verification completed
+ *         description: Admin rights granted successfully
  *         content:
  *           application/json:
  *             schema:
  *               $ref: '#/components/schemas/Success'
  *             example:
  *               success: true
- *               message: "Manual payment verified successfully"
+ *               message: "Admin rights granted successfully"
  *       400:
  *         $ref: '#/components/responses/ValidationError'
  *       401:
@@ -963,44 +475,45 @@ router.get('/admin/manual/transactions', protect, adminProtect, shareController.
  *       500:
  *         $ref: '#/components/responses/ServerError'
  */
-router.post('/admin/manual/verify', protect, adminProtect, shareController.adminVerifyManualPayment);
+router.post('/admin/grant-rights', protect, adminProtect, userController.grantAdminRights);
 
 /**
  * @swagger
- * /shares/admin/manual/cancel:
+ * /users/admin/users/{userId}/ban:
  *   post:
- *     tags: [Shares - Admin Manual Payments]
- *     summary: Cancel manual payment
- *     description: Cancel a manual payment transaction (admin only)
+ *     tags: [Admin]
+ *     summary: Ban a user
+ *     description: Ban a user from the platform (admin only)
  *     security:
  *       - adminAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: userId
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: User ID to ban
+ *         example: "60f7c6b4c8f1a2b3c4d5e6f7"
  *     requestBody:
- *       required: true
+ *       required: false
  *       content:
  *         application/json:
  *           schema:
  *             type: object
- *             required:
- *               - transactionId
  *             properties:
- *               transactionId:
- *                 type: string
- *                 example: "60f7c6b4c8f1a2b3c4d5e6f7"
  *               reason:
  *                 type: string
- *                 example: "Invalid payment proof provided"
+ *                 example: "Violation of terms of service"
  *     responses:
  *       200:
- *         description: Manual payment cancelled successfully
+ *         description: User banned successfully
  *         content:
  *           application/json:
  *             schema:
  *               $ref: '#/components/schemas/Success'
  *             example:
  *               success: true
- *               message: "Manual payment cancelled successfully"
- *       400:
- *         $ref: '#/components/responses/ValidationError'
+ *               message: "User banned successfully"
  *       401:
  *         $ref: '#/components/responses/UnauthorizedError'
  *       403:
@@ -1010,184 +523,114 @@ router.post('/admin/manual/verify', protect, adminProtect, shareController.admin
  *       500:
  *         $ref: '#/components/responses/ServerError'
  */
-router.post('/admin/manual/cancel', protect, adminProtect, shareController.adminCancelManualPayment);
-
-module.exports = router;
+router.post('/admin/users/:userId/ban', protect, adminProtect, userController.banUser);
 
 /**
  * @swagger
- * components:
- *   securitySchemes:
- *     bearerAuth:
- *       type: http
- *       scheme: bearer
- *       bearerFormat: JWT
- *     adminAuth:
- *       type: http
- *       scheme: bearer
- *       bearerFormat: JWT
- *   
- *   schemas:
- *     Transaction:
- *       type: object
- *       properties:
- *         id:
+ * /users/admin/users/{userId}/unban:
+ *   post:
+ *     tags: [Admin]
+ *     summary: Unban a user
+ *     description: Remove ban from a user (admin only)
+ *     security:
+ *       - adminAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: userId
+ *         required: true
+ *         schema:
  *           type: string
- *           example: "60f7c6b4c8f1a2b3c4d5e6f7"
- *         userId:
- *           type: string
- *           example: "60f7c6b4c8f1a2b3c4d5e6f8"
- *         shares:
- *           type: integer
- *           example: 10
- *         amount:
- *           type: number
- *           format: float
- *           example: 1000.00
- *         currency:
- *           type: string
- *           example: "USD"
- *         status:
- *           type: string
- *           enum: [pending, confirmed, failed, cancelled, verified, rejected]
- *           example: "confirmed"
- *         paymentMethod:
- *           type: string
- *           enum: [paystack, web3, manual]
- *           example: "paystack"
- *         paymentReference:
- *           type: string
- *           example: "TXN_1234567890"
- *         transactionHash:
- *           type: string
- *           example: "0x1234567890abcdef..."
- *         paymentDetails:
- *           type: string
- *           example: "Bank transfer from GT Bank"
- *         paymentProofPath:
- *           type: string
- *           example: "uploads/payment-proofs/payment-1234567890.jpg"
- *         adminNotes:
- *           type: string
- *           example: "Verified by admin"
- *         createdAt:
- *           type: string
- *           format: date-time
- *           example: "2024-01-15T10:30:00.000Z"
- *         updatedAt:
- *           type: string
- *           format: date-time
- *           example: "2024-01-15T11:00:00.000Z"
- *     
- *     Pagination:
- *       type: object
- *       properties:
- *         currentPage:
- *           type: integer
- *           example: 1
- *         totalPages:
- *           type: integer
- *           example: 5
- *         totalItems:
- *           type: integer
- *           example: 50
- *         hasNext:
- *           type: boolean
- *           example: true
- *         hasPrev:
- *           type: boolean
- *           example: false
- *         limit:
- *           type: integer
- *           example: 10
- *     
- *     Success:
- *       type: object
- *       properties:
- *         success:
- *           type: boolean
- *           example: true
- *         message:
- *           type: string
- *           example: "Operation completed successfully"
- *         data:
- *           type: object
- *           description: "Optional data object"
- *     
- *     Error:
- *       type: object
- *       properties:
- *         success:
- *           type: boolean
- *           example: false
- *         message:
- *           type: string
- *           example: "An error occurred"
- *         error:
- *           type: string
- *           example: "Detailed error message"
- *         statusCode:
- *           type: integer
- *           example: 400
- *   
- *   responses:
- *     ValidationError:
- *       description: Validation error
- *       content:
- *         application/json:
- *           schema:
- *             $ref: '#/components/schemas/Error'
- *           example:
- *             success: false
- *             message: "Validation failed"
- *             error: "Required field is missing"
- *             statusCode: 400
- *     
- *     UnauthorizedError:
- *       description: Authentication required
- *       content:
- *         application/json:
- *           schema:
- *             $ref: '#/components/schemas/Error'
- *           example:
- *             success: false
- *             message: "Authentication required"
- *             error: "No token provided"
- *             statusCode: 401
- *     
- *     ForbiddenError:
- *       description: Insufficient permissions
- *       content:
- *         application/json:
- *           schema:
- *             $ref: '#/components/schemas/Error'
- *           example:
- *             success: false
- *             message: "Insufficient permissions"
- *             error: "Admin access required"
- *             statusCode: 403
- *     
- *     NotFoundError:
- *       description: Resource not found
- *       content:
- *         application/json:
- *           schema:
- *             $ref: '#/components/schemas/Error'
- *           example:
- *             success: false
- *             message: "Resource not found"
- *             error: "Transaction not found"
- *             statusCode: 404
- *     
- *     ServerError:
- *       description: Internal server error
- *       content:
- *         application/json:
- *           schema:
- *             $ref: '#/components/schemas/Error'
- *           example:
- *             success: false
- *             message: "Internal server error"
- *             error: "Database connection failed"
- *             statusCode: 500
+ *         description: User ID to unban
+ *         example: "60f7c6b4c8f1a2b3c4d5e6f7"
+ *     responses:
+ *       200:
+ *         description: User unbanned successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Success'
+ *             example:
+ *               success: true
+ *               message: "User unbanned successfully"
+ *       401:
+ *         $ref: '#/components/responses/UnauthorizedError'
+ *       403:
+ *         $ref: '#/components/responses/ForbiddenError'
+ *       404:
+ *         $ref: '#/components/responses/NotFoundError'
+ *       500:
+ *         $ref: '#/components/responses/ServerError'
  */
+router.post('/admin/users/:userId/unban', protect, adminProtect, userController.unbanUser);
+
+/**
+ * @swagger
+ * /users/admin/users/banned:
+ *   get:
+ *     tags: [Admin]
+ *     summary: Get banned users
+ *     description: Get list of all banned users (admin only)
+ *     security:
+ *       - adminAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: page
+ *         schema:
+ *           type: integer
+ *           minimum: 1
+ *           default: 1
+ *         description: Page number for pagination
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *           minimum: 1
+ *           maximum: 100
+ *           default: 10
+ *         description: Number of users per page
+ *     responses:
+ *       200:
+ *         description: Banned users retrieved successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     users:
+ *                       type: array
+ *                       items:
+ *                         $ref: '#/components/schemas/User'
+ *                     pagination:
+ *                       type: object
+ *                       properties:
+ *                         currentPage:
+ *                           type: integer
+ *                           example: 1
+ *                         totalPages:
+ *                           type: integer
+ *                           example: 5
+ *                         totalUsers:
+ *                           type: integer
+ *                           example: 50
+ *                         hasNext:
+ *                           type: boolean
+ *                           example: true
+ *                         hasPrev:
+ *                           type: boolean
+ *                           example: false
+ *       401:
+ *         $ref: '#/components/responses/UnauthorizedError'
+ *       403:
+ *         $ref: '#/components/responses/ForbiddenError'
+ *       500:
+ *         $ref: '#/components/responses/ServerError'
+ */
+router.get('/admin/users/banned', protect, adminProtect, userController.getBannedUsers);
+
+module.exports = router;
