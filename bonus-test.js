@@ -1,172 +1,215 @@
-// awardUserBalance.js
-// Save this file and run it using Node.js: node awardUserBalance.js
+#!/usr/bin/env node
 
 const mongoose = require('mongoose');
+require('dotenv').config();
+
+// Import the models we know exist
 const User = require('./models/User');
-const Referral = require('./models/Referral');
-const ReferralTransaction = require('./models/ReferralTransaction');
+const UserShare = require('./models/UserShare');
+const Share = require('./models/Share');
 
-async function awardUserBalance() {
+const args = process.argv.slice(2);
+
+if (args.length < 2) {
+  console.log('\n=== Simple Award Shares CLI ===');
+  console.log('\nUsage: node simple-award.js <user-email-or-id> <shares> [reason]');
+  console.log('\nExamples:');
+  console.log('  node simple-award.js user@example.com 100');
+  console.log('  node simple-award.js user@example.com 50 "Bonus reward"');
+  console.log('  node simple-award.js --dry-run user@example.com 100');
+  console.log('');
+  process.exit(1);
+}
+
+// Check for dry run flag
+const isDryRun = args.includes('--dry-run');
+const filteredArgs = args.filter(arg => arg !== '--dry-run');
+
+const userIdentifier = filteredArgs[0];
+const sharesAmount = parseInt(filteredArgs[1]);
+const reason = filteredArgs[2] || 'CLI Award';
+
+if (isNaN(sharesAmount) || sharesAmount <= 0) {
+  console.error('❌ Shares amount must be a positive number');
+  process.exit(1);
+}
+
+if (sharesAmount > 10000) {
+  console.error('❌ Cannot award more than 10,000 shares at once (safety limit)');
+  process.exit(1);
+}
+
+async function getCurrentSharePrice() {
   try {
-    console.log('Starting user balance award process...');
-    
-    // Connect to MongoDB
-    await mongoose.connect(process.env.MONGODB_URI || 'mongodb+srv://Ben:iOBkvnsCXWpoGMFp@cluster0.l4xjq.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0', {
-      useNewUrlParser: true,
-      useUnifiedTopology: true
-    });
-    console.log('Connected to MongoDB');
-
-    // Get user input
-    const readline = require('readline');
-    const rl = readline.createInterface({
-      input: process.stdin,
-      output: process.stdout
-    });
-    
-    const questions = () => {
-      return new Promise((resolve) => {
-        rl.question('\nEnter user email or username: ', (userIdentifier) => {
-          rl.question('\nEnter amount to award (default 20000): ', (amount) => {
-            rl.question('\nEnter reason for award (optional): ', (reason) => {
-              rl.close();
-              resolve({
-                userIdentifier: userIdentifier.trim(),
-                amount: amount.trim() || '20000',
-                reason: reason.trim() || 'Admin bonus award'
-              });
-            });
-          });
-        });
-      });
-    };
-    
-    const { userIdentifier, amount, reason } = await questions();
-    const awardAmount = parseFloat(amount);
-    
-    if (isNaN(awardAmount) || awardAmount <= 0) {
-      console.log('Invalid amount. Exiting...');
-      await mongoose.connection.close();
-      return;
+    const shareConfig = await Share.getCurrentConfig();
+    if (shareConfig && shareConfig.currentPrices && shareConfig.currentPrices.tier1) {
+      return shareConfig.currentPrices.tier1.priceNaira || 1000;
     }
-    
-    // Find the user
-    let user;
-    if (userIdentifier.includes('@')) {
-      user = await User.findOne({ email: userIdentifier });
-    } else {
-      user = await User.findOne({ userName: userIdentifier });
-    }
-    
-    if (!user) {
-      console.log(`User not found: ${userIdentifier}`);
-      await mongoose.connection.close();
-      return;
-    }
-    
-    console.log(`\nFound user: ${user.name} (${user.email})`);
-    console.log(`Award amount: ₦${awardAmount.toLocaleString()}`);
-    console.log(`Reason: ${reason}`);
-    
-    // Get confirmation
-    const rl2 = readline.createInterface({
-      input: process.stdin,
-      output: process.stdout
-    });
-    
-    const confirmation = await new Promise((resolve) => {
-      rl2.question('\nProceed with award? (yes/no): ', (answer) => {
-        rl2.close();
-        resolve(answer.toLowerCase());
-      });
-    });
-    
-    if (confirmation !== 'yes') {
-      console.log('Award cancelled by user');
-      await mongoose.connection.close();
-      return;
-    }
-    
-    // Create a referral transaction for the award
-    const transaction = new ReferralTransaction({
-      user: user._id,
-      beneficiary: user._id,
-      type: 'bonus',  // Keep the type as bonus
-      amount: awardAmount,
-      // Omit currency as it might have a default value or not be required for bonus type
-      description: reason,
-      status: 'completed',
-      reference: `BONUS-${Date.now()}`,
-      generation: 1,  // Required field
-      referredUser: user._id,  // Required field - self-referral for bonus
-      purchaseType: 'share',  // Use 'share' since 'bonus' is not a valid enum value
-      sourceTransactionModel: 'UserShare'  // Use 'UserShare' which seems to be a valid enum value
-    });
-    
-    await transaction.save();
-    
-    // Update or create referral stats
-    let referralStats = await Referral.findOne({ user: user._id });
-    
-    if (referralStats) {
-      referralStats.totalEarnings = (referralStats.totalEarnings || 0) + awardAmount;
-      await referralStats.save();
-    } else {
-      referralStats = new Referral({
-        user: user._id,
-        referredUsers: 0,
-        totalEarnings: awardAmount,
-        generation1: { count: 0, earnings: 0 },
-        generation2: { count: 0, earnings: 0 },
-        generation3: { count: 0, earnings: 0 }
-      });
-      await referralStats.save();
-    }
-    
-    console.log('\n----- AWARD SUMMARY -----');
-    console.log(`User: ${user.name} (${user.email})`);
-    console.log(`Amount awarded: ₦${awardAmount.toLocaleString()}`);
-    console.log(`New total earnings: ₦${referralStats.totalEarnings.toLocaleString()}`);
-    console.log(`Transaction ID: ${transaction._id}`);
-    console.log(`Reference: ${transaction.reference}`);
-    
-    // Save results to file
-    const fs = require('fs');
-    const results = {
-      date: new Date(),
-      user: {
-        id: user._id,
-        name: user.name,
-        email: user.email
-      },
-      award: {
-        amount: awardAmount,
-        reason: reason,
-        transactionId: transaction._id,
-        reference: transaction.reference
-      },
-      newBalance: referralStats.totalEarnings
-    };
-    
-    fs.writeFileSync(`user_award_${user._id}_${Date.now()}.json`, JSON.stringify(results, null, 2));
-    console.log('\nResults saved to file');
-    
-    await mongoose.connection.close();
-    console.log('MongoDB connection closed');
-    console.log('\nBonus successfully awarded!');
-    
+    return 1000; // Default fallback
   } catch (error) {
-    console.error('Error awarding user balance:', error);
-    if (mongoose.connection.readyState !== 0) {
-      await mongoose.connection.close();
-    }
-    throw error;
+    console.warn('⚠️  Could not fetch current share price, using default (₦1000)');
+    return 1000;
   }
 }
 
-// Run the function
-console.log('👨‍💼 User Balance Award Tool');
-console.log('========================');
-awardUserBalance()
-  .then(() => console.log('\nProcess completed'))
-  .catch(error => console.error('\nProcess failed:', error));
+async function main() {
+  try {
+    // Connect to database
+    await mongoose.connect(process.env.MONGODB_URI);
+    console.log('✅ Connected to MongoDB');
+
+    // Find user
+    let user = null;
+    
+    // Try by ObjectId first
+    if (mongoose.Types.ObjectId.isValid(userIdentifier)) {
+      user = await User.findById(userIdentifier);
+    }
+    
+    // Try by email if not found
+    if (!user) {
+      user = await User.findOne({ email: userIdentifier });
+    }
+    
+    // Try by username if still not found
+    if (!user) {
+      user = await User.findOne({ userName: userIdentifier });
+    }
+
+    if (!user) {
+      console.error(`❌ User not found: ${userIdentifier}`);
+      process.exit(1);
+    }
+
+    console.log(`✅ Found user: ${user.name} (${user.email})`);
+
+    // Find current user shares
+    let userShare = await UserShare.findOne({ user: user._id });
+    const currentShares = userShare ? userShare.totalShares : 0;
+    console.log(`📊 Current shares: ${currentShares}`);
+
+    // Get current share price
+    const sharePrice = await getCurrentSharePrice();
+    const totalValue = sharesAmount * sharePrice;
+
+    console.log('\n📋 Award Details:');
+    console.log(`   User: ${user.name} (${user.email})`);
+    console.log(`   Shares to award: ${sharesAmount}`);
+    console.log(`   Price per share: ₦${sharePrice.toLocaleString()}`);
+    console.log(`   Total value: ₦${totalValue.toLocaleString()}`);
+    console.log(`   Reason: ${reason}`);
+    console.log(`   New total shares: ${currentShares + sharesAmount}`);
+
+    if (isDryRun) {
+      console.log('\n🔍 DRY RUN - No changes will be made');
+      console.log('✅ Dry run completed successfully');
+      return;
+    }
+
+    // Confirm before proceeding
+    console.log('\n⚠️  This will permanently award shares to the user.');
+    console.log('   Press Ctrl+C to cancel, or wait 5 seconds to continue...');
+    await new Promise(resolve => setTimeout(resolve, 5000));
+
+    // Create or update UserShare
+    if (!userShare) {
+      userShare = new UserShare({
+        user: user._id,
+        totalShares: 0,
+        transactions: []
+      });
+      console.log('📝 Creating new UserShare record');
+    }
+
+    // Generate transaction ID (using similar format to your controller)
+    const crypto = require('crypto');
+    const transactionId = `TXN-${crypto.randomBytes(4).toString('hex').toUpperCase()}-${Date.now().toString().slice(-6)}`;
+
+    // Create transaction record
+    const transaction = {
+      transactionId,
+      shares: sharesAmount,
+      pricePerShare: sharePrice,
+      currency: 'naira',
+      totalAmount: totalValue,
+      paymentMethod: 'paystack', // Use valid enum value (same as controller)
+      status: 'completed',
+      createdAt: new Date(),
+      paymentReference: `CLI_AWARD_${Date.now()}`,
+      tierBreakdown: {
+        tier1: sharesAmount, // Default all to tier1 for admin actions
+        tier2: 0,
+        tier3: 0
+      },
+      adminAction: true,
+      adminNote: `CLI Award: ${reason}`
+    };
+
+    // Update shares using the addShares method (similar to your controller)
+    await UserShare.addShares(user._id, sharesAmount, transaction);
+
+    // Update global share counts (similar to your controller)
+    try {
+      const shareConfig = await Share.getCurrentConfig();
+      if (shareConfig) {
+        shareConfig.sharesSold += sharesAmount;
+        shareConfig.tierSales.tier1Sold += sharesAmount;
+        await shareConfig.save();
+        console.log('📈 Updated global share statistics');
+      }
+    } catch (error) {
+      console.warn('⚠️  Could not update global share statistics:', error.message);
+    }
+
+    console.log('\n✅ Shares awarded successfully!');
+    console.log(`   Transaction ID: ${transactionId}`);
+    console.log(`   Shares awarded: ${sharesAmount}`);
+    console.log(`   Total value: ₦${totalValue.toLocaleString()}`);
+    console.log(`   New total shares: ${currentShares + sharesAmount}`);
+
+    // Optional: Send email notification (if you want to enable this)
+    try {
+      const { sendEmail } = require('./utils/emailService');
+      
+      if (user.email) {
+        await sendEmail({
+          email: user.email,
+          subject: 'AfriMobile - Shares Added to Your Account',
+          html: `
+            <h2>Shares Added</h2>
+            <p>Dear ${user.name},</p>
+            <p>We are pleased to inform you that ${sharesAmount} shares have been added to your account via CLI admin action.</p>
+            <p>Transaction Reference: ${transactionId}</p>
+            <p>Total Value: ₦${totalValue.toLocaleString()}</p>
+            <p>Thank you for being part of AfriMobile!</p>
+            <p>Reason: ${reason}</p>
+          `
+        });
+        console.log('📧 Email notification sent to user');
+      }
+    } catch (emailError) {
+      console.warn('⚠️  Could not send email notification:', emailError.message);
+    }
+
+  } catch (error) {
+    console.error('❌ Error:', error.message);
+    if (process.env.NODE_ENV === 'development') {
+      console.error(error.stack);
+    }
+    process.exit(1);
+  } finally {
+    await mongoose.connection.close();
+    console.log('🔌 Database connection closed');
+  }
+}
+
+// Handle process termination
+process.on('SIGINT', async () => {
+  console.log('\n\n👋 Operation cancelled by user');
+  if (mongoose.connection.readyState === 1) {
+    await mongoose.connection.close();
+  }
+  process.exit(0);
+});
+
+main();
