@@ -14,7 +14,7 @@ async function fetchAllReferralDetails() {
     console.log('✅ Connected to MongoDB');
 
     // Users to investigate
-    const userNames = ['Danny73', 'Nkechi2020', 'Adjoa1985','Iykomo84'];
+    const userNames = ['DML','Danny73', 'Nkechi2020', 'Adjoa1985','Iykomo84'];
 
     for (const userName of userNames) {
       console.log(`\n${'='.repeat(80)}`);

@@ -32,6 +32,22 @@ const userSchema = new mongoose.Schema({
     type: String,
     trim: true
   },
+  countryCode: {
+    type: String,
+    trim: true
+  },
+  state: {
+    type: String,
+    trim: true
+  },
+  stateCode: {
+    type: String,
+    trim: true
+  },
+  city: {
+    type: String,
+    trim: true
+  },
   interest: {
     type: String,
     trim: true
@@ -49,6 +65,25 @@ const userSchema = new mongoose.Schema({
   isAdmin: {
     type: Boolean,
     default: false
+  },
+  // Admin tracking fields
+  adminGrantedAt: {
+    type: Date,
+    default: null
+  },
+  adminGrantedBy: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User',
+    default: null
+  },
+  adminRevokedAt: {
+    type: Date,
+    default: null
+  },
+  adminRevokedBy: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User',
+    default: null
   },
   // Ban-related fields
   isBanned: {
@@ -78,26 +113,49 @@ const userSchema = new mongoose.Schema({
     ref: 'User',
     default: null
   },
-  // Existing fields
-  resetPasswordToken: String,
-  resetPasswordExpire: Date,
+  // Password reset fields
+  resetPasswordToken: {
+    type: String,
+    default: null
+  },
+  resetPasswordExpire: {
+    type: Date,
+    default: null
+  },
+  // Referral system fields
   referralInfo: {
-    code: String,
-    source: String,
-    timestamp: Date
+    code: {
+      type: String,
+      trim: true
+    },
+    source: {
+      type: String,
+      trim: true,
+      default: 'direct'
+    },
+    timestamp: {
+      type: Date
+    }
   },
   referrals: [{
     userId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'User'
     },
-    email: String,
-    date: Date
+    email: {
+      type: String,
+      trim: true
+    },
+    date: {
+      type: Date,
+      default: Date.now
+    }
   }],
   referralCount: {
     type: Number,
     default: 0
   },
+  // Timestamps
   createdAt: {
     type: Date,
     default: Date.now
@@ -106,7 +164,18 @@ const userSchema = new mongoose.Schema({
     type: Date,
     default: Date.now
   }
+}, {
+  // Enable automatic timestamps
+  timestamps: true
 });
+
+// Index for better query performance
+userSchema.index({ email: 1 });
+userSchema.index({ userName: 1 });
+userSchema.index({ walletAddress: 1 });
+userSchema.index({ isAdmin: 1 });
+userSchema.index({ isBanned: 1 });
+userSchema.index({ createdAt: -1 });
 
 // Pre-save hook to hash password
 userSchema.pre('save', async function(next) {
@@ -122,6 +191,12 @@ userSchema.pre('save', async function(next) {
   }
 });
 
+// Pre-save hook to update timestamps
+userSchema.pre('save', function(next) {
+  this.updatedAt = Date.now();
+  next();
+});
+
 // Method to compare passwords
 userSchema.methods.comparePassword = async function(candidatePassword) {
   return await bcrypt.compare(candidatePassword, this.password);
@@ -131,6 +206,48 @@ userSchema.methods.comparePassword = async function(candidatePassword) {
 userSchema.methods.generateReferralCode = function() {
   return this._id.toString().substr(-6).toUpperCase();
 };
+
+// Method to check if user can perform admin actions
+userSchema.methods.canPerformAdminActions = function() {
+  return this.isAdmin && !this.isBanned;
+};
+
+// Method to get user's full address
+userSchema.methods.getFullAddress = function() {
+  const addressParts = [this.city, this.state, this.country].filter(Boolean);
+  return addressParts.join(', ') || null;
+};
+
+// Static method to find active users (not banned)
+userSchema.statics.findActiveUsers = function(conditions = {}) {
+  return this.find({ 
+    ...conditions, 
+    isBanned: { $ne: true } 
+  });
+};
+
+// Static method to find admin users
+userSchema.statics.findAdminUsers = function(conditions = {}) {
+  return this.find({ 
+    ...conditions, 
+    isAdmin: true,
+    isBanned: { $ne: true }
+  });
+};
+
+// Virtual for user's display name
+userSchema.virtual('displayName').get(function() {
+  return this.userName || this.name || this.email.split('@')[0];
+});
+
+// Virtual for referral code
+userSchema.virtual('myReferralCode').get(function() {
+  return this.generateReferralCode();
+});
+
+// Ensure virtual fields are serialized
+userSchema.set('toJSON', { virtuals: true });
+userSchema.set('toObject', { virtuals: true });
 
 const User = mongoose.model('User', userSchema);
 

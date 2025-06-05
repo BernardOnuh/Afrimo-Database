@@ -449,12 +449,13 @@ router.put('/password', protect, userController.updatePassword);
  *           schema:
  *             type: object
  *             required:
- *               - userId
+ *               - email
  *             properties:
- *               userId:
+ *               email:
  *                 type: string
- *                 example: "60f7c6b4c8f1a2b3c4d5e6f7"
- *     responses:
+ *                 format: email
+ *                 example: "user@example.com"
+*     responses:
  *       200:
  *         description: Admin rights granted successfully
  *         content:
@@ -632,5 +633,244 @@ router.post('/admin/users/:userId/unban', protect, adminProtect, userController.
  *         $ref: '#/components/responses/ServerError'
  */
 router.get('/admin/users/banned', protect, adminProtect, userController.getBannedUsers);
+// Add these routes to your existing router file
+
+/**
+ * @swagger
+ * /users/admin/users:
+ *   get:
+ *     tags: [Admin]
+ *     summary: Get all users
+ *     description: Get list of all users with pagination (admin only)
+ *     security:
+ *       - adminAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: page
+ *         schema:
+ *           type: integer
+ *           minimum: 1
+ *           default: 1
+ *         description: Page number for pagination
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *           minimum: 1
+ *           maximum: 100
+ *           default: 10
+ *         description: Number of users per page
+ *       - in: query
+ *         name: search
+ *         schema:
+ *           type: string
+ *         description: Search by name, email, or username
+ *       - in: query
+ *         name: status
+ *         schema:
+ *           type: string
+ *           enum: [active, banned, all]
+ *           default: all
+ *         description: Filter by user status
+ *     responses:
+ *       200:
+ *         description: Users retrieved successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     users:
+ *                       type: array
+ *                       items:
+ *                         $ref: '#/components/schemas/User'
+ *                     pagination:
+ *                       type: object
+ *                       properties:
+ *                         currentPage:
+ *                           type: integer
+ *                           example: 1
+ *                         totalPages:
+ *                           type: integer
+ *                           example: 5
+ *                         totalUsers:
+ *                           type: integer
+ *                           example: 50
+ *                         hasNext:
+ *                           type: boolean
+ *                           example: true
+ *                         hasPrev:
+ *                           type: boolean
+ *                           example: false
+ *       401:
+ *         $ref: '#/components/responses/UnauthorizedError'
+ *       403:
+ *         $ref: '#/components/responses/ForbiddenError'
+ *       500:
+ *         $ref: '#/components/responses/ServerError'
+ */
+router.get('/admin/users', protect, adminProtect, userController.getAllUsers);
+
+/**
+ * @swagger
+ * /users/admin/users/{userId}:
+ *   get:
+ *     tags: [Admin]
+ *     summary: Get user by ID
+ *     description: Get detailed information about a specific user (admin only)
+ *     security:
+ *       - adminAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: userId
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: User ID
+ *         example: "60f7c6b4c8f1a2b3c4d5e6f7"
+ *     responses:
+ *       200:
+ *         description: User retrieved successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 data:
+ *                   $ref: '#/components/schemas/User'
+ *       401:
+ *         $ref: '#/components/responses/UnauthorizedError'
+ *       403:
+ *         $ref: '#/components/responses/ForbiddenError'
+ *       404:
+ *         $ref: '#/components/responses/NotFoundError'
+ *       500:
+ *         $ref: '#/components/responses/ServerError'
+ */
+router.get('/admin/users/:userId', protect, adminProtect, userController.getUserById);
+
+/**
+ * @swagger
+ * /users/admin/admins:
+ *   get:
+ *     tags: [Admin]
+ *     summary: Get all admin users
+ *     description: Get list of all users with admin privileges (admin only)
+ *     security:
+ *       - adminAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: page
+ *         schema:
+ *           type: integer
+ *           minimum: 1
+ *           default: 1
+ *         description: Page number for pagination
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *           minimum: 1
+ *           maximum: 100
+ *           default: 10
+ *         description: Number of admins per page
+ *     responses:
+ *       200:
+ *         description: Admin users retrieved successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     admins:
+ *                       type: array
+ *                       items:
+ *                         $ref: '#/components/schemas/User'
+ *                     pagination:
+ *                       type: object
+ *                       properties:
+ *                         currentPage:
+ *                           type: integer
+ *                           example: 1
+ *                         totalPages:
+ *                           type: integer
+ *                           example: 2
+ *                         totalAdmins:
+ *                           type: integer
+ *                           example: 15
+ *                         hasNext:
+ *                           type: boolean
+ *                           example: true
+ *                         hasPrev:
+ *                           type: boolean
+ *                           example: false
+ *       401:
+ *         $ref: '#/components/responses/UnauthorizedError'
+ *       403:
+ *         $ref: '#/components/responses/ForbiddenError'
+ *       500:
+ *         $ref: '#/components/responses/ServerError'
+ */
+router.get('/admin/admins', protect, adminProtect, userController.getAllAdmins);
+
+/**
+ * @swagger
+ * /users/admin/revoke-rights:
+ *   post:
+ *     tags: [Admin]
+ *     summary: Revoke admin rights from user
+ *     description: Remove administrative privileges from a user (admin only)
+ *     security:
+ *       - adminAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - email
+ *             properties:
+ *               email:
+ *                 type: string
+ *                 format: email
+ *                 example: "admin@example.com"
+ *     responses:
+ *       200:
+ *         description: Admin rights revoked successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Success'
+ *             example:
+ *               success: true
+ *               message: "Admin rights revoked successfully"
+ *       400:
+ *         $ref: '#/components/responses/ValidationError'
+ *       401:
+ *         $ref: '#/components/responses/UnauthorizedError'
+ *       403:
+ *         $ref: '#/components/responses/ForbiddenError'
+ *       404:
+ *         $ref: '#/components/responses/NotFoundError'
+ *       500:
+ *         $ref: '#/components/responses/ServerError'
+ */
+router.post('/admin/revoke-rights', protect, adminProtect, userController.revokeAdminRights);
 
 module.exports = router;

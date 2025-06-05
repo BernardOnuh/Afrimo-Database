@@ -10,6 +10,9 @@ const cron = require('node-cron');
 // Load environment variables
 require('dotenv').config();
 
+// Import custom middleware
+const setupSwagger = require('./middleware/swagger');
+
 // Initialize express app
 const app = express();
 
@@ -55,6 +58,13 @@ if (process.env.NODE_ENV === 'development') {
 
 // Set up static folder for uploads
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+
+// Setup Swagger documentation
+setupSwagger(app);
+
+// ========================================
+// API ROUTES
+// ========================================
 
 // Routes
 app.use('/api/users', require('./routes/userRoutes'));
@@ -199,20 +209,21 @@ app.get('/api/referral/debug/:userId?', async (req, res) => {
   }
 });
 
+// ========================================
+// CRON JOBS SETUP
+// ========================================
+
 // Simple test cron job to verify cron is working (runs every minute)
 cron.schedule('* * * * *', () => {
-  console.log('\n\n');
-  console.log('======================================');
+  console.log('\n======================================');
   console.log('TEST CRON: This should run every minute');
   console.log('Current time:', new Date().toISOString());
-  console.log('======================================');
-  console.log('\n\n');
+  console.log('======================================\n');
 });
 
 // Create a simple test job that just logs withdrawals (runs every minute)
 cron.schedule('* * * * *', async () => {
-  console.log('\n\n');
-  console.log('**********************************************');
+  console.log('\n**********************************************');
   console.log('*  TEST WITHDRAWAL JOB RUNNING              *');
   console.log('*  ' + new Date().toISOString() + '  *');
   console.log('**********************************************');
@@ -233,8 +244,7 @@ cron.schedule('* * * * *', async () => {
     console.error(error.stack);
   }
   
-  console.log('**********************************************');
-  console.log('\n\n');
+  console.log('**********************************************\n');
 });
 
 // Schedule tasks
@@ -284,7 +294,6 @@ try {
 console.log('======================================\n');
 
 // FORCE START WITHDRAWAL VERIFICATION CRON JOBS REGARDLESS OF ENVIRONMENT
-console.log('\n\n');
 console.log('======================================');
 console.log('FORCE STARTING WITHDRAWAL CRON JOBS');
 console.log(`Current NODE_ENV: ${process.env.NODE_ENV}`);
@@ -306,12 +315,10 @@ try {
   console.error('ERROR LOADING WITHDRAWAL CRON JOBS:', error);
   console.error(error.stack);
 }
-console.log('======================================');
-console.log('\n\n');
+console.log('======================================\n');
 
 // One-time immediate check for withdrawals when app starts
 setTimeout(async () => {
-  console.log('\n\n');
   console.log('======================================');
   console.log('Running immediate one-time withdrawal verification check...');
   try {
@@ -369,9 +376,12 @@ setTimeout(async () => {
     console.error('Error in one-time check:', error);
     console.error(error.stack);
   }
-  console.log('======================================');
-  console.log('\n\n');
+  console.log('======================================\n');
 }, 5000); // Run 5 seconds after startup
+
+// ========================================
+// STATIC FILES & PRODUCTION SETUP
+// ========================================
 
 // Serve static assets if in production
 if (process.env.NODE_ENV === 'production') {
@@ -383,9 +393,20 @@ if (process.env.NODE_ENV === 'production') {
   });
 }
 
+// ========================================
+// API ENDPOINTS
+// ========================================
+
 // Root route - Health check
 app.get('/', (req, res) => {
-  res.send('AfriMobile API is running');
+  res.json({
+    success: true,
+    message: 'AfriMobile API is running',
+    version: '1.0.0',
+    timestamp: new Date().toISOString(),
+    environment: process.env.NODE_ENV || 'development',
+    documentation: '/api-docs'
+  });
 });
 
 // Add a test route for manually checking Lenco API
@@ -429,6 +450,10 @@ app.get('/api/test-lenco/:reference', async (req, res) => {
   }
 });
 
+// ========================================
+// ERROR HANDLING
+// ========================================
+
 // Error handling middleware
 app.use((err, req, res, next) => {
   console.error(err.stack);
@@ -447,14 +472,18 @@ app.use((req, res) => {
   });
 });
 
+// ========================================
+// SERVER STARTUP
+// ========================================
+
 // Start server
 const PORT = process.env.PORT || 5000;
 const server = app.listen(PORT, () => {
-  console.log('\n\n');
-  console.log('**********************************************');
+  console.log('\n**********************************************');
   console.log(`🚀 Server running in ${process.env.NODE_ENV || 'development'} mode on port ${PORT}`);
-  console.log('**********************************************');
-  console.log('\n\n');
+  console.log(`📚 API Documentation: http://localhost:${PORT}/api-docs`);
+  console.log(`🏠 Health Check: http://localhost:${PORT}/`);
+  console.log('**********************************************\n');
 });
 
 // Handle graceful shutdown

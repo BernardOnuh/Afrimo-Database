@@ -622,17 +622,21 @@ exports.getAllTransactions = async (req, res) => {
           user: {
             id: userShare.user._id,
             name: userShare.user.name,
+            username: userShare.user.username,
             email: userShare.user.email,
-            walletAddress: userShare.user.walletAddress
+            phone: userShare.user.phone
           },
           shares: transaction.shares,
           pricePerShare: transaction.pricePerShare,
           currency: transaction.currency,
           totalAmount: transaction.totalAmount,
-          paymentMethod: transaction.paymentMethod,
+          paymentMethod: transaction.paymentMethod.replace('manual_', ''),
           status: transaction.status,
           date: transaction.createdAt,
-          adminAction: transaction.adminAction || false,
+          // FIX: Remove /api prefix from paymentProofUrl
+          paymentProofUrl: transaction.paymentProofPath ? 
+            `/shares/payment-proof/${transaction.transactionId}` : null,
+          manualPaymentDetails: transaction.manualPaymentDetails || {},
           adminNote: transaction.adminNote
         });
       }

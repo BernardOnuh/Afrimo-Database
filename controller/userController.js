@@ -1045,6 +1045,388 @@ exports.unbanUser = async (req, res) => {
   }
 };
 
+// Add these functions to your userController.js file
+
+// Get all users (admin only)
+exports.getAllUsers = async (req, res) => {
+  try {
+    // Verify the current user is an admin
+    if (!req.user.isAdmin) {
+      return res.status(403).json({
+        success: false,
+        message: 'Permission denied: Admin access required'
+      });
+    }
+
+    // Parse query parameters
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 10;
+    const search = req.query.search || '';
+    const status = req.query.status || 'all';
+
+    // Calculate skip value for pagination
+    const skip = (page - 1) * limit;
+
+    // Build filter object
+    let filter = {};
+    
+    // Add search filter
+    if (search) {
+      filter.$or = [
+        { name: { $regex: search, $options: 'i' } },
+        { email: { $regex: search, $options: 'i' } },
+        { userName: { $regex: search, $options: 'i' } }
+      ];
+    }
+
+    // Add status filter
+    if (status === 'active') {
+      filter.isBanned = { $ne: true };
+    } else if (status === 'banned') {
+      filter.isBanned = true;
+    }
+
+    // Get total count for pagination
+    const totalUsers = await User.countDocuments(filter);
+
+    // Calculate pagination info
+    const totalPages = Math.ceil(totalUsers / limit);
+    const hasNext = page < totalPages;
+    const hasPrev = page > 1;
+
+    // Fetch users with pagination
+    const users = await User.find(filter)
+      .select('-password -resetPasswordToken -resetPasswordExpire')
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limit)
+      .populate('bannedBy', 'name email')
+      .populate('unbannedBy', 'name email');
+
+    res.status(200).json({
+      success: true,
+      data: {
+        users,
+        pagination: {
+          currentPage: page,
+          totalPages,
+          totalUsers,
+          hasNext,
+          hasPrev,
+          limit
+        }
+      }
+    });
+  } catch (error) {
+    console.error('Error fetching all users:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Internal server error',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+};
+
+// Get user by ID (admin only)
+exports.getUserById = async (req, res) => {
+  try {
+    // Verify the current user is an admin
+    if (!req.user.isAdmin) {
+      return res.status(403).json({
+        success: false,
+        message: 'Permission denied: Admin access required'
+      });
+    }
+
+    const { userId } = req.params;
+
+    // Find user by ID
+    const user = await User.findById(userId)
+      .select('-password -resetPasswordToken -resetPasswordExpire')
+      .populate('bannedBy', 'name email')
+      .populate('unbannedBy', 'name email');
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
+    }
+
+    res.status(200).json({
+      success: true,
+      data: user
+    });
+  } catch (error) {
+    console.error('Error fetching user by ID:', error);
+    
+    // Handle invalid ObjectId format
+    if (error.name === 'CastError') {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid user ID format'
+      });
+    }
+
+    res.status(500).json({
+      success: false,
+      message: 'Internal server error',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+};
+
+// Get all admin users (admin only)
+exports.getAllAdmins = async (req, res) => {
+  try {
+    // Verify the current user is an admin
+    if (!req.user.isAdmin) {
+      return res.status(403).json({
+        success: false,
+        message: 'Permission denied: Admin access required'
+      });
+    }
+
+    // Parse query parameters
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 10;
+
+    // Calculate skip value for pagination
+    const skip = (page - 1) * limit;
+
+    // Filter for admin users only
+    const filter = { isAdmin: true };
+
+    // Get total count for pagination
+    const totalAdmins = await User.countDocuments(filter);
+
+    // Calculate pagination info
+    const totalPages = Math.ceil(totalAdmins / limit);
+    const hasNext = page < totalPages;
+    const hasPrev = page > 1;
+
+    // Fetch admin users with pagination
+    const admins = await User.find(filter)
+      .select('-password -resetPasswordToken -resetPasswordExpire')
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limit);
+
+    res.status(200).json({
+      success: true,
+      data: {
+        admins,
+        pagination: {
+          currentPage: page,
+          totalPages,
+          totalAdmins,
+          hasNext,
+          hasPrev,
+          limit
+        }
+      }
+    });
+  } catch (error) {
+    console.error('Error fetching admin users:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Internal server error',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+};
+
+// Revoke admin rights from user (admin only)
+exports.revokeAdminRights = async (req, res) => {
+  try {
+    // Verify the current user is an admin
+    if (!req.user.isAdmin) {
+      return res.status(403).json({
+        success: false,
+        message: 'Permission denied: Admin access required'
+      });
+    }
+
+    const { email } = req.body;
+
+    if (!email) {
+      return res.status(400).json({
+        success: false,
+        message: 'Please provide an email address'
+      });
+    }
+
+    // Find the user to revoke admin rights from
+    const userToRevoke = await User.findOne({ email });
+
+    if (!userToRevoke) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
+    }
+
+    // Check if user is currently an admin
+    if (!userToRevoke.isAdmin) {
+      return res.status(400).json({
+        success: false,
+        message: 'User is not currently an admin'
+      });
+    }
+
+    // Prevent self-revocation (optional security measure)
+    if (userToRevoke._id.toString() === req.user.id) {
+      return res.status(400).json({
+        success: false,
+        message: 'You cannot revoke your own admin rights'
+      });
+    }
+
+    // Revoke admin rights
+    userToRevoke.isAdmin = false;
+    userToRevoke.adminRevokedAt = new Date();
+    userToRevoke.adminRevokedBy = req.user.id;
+    
+    await userToRevoke.save();
+
+    res.status(200).json({
+      success: true,
+      message: `Admin rights revoked from ${email}`,
+      user: {
+        id: userToRevoke._id,
+        email: userToRevoke.email,
+        isAdmin: false,
+        adminRevokedAt: userToRevoke.adminRevokedAt
+      }
+    });
+  } catch (error) {
+    console.error('Error revoking admin rights:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Internal server error',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+};
+
+// Update the existing getBannedUsers function to include pagination
+exports.getBannedUsers = async (req, res) => {
+  try {
+    // Verify the current user is an admin
+    if (!req.user.isAdmin) {
+      return res.status(403).json({
+        success: false,
+        message: 'Permission denied: Admin access required'
+      });
+    }
+
+    // Parse query parameters
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 10;
+
+    // Calculate skip value for pagination
+    const skip = (page - 1) * limit;
+
+    // Filter for banned users only
+    const filter = { isBanned: true };
+
+    // Get total count for pagination
+    const totalBannedUsers = await User.countDocuments(filter);
+
+    // Calculate pagination info
+    const totalPages = Math.ceil(totalBannedUsers / limit);
+    const hasNext = page < totalPages;
+    const hasPrev = page > 1;
+
+    // Fetch banned users with pagination
+    const bannedUsers = await User.find(filter)
+      .select('name email isBanned banReason bannedAt bannedBy')
+      .populate('bannedBy', 'name email')
+      .sort({ bannedAt: -1 })
+      .skip(skip)
+      .limit(limit);
+
+    res.status(200).json({
+      success: true,
+      data: {
+        users: bannedUsers,
+        pagination: {
+          currentPage: page,
+          totalPages,
+          totalUsers: totalBannedUsers,
+          hasNext,
+          hasPrev,
+          limit
+        }
+      }
+    });
+  } catch (error) {
+    console.error('Error fetching banned users:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Internal server error',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+};
+
+// Updated grantAdminRights function with tracking
+exports.grantAdminRights = async (req, res) => {
+  try {
+    const { email } = req.body;
+
+    if (!email) {
+      return res.status(400).json({
+        success: false,
+        message: 'Please provide an email address'
+      });
+    }
+
+    // Find the user to be granted admin rights
+    const userToPromote = await User.findOne({ email });
+
+    if (!userToPromote) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
+    }
+
+    // Check if user is already an admin
+    if (userToPromote.isAdmin) {
+      return res.status(400).json({
+        success: false,
+        message: 'User is already an admin'
+      });
+    }
+
+    // Grant admin rights with tracking
+    userToPromote.isAdmin = true;
+    userToPromote.adminGrantedAt = new Date();
+    userToPromote.adminGrantedBy = req.user.id;
+    
+    await userToPromote.save();
+
+    res.status(200).json({
+      success: true,
+      message: `User ${email} has been granted admin privileges`,
+      user: {
+        id: userToPromote._id,
+        email: userToPromote.email,
+        isAdmin: true,
+        adminGrantedAt: userToPromote.adminGrantedAt
+      }
+    });
+  } catch (error) {
+    console.error('Error granting admin rights:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Internal server error',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+};
+
 // Get all banned users
 exports.getBannedUsers = async (req, res) => {
   try {
