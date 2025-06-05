@@ -1996,3 +1996,221 @@ exports.adminCancelManualPayment = async (req, res) => {
     });
   }
 };
+/**
+ * @desc    Admin: Delete manual payment transaction
+ * @route   DELETE /api/shares/admin/manual/:transactionId
+ * @access  Private (Admin)
+ */
+exports.adminDeleteManualPayment = async (req, res) => {
+  try {
+    const { transactionId } = req.params;
+    const adminId = req.user.id;
+    
+    // Check if admin
+    const admin = await User.findById(adminId);
+    if (!admin || !admin.isAdmin) {
+      return res.status(403).json({
+        success: false,
+        message: 'Unauthorized: Admin access required'
+      });
+    }
+    
+    if (!transactionId) {
+      return res.status(400).json({
+        success: false,
+        message: 'Transaction ID is required'
+      });
+    }
+    
+    // Find the transaction
+    const userShareRecord = await UserShare.findOne({
+      'transactions.transactionId': transactionId
+    });
+    
+    if (!userShareRecord) {
+      return res.status(404).json({
+        success: false,
+        message: 'Transaction not found'
+      });
+    }
+    
+    const transaction = userShareRecord.transactions.find(
+      t => t.transactionId === transactionId && t.paymentMethod.startsWith('manual_')
+    );
+    
+    if (!transaction) {
+      return res.status(404).json({
+        success: false,
+        message: 'Manual transaction not found'
+      });
+    }
+    
+    // Store transaction details for cleanup and notification
+    const transactionDetails = {
+      shares: transaction.shares,
+      totalAmount: transaction.totalAmount,
+      currency: transaction.currency,
+      status: transaction.status,
+      tierBreakdown: transaction.tierBreakdown,
+      paymentProofPath: transaction.paymentProofPath
+    };
+    
+    // If transaction was completed, rollback global share counts
+    if (transaction.status === 'completed') {
+      const shareConfig = await Share.getCurrentConfig();
+      shareConfig.sharesSold -= transaction.shares;
+      
+      // Rollback tier sales
+      shareConfig.tierSales.tier1Sold -= transaction.tierBreakdown.tier1 || 0;
+      shareConfig.tierSales.tier2Sold -= transaction.tierBreakdown.tier2 || 0;
+      shareConfig.tierSales.tier3Sold -= transaction.tierBreakdown.tier3 || 0;
+      
+      await shareConfig.save();
+      
+      // Rollback any referral commissions if applicable
+      try {
+        const rollbackResult = await rollbackReferralCommission(
+          userShareRecord.user,    // userId
+          transactionId,          // transactionId
+          transaction.totalAmount, // purchaseAmount
+          transaction.currency,    // currency
+          'share',                // purchaseType
+          'UserShare'             // sourceModel
+        );
+        
+        console.log('Referral commission rollback result:', rollbackResult);
+      } catch (referralError) {
+        console.error('Error rolling back referral commissions:', referralError);
+        // Continue with the deletion process despite referral error
+      }
+    }
+    
+    // Remove the transaction from the user's transactions array
+    userShareRecord.transactions = userShareRecord.transactions.filter(
+      t => t.transactionId !== transactionId
+    );
+    
+    // Recalculate total shares for the user
+    userShareRecord.totalShares = userShareRecord.transactions
+      .filter(t => t.status === 'completed')
+      .reduce((total, t) => total + t.shares, 0);
+    
+    await userShareRecord.save();
+    
+    // Delete payment proof file if it exists
+    if (transactionDetails.paymentProofPath) {
+      try {
+        const fs = require('fs');
+        const path = require('path');
+        
+        // Try multiple possible file paths
+        const possiblePaths = [
+          transactionDetails.paymentProofPath,
+          path.join(process.cwd(), transactionDetails.paymentProofPath),
+          path.join('/opt/render/project/src/', transactionDetails.paymentProofPath)
+        ];
+        
+        // If path contains 'uploads', also try that part
+        if (transactionDetails.paymentProofPath.includes('uploads')) {
+          const uploadsPart = transactionDetails.paymentProofPath.substring(
+            transactionDetails.paymentProofPath.indexOf('uploads')
+          );
+          possiblePaths.push(path.join(process.cwd(), uploadsPart));
+          possiblePaths.push(path.join('/opt/render/project/src/', uploadsPart));
+        }
+        
+        let fileDeleted = false;
+        for (const filePath of possiblePaths) {
+          try {
+            if (fs.existsSync(filePath)) {
+              fs.unlinkSync(filePath);
+              console.log(`Payment proof file deleted: ${filePath}`);
+              fileDeleted = true;
+              break;
+            }
+          } catch (deleteErr) {
+            console.log(`Failed to delete file at ${filePath}: ${deleteErr.message}`);
+          }
+        }
+        
+        if (!fileDeleted) {
+          console.log(`Payment proof file not found or already deleted: ${transactionDetails.paymentProofPath}`);
+        }
+      } catch (fileError) {
+        console.error('Error deleting payment proof file:', fileError);
+        // Continue with deletion even if file deletion fails
+      }
+    }
+    
+    // Get user details for notification
+    const user = await User.findById(userShareRecord.user);
+    
+    // Notify user about transaction deletion
+    if (user && user.email) {
+      try {
+        await sendEmail({
+          email: user.email,
+          subject: 'AfriMobile - Transaction Deleted',
+          html: `
+            <h2>Transaction Deletion Notice</h2>
+            <p>Dear ${user.name},</p>
+            <p>We are writing to inform you that your manual payment transaction has been deleted from our system.</p>
+            <p>Transaction Details:</p>
+            <ul>
+              <li>Transaction ID: ${transactionId}</li>
+              <li>Shares: ${transactionDetails.shares}</li>
+              <li>Amount: ${transactionDetails.currency === 'naira' ? '₦' : '$'}${transactionDetails.totalAmount}</li>
+              <li>Previous Status: ${transactionDetails.status}</li>
+            </ul>
+            ${transactionDetails.status === 'completed' ? 
+              `<p>Since this was a completed transaction, the shares have been removed from your account and any related commissions have been reversed.</p>` : 
+              `<p>This transaction was pending verification when it was deleted.</p>`
+            }
+            <p>If you believe this was done in error or if you have any questions, please contact our support team immediately.</p>
+            <p>Best regards,<br>AfriMobile Team</p>
+          `
+        });
+      } catch (emailError) {
+        console.error('Failed to send transaction deletion notification email:', emailError);
+      }
+    }
+    
+    // Log the deletion for audit purposes
+    console.log(`Manual payment transaction deleted:`, {
+      transactionId,
+      adminId,
+      userId: userShareRecord.user,
+      previousStatus: transactionDetails.status,
+      shares: transactionDetails.shares,
+      amount: transactionDetails.totalAmount,
+      currency: transactionDetails.currency,
+      timestamp: new Date().toISOString()
+    });
+    
+    // Return success response
+    res.status(200).json({
+      success: true,
+      message: 'Manual payment transaction deleted successfully',
+      data: {
+        transactionId,
+        deletedTransaction: {
+          shares: transactionDetails.shares,
+          amount: transactionDetails.totalAmount,
+          currency: transactionDetails.currency,
+          previousStatus: transactionDetails.status
+        },
+        userUpdates: {
+          newTotalShares: userShareRecord.totalShares,
+          sharesRemoved: transactionDetails.status === 'completed' ? transactionDetails.shares : 0
+        }
+      }
+    });
+  } catch (error) {
+    console.error('Error deleting manual payment transaction:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to delete manual payment transaction',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+};

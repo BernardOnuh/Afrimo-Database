@@ -1610,5 +1610,103 @@ router.post('/admin/manual/verify', protect, adminProtect, shareController.admin
  */
 router.post('/admin/manual/cancel', protect, adminProtect, shareController.adminCancelManualPayment);
 
+/**
+ * @swagger
+ * /shares/admin/manual/{transactionId}:
+ *   delete:
+ *     tags: [Shares - Admin Manual Payment]
+ *     summary: Delete manual payment transaction
+ *     description: Permanently delete a manual payment transaction (admin only). This will remove the transaction completely, rollback shares if it was completed, delete payment proof files, and reverse any referral commissions.
+ *     security:
+ *       - adminAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: transactionId
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Transaction ID to delete
+ *         example: "TXN-A1B2-123456"
+ *     responses:
+ *       200:
+ *         description: Manual payment transaction deleted successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *                   example: "Manual payment transaction deleted successfully"
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     transactionId:
+ *                       type: string
+ *                       example: "TXN-A1B2-123456"
+ *                     deletedTransaction:
+ *                       type: object
+ *                       properties:
+ *                         shares:
+ *                           type: integer
+ *                           example: 50
+ *                         amount:
+ *                           type: number
+ *                           example: 50000
+ *                         currency:
+ *                           type: string
+ *                           example: "naira"
+ *                         previousStatus:
+ *                           type: string
+ *                           example: "completed"
+ *                     userUpdates:
+ *                       type: object
+ *                       properties:
+ *                         newTotalShares:
+ *                           type: integer
+ *                           example: 100
+ *                           description: User's new total share count after deletion
+ *                         sharesRemoved:
+ *                           type: integer
+ *                           example: 50
+ *                           description: Number of shares removed (0 if transaction was pending)
+ *       400:
+ *         description: Bad Request - Missing transaction ID
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: false
+ *                 message:
+ *                   type: string
+ *                   example: "Transaction ID is required"
+ *       401:
+ *         $ref: '#/components/responses/UnauthorizedError'
+ *       403:
+ *         $ref: '#/components/responses/ForbiddenError'
+ *       404:
+ *         description: Transaction not found
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: false
+ *                 message:
+ *                   type: string
+ *                   example: "Manual transaction not found"
+ *       500:
+ *         $ref: '#/components/responses/ServerError'
+ */
+router.delete('/admin/manual/:transactionId', protect, adminProtect, shareController.adminDeleteManualPayment);
+
 module.exports = router;
  
