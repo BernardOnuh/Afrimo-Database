@@ -25,11 +25,12 @@ const swaggerOptions = {
     },
     servers: [
       {
-        // Call getBaseUrl() as a function, not template literal
-        get url() {
-          return `${getBaseUrl()}/api`;
-        },
-        description: process.env.NODE_ENV === 'production' ? 'Production server' : 'Development server'
+        url: 'https://afrimo-database.onrender.com/api',
+        description: 'Production server'
+      },
+      {
+        url: 'http://localhost:5000/api',
+        description: 'Development server'
       }
     ],
     components: {
@@ -501,18 +502,39 @@ const swaggerOptions = {
   ]
 };
 
-// Function to get swagger spec with dynamic server URL
+// Function to get swagger spec with multiple server options
 const getSwaggerSpec = () => {
   const swaggerSpec = swaggerJsdoc(swaggerOptions);
   
-  // Always set the server URL dynamically
-  swaggerSpec.servers = [
+  // Provide multiple server options for easy switching
+  const servers = [
     {
-      url: `${getBaseUrl()}/api`,
-      description: process.env.NODE_ENV === 'production' ? 'Production server' : 'Development server'
+      url: 'https://afrimo-database.onrender.com/api',
+      description: 'Production server (Live)'
+    },
+    {
+      url: 'http://localhost:5000/api',
+      description: 'Development server (Local)'
     }
   ];
+
+  // Add staging server if available
+  if (process.env.STAGING_URL) {
+    servers.splice(1, 0, {
+      url: `${process.env.STAGING_URL}/api`,
+      description: 'Staging server (Test)'
+    });
+  }
+
+  // Add custom server if BASE_URL is different from production
+  if (process.env.BASE_URL && process.env.BASE_URL !== 'https://afrimo-database.onrender.com') {
+    servers.unshift({
+      url: `${process.env.BASE_URL}/api`,
+      description: 'Custom server'
+    });
+  }
   
+  swaggerSpec.servers = servers;
   return swaggerSpec;
 };
 
