@@ -6,7 +6,7 @@ const getBaseUrl = () => {
     // Priority: Custom BASE_URL > Render URL > fallback
     return process.env.BASE_URL || 
            process.env.RENDER_EXTERNAL_URL || 
-           (process.env.RENDER_SERVICE_NAME ? `https://afrimo-database.onrender.com` : null);
+           `https://afrimo-database.onrender.com`;
   }
   return `http://localhost:${process.env.PORT || 5000}`;
 };
@@ -25,7 +25,10 @@ const swaggerOptions = {
     },
     servers: [
       {
-        url: `${getBaseUrl()}/api`,
+        // Call getBaseUrl() as a function, not template literal
+        get url() {
+          return `${getBaseUrl()}/api`;
+        },
         description: process.env.NODE_ENV === 'production' ? 'Production server' : 'Development server'
       }
     ],
@@ -498,6 +501,19 @@ const swaggerOptions = {
   ]
 };
 
-const swaggerSpec = swaggerJsdoc(swaggerOptions);
+// Function to get swagger spec with dynamic server URL
+const getSwaggerSpec = () => {
+  const swaggerSpec = swaggerJsdoc(swaggerOptions);
+  
+  // Always set the server URL dynamically
+  swaggerSpec.servers = [
+    {
+      url: `${getBaseUrl()}/api`,
+      description: process.env.NODE_ENV === 'production' ? 'Production server' : 'Development server'
+    }
+  ];
+  
+  return swaggerSpec;
+};
 
-module.exports = swaggerSpec;
+module.exports = getSwaggerSpec();
