@@ -6,6 +6,7 @@ const path = require('path');
 const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
 const cron = require('node-cron');
+const fs = require('fs'); // Added for enhanced file handling
 
 // Load environment variables
 require('dotenv').config();
@@ -22,8 +23,87 @@ console.log(`NODE_ENV: ${process.env.NODE_ENV}`);
 console.log(`LENCO_API_KEY configured: ${process.env.LENCO_API_KEY ? 'Yes' : 'No'}`);
 console.log('======================================');
 
-// Security middleware
-app.use(helmet());
+// ========================================
+// ENHANCED CORS CONFIGURATION
+// ========================================
+
+// Enhanced CORS configuration
+const corsOptions = {
+  origin: function (origin, callback) {
+    // Allow requests with no origin (like mobile apps or curl requests)
+    if (!origin) return callback(null, true);
+    
+    // List of allowed origins
+    const allowedOrigins = [
+      'http://localhost:3000',
+      'http://localhost:3001', 
+      'http://localhost:5000',
+      'http://localhost:8080',
+      'https://afrimo-database.onrender.com',
+      'https://your-frontend-domain.com', // Add your actual frontend domain
+      'https://your-frontend-domain.vercel.app', // If using Vercel
+      'https://your-frontend-domain.netlify.app', // If using Netlify
+      // Add more domains as needed
+    ];
+    
+    // In development, allow all localhost origins
+    if (process.env.NODE_ENV === 'development') {
+      const localhostRegex = /^http:\/\/localhost:\d+$/;
+      if (localhostRegex.test(origin)) {
+        return callback(null, true);
+      }
+    }
+    
+    // Check if origin is in allowed list
+    if (allowedOrigins.indexOf(origin) !== -1) {
+      callback(null, true);
+    } else {
+      console.warn(`CORS blocked origin: ${origin}`);
+      callback(new Error('Not allowed by CORS'));
+    }
+  },
+  credentials: true, // Allow cookies and authentication headers
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+  allowedHeaders: [
+    'Origin',
+    'X-Requested-With',
+    'Content-Type',
+    'Accept',
+    'Authorization',
+    'Cache-Control',
+    'X-Access-Token'
+  ],
+  exposedHeaders: ['X-Total-Count'], // Expose custom headers to frontend
+  optionsSuccessStatus: 200 // Some legacy browsers choke on 204
+};
+
+// Apply CORS with options
+app.use(cors(corsOptions));
+
+// Add preflight handling for complex requests
+app.options('*', cors(corsOptions));
+
+// ========================================
+// SECURITY MIDDLEWARE WITH UPDATED HELMET
+// ========================================
+
+// Updated helmet configuration to be less restrictive for file serving
+app.use(helmet({
+  crossOriginResourcePolicy: { policy: "cross-origin" }, // Allow cross-origin resource access
+  contentSecurityPolicy: {
+    directives: {
+      defaultSrc: ["'self'"],
+      styleSrc: ["'self'", "'unsafe-inline'"],
+      scriptSrc: ["'self'"],
+      imgSrc: ["'self'", "data:", "https:"],
+      connectSrc: ["'self'", "https:"],
+      fontSrc: ["'self'"],
+      objectSrc: ["'none'"],
+      mediaSrc: ["'self'"],
+      frameSrc: ["'none'"]
+    }
+  }
+}));
 
 // Rate limiting
 const limiter = rateLimit({
@@ -47,7 +127,6 @@ mongoose.connect(process.env.MONGODB_URI, {
 });
 
 // Middleware
-app.use(cors());
 app.use(express.json({ limit: '1mb' })); // Limit request body size
 app.use(express.urlencoded({ extended: true, limit: '1mb' }));
 
@@ -56,11 +135,161 @@ if (process.env.NODE_ENV === 'development') {
   app.use(morgan('dev'));
 }
 
-// Set up static folder for uploads
-app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+// For development - very permissive CORS
+if (process.env.NODE_ENV === 'development') {
+  app.use((req, res, next) => {
+    res.header('Access-Control-Allow-Origin', '*');
+    res.header('Access-Control-Allow-Methods', '*');
+    res.header('Access-Control-Allow-Headers', '*');
+    next();
+  });
+  
+  console.log('🔓 Development mode: Permissive CORS enabled');
+}
+
+// ====================================
+// ENHANCED STATIC FILE SERVING FOR UPLOADS
+// ====================================
+
+// Enhanced static file serving for uploads with security, logging, and CORS
+app.use('/uploads', (req, res, next) => {
+  // Add CORS headers for file serving
+  res.header('Access-Control-Allow-Origin', '*');
+  res.header('Access-Control-Allow-Methods', 'GET, OPTIONS');
+  res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
+  
+  const requestedPath = req.path;
+  console.log(`[static-serve] Requested file: ${requestedPath}`);
+  console.log(`[static-serve] Full request URL: ${req.originalUrl}`);
+  console.log(`[static-serve] Origin: ${req.get('Origin')}`);
+  console.log(`[static-serve] Request method: ${req.method}`);
+  console.log(`[static-serve] User agent: ${req.get('User-Agent')}`);
+  
+  // Security: Only allow access to payment-proofs directory
+  if (!requestedPath.startsWith('/payment-proofs/')) {
+    console.log(`[static-serve] Access denied for path: ${requestedPath}`);
+    return res.status(403).json({
+      success: false,
+      message: 'Access denied - only payment-proofs directory accessible'
+    });
+  }
+  
+  // Construct full file path
+  const fullPath = path.join(process.cwd(), 'uploads', requestedPath);
+  console.log(`[static-serve] Checking file at: ${fullPath}`);
+  console.log(`[static-serve] Current working directory: ${process.cwd()}`);
+  
+  // Check if file exists
+  if (!fs.existsSync(fullPath)) {
+    console.log(`[static-serve] File not found: ${fullPath}`);
+    
+    // List available files for debugging
+    const uploadsDir = path.join(process.cwd(), 'uploads');
+    const paymentProofsDir = path.join(uploadsDir, 'payment-proofs');
+    
+    console.log(`[static-serve] Debug info:`);
+    console.log(`[static-serve] - Uploads dir exists: ${fs.existsSync(uploadsDir)}`);
+    console.log(`[static-serve] - Payment-proofs dir exists: ${fs.existsSync(paymentProofsDir)}`);
+    
+    if (fs.existsSync(paymentProofsDir)) {
+      try {
+        const files = fs.readdirSync(paymentProofsDir);
+        console.log(`[static-serve] Available files in payment-proofs: ${files.length > 0 ? files.join(', ') : 'No files'}`);
+      } catch (err) {
+        console.log(`[static-serve] Error reading directory: ${err.message}`);
+      }
+    } else {
+      console.log(`[static-serve] Payment-proofs directory does not exist`);
+    }
+    
+    return res.status(404).json({
+      success: false,
+      message: 'File not found on server'
+    });
+  }
+  
+  // Log file stats
+  try {
+    const stats = fs.statSync(fullPath);
+    console.log(`[static-serve] File found - Size: ${stats.size} bytes, Modified: ${stats.mtime}`);
+  } catch (err) {
+    console.log(`[static-serve] Error getting file stats: ${err.message}`);
+  }
+  
+  // File exists, proceed to serve it
+  console.log(`[static-serve] Serving file: ${fullPath}`);
+  next();
+}, express.static(path.join(__dirname, 'uploads'), {
+  // Add caching headers for better performance
+  maxAge: '1d', // Cache for 1 day
+  etag: true,
+  lastModified: true,
+  // Add custom headers including CORS
+  setHeaders: function (res, path, stat) {
+    console.log(`[static-serve] Setting headers for: ${path}`);
+    res.set('Access-Control-Allow-Origin', '*');
+    res.set('Access-Control-Allow-Methods', 'GET, OPTIONS');
+    res.set('X-Served-By', 'AfriMobile-API');
+  }
+}));
 
 // Setup Swagger documentation
 setupSwagger(app);
+
+// ========================================
+// FILE SYSTEM MONITORING MIDDLEWARE
+// ========================================
+
+// Add file persistence monitoring
+app.use('/api', (req, res, next) => {
+  // Ensure CORS headers are present on all API routes
+  res.header('Access-Control-Allow-Origin', req.headers.origin || '*');
+  res.header('Access-Control-Allow-Credentials', 'true');
+  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, PATCH, OPTIONS');
+  res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization, Cache-Control, X-Access-Token');
+  
+  // Handle preflight requests
+  if (req.method === 'OPTIONS') {
+    return res.status(200).end();
+  }
+  
+  // Log file system info on file-related requests
+  if (req.path.includes('shares') && (req.method === 'POST' || req.path.includes('manual') || req.path.includes('upload'))) {
+    const uploadsDir = path.join(process.cwd(), 'uploads');
+    const paymentProofsDir = path.join(uploadsDir, 'payment-proofs');
+    
+    console.log(`[file-monitor] Request: ${req.method} ${req.path}`);
+    console.log(`[file-monitor] Timestamp: ${new Date().toISOString()}`);
+    console.log(`[file-monitor] Working directory: ${process.cwd()}`);
+    console.log(`[file-monitor] Uploads directory exists: ${fs.existsSync(uploadsDir)}`);
+    console.log(`[file-monitor] Payment-proofs directory exists: ${fs.existsSync(paymentProofsDir)}`);
+    
+    if (fs.existsSync(paymentProofsDir)) {
+      try {
+        const files = fs.readdirSync(paymentProofsDir);
+        console.log(`[file-monitor] Files in payment-proofs: ${files.length}`);
+        if (files.length > 0) {
+          console.log(`[file-monitor] Recent files: ${files.slice(-3).join(', ')}`);
+          
+          // Check file ages
+          files.forEach(file => {
+            try {
+              const filePath = path.join(paymentProofsDir, file);
+              const stats = fs.statSync(filePath);
+              const ageInMinutes = (Date.now() - stats.mtime.getTime()) / (1000 * 60);
+              console.log(`[file-monitor] File ${file}: ${Math.round(ageInMinutes)} minutes old`);
+            } catch (err) {
+              console.log(`[file-monitor] Error checking file ${file}: ${err.message}`);
+            }
+          });
+        }
+      } catch (err) {
+        console.log(`[file-monitor] Error reading directory: ${err.message}`);
+      }
+    }
+  }
+  next();
+});
 
 // ========================================
 // API ROUTES
@@ -81,6 +310,123 @@ app.use('/api/exchange-rates', require('./routes/exchangeRateRoutes'));
 
 // Add installment payment routes
 app.use('/api/shares/installment', require('./routes/installmentRoutes'));
+
+// ========================================
+// DEBUG AND MONITORING ENDPOINTS
+// ========================================
+
+// Add CORS test endpoint
+app.get('/api/cors-test', (req, res) => {
+  res.json({
+    success: true,
+    message: 'CORS is working!',
+    origin: req.get('Origin'),
+    userAgent: req.get('User-Agent'),
+    headers: req.headers,
+    timestamp: new Date().toISOString(),
+    environment: process.env.NODE_ENV
+  });
+});
+
+// Add an endpoint to test file serving
+app.get('/api/test-file-access', (req, res) => {
+  const testUrl = `${req.protocol}://${req.get('host')}/uploads/payment-proofs/test.jpg`;
+  
+  res.json({
+    success: true,
+    message: 'File access test endpoint',
+    testFileUrl: testUrl,
+    uploadsPath: '/uploads/payment-proofs/',
+    corsHeaders: {
+      'Access-Control-Allow-Origin': res.get('Access-Control-Allow-Origin'),
+      'Access-Control-Allow-Methods': res.get('Access-Control-Allow-Methods')
+    },
+    suggestions: [
+      'Try accessing a file directly: GET /uploads/payment-proofs/filename.jpg',
+      'Check browser console for detailed CORS errors',
+      'Verify your frontend origin is in the allowedOrigins list'
+    ]
+  });
+});
+
+// Add file system debugging endpoint
+app.get('/api/debug/files', (req, res) => {
+  try {
+    const uploadsDir = path.join(process.cwd(), 'uploads');
+    const paymentProofsDir = path.join(uploadsDir, 'payment-proofs');
+    
+    const result = {
+      success: true,
+      timestamp: new Date().toISOString(),
+      environment: process.env.NODE_ENV,
+      paths: {
+        cwd: process.cwd(),
+        uploadsDir,
+        paymentProofsDir,
+        __dirname: __dirname
+      },
+      exists: {
+        uploads: fs.existsSync(uploadsDir),
+        paymentProofs: fs.existsSync(paymentProofsDir)
+      },
+      files: [],
+      diskSpace: null
+    };
+    
+    // Check disk space if possible
+    try {
+      const stats = fs.statSync(process.cwd());
+      result.diskSpace = {
+        accessible: true,
+        inode: stats.ino
+      };
+    } catch (err) {
+      result.diskSpace = {
+        accessible: false,
+        error: err.message
+      };
+    }
+    
+    if (fs.existsSync(paymentProofsDir)) {
+      try {
+        const files = fs.readdirSync(paymentProofsDir);
+        result.files = files.map(file => {
+          const filePath = path.join(paymentProofsDir, file);
+          try {
+            const stats = fs.statSync(filePath);
+            return {
+              name: file,
+              size: stats.size,
+              created: stats.birthtime,
+              modified: stats.mtime,
+              url: `/uploads/payment-proofs/${file}`,
+              ageMinutes: Math.round((Date.now() - stats.mtime.getTime()) / (1000 * 60))
+            };
+          } catch (err) {
+            return {
+              name: file,
+              error: err.message
+            };
+          }
+        });
+        
+        // Sort by modification time (newest first)
+        result.files.sort((a, b) => new Date(b.modified) - new Date(a.modified));
+      } catch (err) {
+        result.error = `Error reading directory: ${err.message}`;
+      }
+    }
+    
+    res.json(result);
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: 'Error checking file system',
+      error: error.message,
+      timestamp: new Date().toISOString()
+    });
+  }
+});
 
 // Enhanced manual referral sync endpoint with better error handling
 app.post('/api/referral/sync-earnings', async (req, res) => {
@@ -405,7 +751,16 @@ app.get('/', (req, res) => {
     version: '1.0.0',
     timestamp: new Date().toISOString(),
     environment: process.env.NODE_ENV || 'development',
-    documentation: '/api-docs'
+    documentation: '/api-docs',
+    fileSystem: {
+      uploadsExists: fs.existsSync(path.join(process.cwd(), 'uploads')),
+      paymentProofsExists: fs.existsSync(path.join(process.cwd(), 'uploads', 'payment-proofs'))
+    },
+    cors: {
+      enabled: true,
+      origin: req.get('Origin'),
+      method: req.method
+    }
   });
 });
 
@@ -456,19 +811,40 @@ app.get('/api/test-lenco/:reference', async (req, res) => {
 
 // Error handling middleware
 app.use((err, req, res, next) => {
-  console.error(err.stack);
+  console.error('Error caught by global handler:', err.stack);
+  console.error('Request URL:', req.url);
+  console.error('Request method:', req.method);
+  console.error('Request headers:', req.headers);
+  
   res.status(500).json({
     success: false,
     message: 'Something went wrong!',
-    error: process.env.NODE_ENV === 'development' ? err.message : undefined
+    error: process.env.NODE_ENV === 'development' ? err.message : undefined,
+    timestamp: new Date().toISOString()
   });
 });
 
 // Handle 404 errors
 app.use((req, res) => {
+  console.log(`404 - Resource not found: ${req.method} ${req.url}`);
+  console.log(`Origin: ${req.get('Origin')}`);
+  console.log(`User-Agent: ${req.get('User-Agent')}`);
+  
   res.status(404).json({
     success: false,
-    message: 'Resource not found'
+    message: 'Resource not found',
+    path: req.url,
+    method: req.method,
+    timestamp: new Date().toISOString(),
+    suggestions: req.url.includes('uploads') ? [
+      'Check if the file exists: GET /api/debug/files',
+      'Verify the file URL format: /uploads/payment-proofs/filename.jpg',
+      'Ensure the file was uploaded successfully'
+    ] : [
+      'Check the API documentation: /api-docs',
+      'Verify the endpoint URL and method',
+      'Test CORS: GET /api/cors-test'
+    ]
   });
 });
 
@@ -483,7 +859,49 @@ const server = app.listen(PORT, () => {
   console.log(`🚀 Server running in ${process.env.NODE_ENV || 'development'} mode on port ${PORT}`);
   console.log(`📚 API Documentation: http://localhost:${PORT}/api-docs`);
   console.log(`🏠 Health Check: http://localhost:${PORT}/`);
+  console.log(`🗂️ File Debug: http://localhost:${PORT}/api/debug/files`);
+  console.log(`🔍 CORS Test: http://localhost:${PORT}/api/cors-test`);
+  console.log(`📁 Working Directory: ${process.cwd()}`);
+  console.log(`📂 Upload Directory: ${path.join(process.cwd(), 'uploads')}`);
   console.log('**********************************************\n');
+  
+  // Log initial file system state
+  const uploadsDir = path.join(process.cwd(), 'uploads');
+  const paymentProofsDir = path.join(uploadsDir, 'payment-proofs');
+  
+  console.log('File System Check on Startup:');
+  console.log(`- Uploads directory exists: ${fs.existsSync(uploadsDir)}`);
+  console.log(`- Payment-proofs directory exists: ${fs.existsSync(paymentProofsDir)}`);
+  
+  if (!fs.existsSync(uploadsDir)) {
+    console.log('Creating uploads directory...');
+    try {
+      fs.mkdirSync(uploadsDir, { recursive: true });
+      console.log('✅ Uploads directory created successfully');
+    } catch (err) {
+      console.error('❌ Failed to create uploads directory:', err.message);
+    }
+  }
+  
+  if (!fs.existsSync(paymentProofsDir)) {
+    console.log('Creating payment-proofs directory...');
+    try {
+      fs.mkdirSync(paymentProofsDir, { recursive: true });
+      console.log('✅ Payment-proofs directory created successfully');
+    } catch (err) {
+      console.error('❌ Failed to create payment-proofs directory:', err.message);
+    }
+  }
+  
+  console.log('✅ File system setup complete.');
+  console.log('🔐 CORS configuration active');
+  console.log('📡 Static file serving enabled: /uploads/payment-proofs/');
+  console.log('\n🎯 Quick Test URLs:');
+  console.log(`   Health: https://afrimo-database.onrender.com/`);
+  console.log(`   CORS: https://afrimo-database.onrender.com/api/cors-test`);
+  console.log(`   Files: https://afrimo-database.onrender.com/api/debug/files`);
+  console.log(`   Docs: https://afrimo-database.onrender.com/api-docs`);
+  console.log('');
 });
 
 // Handle graceful shutdown
@@ -510,6 +928,18 @@ process.on('SIGTERM', () => {
       process.exit(0);
     });
   });
+});
+
+// Handle uncaught exceptions
+process.on('uncaughtException', (err) => {
+  console.error('Uncaught Exception:', err);
+  console.error('Stack:', err.stack);
+  process.exit(1);
+});
+
+// Handle unhandled promise rejections
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('Unhandled Rejection at:', promise, 'reason:', reason);
 });
 
 // For testing purposes

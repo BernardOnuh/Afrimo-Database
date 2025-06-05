@@ -581,7 +581,7 @@ exports.getUserShares = async (req, res) => {
 // Admin: Get all transactions
 exports.getAllTransactions = async (req, res) => {
   try {
-    const adminId = req.user.id; // From auth middleware
+    const adminId = req.user.id;
     
     // Check if admin
     const admin = await User.findById(adminId);
@@ -617,6 +617,22 @@ exports.getAllTransactions = async (req, res) => {
           continue;
         }
         
+        // FIXED: Clean up payment method display
+        let displayPaymentMethod = transaction.paymentMethod;
+        if (transaction.paymentMethod.startsWith('manual_')) {
+          displayPaymentMethod = transaction.paymentMethod.replace('manual_', '');
+        }
+        
+        // FIXED: Correct payment proof URL using static file serving
+        let paymentProofUrl = null;
+        if (transaction.paymentProofPath) {
+          // Extract just the filename from the path
+          const path = require('path');
+          const filename = path.basename(transaction.paymentProofPath);
+          // Use the static file serving endpoint
+          paymentProofUrl = `/uploads/payment-proofs/${filename}`;
+        }
+        
         transactions.push({
           transactionId: transaction.transactionId,
           user: {
@@ -630,14 +646,13 @@ exports.getAllTransactions = async (req, res) => {
           pricePerShare: transaction.pricePerShare,
           currency: transaction.currency,
           totalAmount: transaction.totalAmount,
-          paymentMethod: transaction.paymentMethod.replace('manual_', ''),
+          paymentMethod: displayPaymentMethod,
           status: transaction.status,
           date: transaction.createdAt,
-          // FIX: Remove /api prefix from paymentProofUrl
-          paymentProofUrl: transaction.paymentProofPath ? 
-            `/shares/payment-proof/${transaction.transactionId}` : null,
+          paymentProofUrl: paymentProofUrl, // FIXED: Now points to static files
           manualPaymentDetails: transaction.manualPaymentDetails || {},
-          adminNote: transaction.adminNote
+          adminNote: transaction.adminNote,
+          txHash: transaction.txHash
         });
       }
     }
@@ -1508,6 +1523,14 @@ exports.adminGetManualTransactions = async (req, res) => {
           continue;
         }
         
+        // FIXED: Generate correct payment proof URL
+        let paymentProofUrl = null;
+        if (transaction.paymentProofPath) {
+          const path = require('path');
+          const filename = path.basename(transaction.paymentProofPath);
+          paymentProofUrl = `/uploads/payment-proofs/${filename}`;
+        }
+        
         transactions.push({
           transactionId: transaction.transactionId,
           user: {
@@ -1524,7 +1547,8 @@ exports.adminGetManualTransactions = async (req, res) => {
           paymentMethod: transaction.paymentMethod.replace('manual_', ''),
           status: transaction.status,
           date: transaction.createdAt,
-          paymentProofPath: transaction.paymentProofPath,
+          paymentProofUrl: paymentProofUrl, // FIXED: Correct URL
+          paymentProofPath: transaction.paymentProofPath, // Keep original path for admin
           manualPaymentDetails: transaction.manualPaymentDetails || {},
           adminNote: transaction.adminNote
         });
@@ -1552,6 +1576,7 @@ exports.adminGetManualTransactions = async (req, res) => {
     });
   }
 };
+
 
 /**
  * @desc    Admin: Verify manual payment

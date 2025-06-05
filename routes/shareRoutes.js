@@ -10,38 +10,140 @@ const fs = require('fs');
 // Configure multer for file uploads
 const storage = multer.diskStorage({
   destination: function(req, file, cb) {
-    const uploadDir = 'uploads/payment-proofs';
+    // For production (Render.com), store in a more persistent location
+    const uploadDir = process.env.NODE_ENV === 'production' 
+      ? path.join(process.cwd(), 'uploads', 'payment-proofs')
+      : 'uploads/payment-proofs';
+    
+    console.log(`[multer] Environment: ${process.env.NODE_ENV}`);
+    console.log(`[multer] Target upload directory: ${uploadDir}`);
     
     // Create directory if it doesn't exist
     if (!fs.existsSync(uploadDir)) {
-      fs.mkdirSync(uploadDir, { recursive: true });
+      console.log(`[multer] Creating directory: ${uploadDir}`);
+      try {
+        fs.mkdirSync(uploadDir, { recursive: true });
+        console.log(`[multer] Directory created successfully`);
+      } catch (err) {
+        console.error(`[multer] Error creating directory: ${err.message}`);
+        return cb(err);
+      }
+    } else {
+      console.log(`[multer] Directory already exists: ${uploadDir}`);
     }
     
+    // Verify directory is writable
+    try {
+      fs.accessSync(uploadDir, fs.constants.W_OK);
+      console.log(`[multer] Directory is writable`);
+    } catch (err) {
+      console.error(`[multer] Directory is not writable: ${err.message}`);
+      return cb(new Error('Upload directory is not writable'));
+    }
+    
+    console.log(`[multer] Using upload directory: ${uploadDir}`);
     cb(null, uploadDir);
   },
   filename: function(req, file, cb) {
     const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
     const ext = path.extname(file.originalname);
-    cb(null, 'payment-' + uniqueSuffix + ext);
+    const filename = 'payment-' + uniqueSuffix + ext;
+    
+    console.log(`[multer] Original filename: ${file.originalname}`);
+    console.log(`[multer] Generated filename: ${filename}`);
+    console.log(`[multer] File extension: ${ext}`);
+    console.log(`[multer] File MIME type: ${file.mimetype}`);
+    
+    cb(null, filename);
   }
 });
 
-// File filter for uploads (only accept images)
+// Enhanced file filter for uploads with better logging
 const fileFilter = (req, file, cb) => {
+  console.log(`[multer] Processing file upload:`);
+  console.log(`[multer] - Original name: ${file.originalname}`);
+  console.log(`[multer] - MIME type: ${file.mimetype}`);
+  console.log(`[multer] - Field name: ${file.fieldname}`);
+  
   if (file.mimetype.startsWith('image/')) {
+    console.log(`[multer] File accepted: ${file.originalname}`);
     cb(null, true);
   } else {
+    console.log(`[multer] File rejected: ${file.originalname} (not an image)`);
     cb(new Error('Only image files are allowed'), false);
   }
 };
 
+// Enhanced multer configuration with better error handling
 const upload = multer({
   storage: storage,
   fileFilter: fileFilter,
   limits: {
-    fileSize: 5 * 1024 * 1024 // 5MB limit
+    fileSize: 5 * 1024 * 1024, // 5MB limit
+    files: 1 // Only allow 1 file per request
+  },
+  onError: function(err, next) {
+    console.error(`[multer] Upload error: ${err.message}`);
+    next(err);
   }
 });
+
+// Add middleware to log successful uploads
+const logUpload = (req, res, next) => {
+  if (req.file) {
+    console.log(`[upload-success] File uploaded successfully:`);
+    console.log(`[upload-success] - Path: ${req.file.path}`);
+    console.log(`[upload-success] - Filename: ${req.file.filename}`);
+    console.log(`[upload-success] - Size: ${req.file.size} bytes`);
+    console.log(`[upload-success] - MIME type: ${req.file.mimetype}`);
+    
+    // Verify file was actually written
+    if (fs.existsSync(req.file.path)) {
+      const stats = fs.statSync(req.file.path);
+      console.log(`[upload-success] - File verified on disk: ${stats.size} bytes`);
+    } else {
+      console.error(`[upload-success] - WARNING: File not found on disk after upload!`);
+    }
+  }
+  next();
+};
+
+// Enhanced error handling middleware for multer
+const handleUploadError = (err, req, res, next) => {
+  if (err instanceof multer.MulterError) {
+    console.error(`[multer-error] Multer error: ${err.code} - ${err.message}`);
+    
+    switch (err.code) {
+      case 'LIMIT_FILE_SIZE':
+        return res.status(400).json({
+          success: false,
+          message: 'File too large. Maximum size is 5MB.'
+        });
+      case 'LIMIT_FILE_COUNT':
+        return res.status(400).json({
+          success: false,
+          message: 'Too many files. Only 1 file allowed.'
+        });
+      case 'LIMIT_UNEXPECTED_FILE':
+        return res.status(400).json({
+          success: false,
+          message: 'Unexpected file field. Use "paymentProof" field name.'
+        });
+      default:
+        return res.status(400).json({
+          success: false,
+          message: `Upload error: ${err.message}`
+        });
+    }
+  } else if (err) {
+    console.error(`[upload-error] General upload error: ${err.message}`);
+    return res.status(400).json({
+      success: false,
+      message: err.message || 'File upload failed'
+    });
+  }
+  next();
+};
 
 /**
  * @swagger
@@ -117,38 +219,70 @@ const upload = multer({
  *     Transaction:
  *       type: object
  *       properties:
- *         id:
+ *         transactionId:
  *           type: string
- *           example: "60f7c6b4c8f1a2b3c4d5e6f7"
- *         userId:
- *           type: string
- *           example: "60f7c6b4c8f1a2b3c4d5e6f8"
- *         type:
- *           type: string
- *           enum: [paystack, web3, manual]
- *           example: "paystack"
- *         status:
- *           type: string
- *           enum: [pending, completed, failed, cancelled]
- *           example: "completed"
- *         tier:
- *           type: string
- *           enum: [tier1, tier2, tier3]
- *           example: "tier1"
- *         quantity:
+ *           example: "TXN-A1B2-123456"
+ *         shares:
  *           type: integer
  *           example: 50
- *         amount:
+ *         pricePerShare:
  *           type: number
  *           format: float
- *           example: 50000.00
+ *           example: 1000.50
  *         currency:
  *           type: string
  *           enum: [naira, usdt]
  *           example: "naira"
- *         reference:
+ *         totalAmount:
+ *           type: number
+ *           format: float
+ *           example: 50025.00
+ *         paymentMethod:
  *           type: string
- *           example: "ref_123456789"
+ *           enum: [paystack, crypto, web3, manual_bank_transfer, manual_cash, manual_other]
+ *           example: "paystack"
+ *         status:
+ *           type: string
+ *           enum: [pending, completed, failed]
+ *           example: "completed"
+ *         tierBreakdown:
+ *           type: object
+ *           properties:
+ *             tier1:
+ *               type: integer
+ *               example: 30
+ *             tier2:
+ *               type: integer
+ *               example: 20
+ *             tier3:
+ *               type: integer
+ *               example: 0
+ *         txHash:
+ *           type: string
+ *           example: "0x1234567890abcdef..."
+ *           description: "Transaction hash for crypto payments"
+ *         paymentProofPath:
+ *           type: string
+ *           example: "uploads/payment-proofs/payment-1234567890.jpg"
+ *           description: "Path to payment proof image for manual payments"
+ *         manualPaymentDetails:
+ *           type: object
+ *           properties:
+ *             bankName:
+ *               type: string
+ *               example: "First Bank"
+ *             accountName:
+ *               type: string
+ *               example: "John Doe"
+ *             reference:
+ *               type: string
+ *               example: "FBN12345678"
+ *         adminAction:
+ *           type: boolean
+ *           example: false
+ *         adminNote:
+ *           type: string
+ *           example: "Transaction verified manually"
  *         createdAt:
  *           type: string
  *           format: date-time
@@ -336,23 +470,18 @@ router.get('/payment-config', shareController.getPaymentConfig);
  *             type: object
  *             required:
  *               - quantity
- *               - currency
+ *               - email
  *             properties:
  *               quantity:
  *                 type: integer
  *                 minimum: 1
  *                 example: 50
  *                 description: Number of shares to purchase
- *               currency:
- *                 type: string
- *                 enum: [naira, usdt]
- *                 example: "naira"
- *                 description: Currency for the payment (naira or usdt)
  *               email:
  *                 type: string
  *                 format: email
  *                 example: "user@example.com"
- *                 description: User's email (optional, will use authenticated user's email if not provided)
+ *                 description: User's email for Paystack
  *     responses:
  *       200:
  *         description: Payment initialization successful
@@ -364,20 +493,23 @@ router.get('/payment-config', shareController.getPaymentConfig);
  *                 success:
  *                   type: boolean
  *                   example: true
+ *                 message:
+ *                   type: string
+ *                   example: "Payment initialized successfully"
  *                 data:
  *                   type: object
  *                   properties:
  *                     authorization_url:
  *                       type: string
  *                       example: "https://checkout.paystack.com/..."
- *                     access_code:
- *                       type: string
- *                       example: "access_code_123"
  *                     reference:
  *                       type: string
- *                       example: "ref_123456789"
+ *                       example: "TXN-A1B2-123456"
+ *                     amount:
+ *                       type: number
+ *                       example: 50000
  *       400:
- *         description: Bad Request - Invalid quantity or currency
+ *         description: Bad Request - Invalid quantity or email
  *         content:
  *           application/json:
  *             schema:
@@ -388,7 +520,7 @@ router.get('/payment-config', shareController.getPaymentConfig);
  *                   example: false
  *                 message:
  *                   type: string
- *                   example: "Invalid request. Please provide valid quantity and currency (naira or usdt)."
+ *                   example: "Please provide quantity and email"
  *       401:
  *         $ref: '#/components/responses/UnauthorizedError'
  *       500:
@@ -410,7 +542,7 @@ router.post('/paystack/initiate', protect, shareController.initiatePaystackPayme
  *         schema:
  *           type: string
  *         description: Paystack payment reference
- *         example: "ref_123456789"
+ *         example: "TXN-A1B2-123456"
  *     responses:
  *       200:
  *         description: Payment verification successful
@@ -426,7 +558,17 @@ router.post('/paystack/initiate', protect, shareController.initiatePaystackPayme
  *                   type: string
  *                   example: "Payment verified successfully"
  *                 data:
- *                   $ref: '#/components/schemas/Transaction'
+ *                   type: object
+ *                   properties:
+ *                     shares:
+ *                       type: integer
+ *                       example: 50
+ *                     amount:
+ *                       type: number
+ *                       example: 50000
+ *                     date:
+ *                       type: string
+ *                       format: date-time
  *       400:
  *         $ref: '#/components/responses/ValidationError'
  *       404:
@@ -452,33 +594,18 @@ router.get('/paystack/verify/:reference', shareController.verifyPaystackPayment)
  *           schema:
  *             type: object
  *             required:
- *               - transactionHash
  *               - quantity
- *               - amount
- *               - currency
+ *               - txHash
+ *               - walletAddress
  *             properties:
- *               transactionHash:
- *                 type: string
- *                 example: "0x1234567890abcdef..."
- *                 description: Blockchain transaction hash
  *               quantity:
  *                 type: integer
  *                 example: 50
  *                 description: Number of shares purchased
- *               amount:
- *                 type: number
- *                 format: float
- *                 example: 5025.00
- *                 description: Amount paid in the specified currency
- *               currency:
+ *               txHash:
  *                 type: string
- *                 enum: [naira, usdt]
- *                 example: "usdt"
- *                 description: Currency used for payment
- *               token:
- *                 type: string
- *                 example: "USDT"
- *                 description: Token used for payment (for crypto transactions)
+ *                 example: "0x1234567890abcdef..."
+ *                 description: Blockchain transaction hash
  *               walletAddress:
  *                 type: string
  *                 example: "0x742d35Cc6643C673532925e2aC5c48C0F30A37a0"
@@ -496,9 +623,25 @@ router.get('/paystack/verify/:reference', shareController.verifyPaystackPayment)
  *                   example: true
  *                 message:
  *                   type: string
- *                   example: "Transaction verified successfully"
+ *                   example: "Payment verified and processed successfully"
  *                 data:
- *                   $ref: '#/components/schemas/Transaction'
+ *                   type: object
+ *                   properties:
+ *                     transactionId:
+ *                       type: string
+ *                       example: "TXN-A1B2-123456"
+ *                     shares:
+ *                       type: integer
+ *                       example: 50
+ *                     amount:
+ *                       type: number
+ *                       example: 50.25
+ *                     status:
+ *                       type: string
+ *                       example: "completed"
+ *                     verified:
+ *                       type: boolean
+ *                       example: true
  *       400:
  *         description: Bad Request - Invalid parameters
  *         content:
@@ -511,7 +654,7 @@ router.get('/paystack/verify/:reference', shareController.verifyPaystackPayment)
  *                   example: false
  *                 message:
  *                   type: string
- *                   example: "Invalid request. Please provide valid quantity and currency."
+ *                   example: "Please provide all required fields"
  *       401:
  *         $ref: '#/components/responses/UnauthorizedError'
  *       500:
@@ -555,22 +698,13 @@ router.post('/web3/verify', protect, shareController.verifyWeb3Transaction);
  *                 success:
  *                   type: boolean
  *                   example: true
- *                 data:
- *                   type: object
- *                   properties:
- *                     totalShares:
- *                       type: integer
- *                       example: 150
- *                     totalInvestment:
- *                       type: number
- *                       format: float
- *                       example: 15075.00
- *                     transactions:
- *                       type: array
- *                       items:
- *                         $ref: '#/components/schemas/Transaction'
- *                     pagination:
- *                       type: object
+ *                 totalShares:
+ *                   type: integer
+ *                   example: 150
+ *                 transactions:
+ *                   type: array
+ *                   items:
+ *                     $ref: '#/components/schemas/Transaction'
  *       401:
  *         $ref: '#/components/responses/UnauthorizedError'
  *       500:
@@ -597,7 +731,6 @@ router.get('/user/shares', protect, shareController.getUserShares);
  *             type: object
  *             required:
  *               - quantity
- *               - amount
  *               - currency
  *               - paymentMethod
  *               - paymentProof
@@ -607,11 +740,6 @@ router.get('/user/shares', protect, shareController.getUserShares);
  *                 minimum: 1
  *                 example: 50
  *                 description: Number of shares to purchase
- *               amount:
- *                 type: number
- *                 format: float
- *                 example: 5025.00
- *                 description: Amount paid
  *               currency:
  *                 type: string
  *                 enum: [naira, usdt]
@@ -619,22 +747,27 @@ router.get('/user/shares', protect, shareController.getUserShares);
  *                 description: Currency used for payment
  *               paymentMethod:
  *                 type: string
- *                 example: "Bank Transfer"
+ *                 enum: [bank_transfer, cash, other]
+ *                 example: "bank_transfer"
  *                 description: Method of payment used
- *               paymentReference:
+ *               bankName:
  *                 type: string
- *                 example: "TXN123456789"
- *                 description: Payment reference number
+ *                 example: "First Bank of Nigeria"
+ *                 description: Bank name (for bank transfers)
+ *               accountName:
+ *                 type: string
+ *                 example: "John Doe"
+ *                 description: Account holder name (for bank transfers)
+ *               reference:
+ *                 type: string
+ *                 example: "FBN123456789"
+ *                 description: Payment reference/receipt number
  *               paymentProof:
  *                 type: string
  *                 format: binary
  *                 description: Payment proof image (max 5MB)
- *               notes:
- *                 type: string
- *                 example: "Payment made via GTBank"
- *                 description: Additional notes about the payment
  *     responses:
- *       201:
+ *       200:
  *         description: Manual payment submitted successfully
  *         content:
  *           application/json:
@@ -646,9 +779,25 @@ router.get('/user/shares', protect, shareController.getUserShares);
  *                   example: true
  *                 message:
  *                   type: string
- *                   example: "Manual payment submitted successfully"
+ *                   example: "Payment proof submitted successfully and awaiting verification"
  *                 data:
- *                   $ref: '#/components/schemas/Transaction'
+ *                   type: object
+ *                   properties:
+ *                     transactionId:
+ *                       type: string
+ *                       example: "TXN-A1B2-123456"
+ *                     shares:
+ *                       type: integer
+ *                       example: 50
+ *                     amount:
+ *                       type: number
+ *                       example: 50000
+ *                     status:
+ *                       type: string
+ *                       example: "pending"
+ *                     fileUrl:
+ *                       type: string
+ *                       example: "/uploads/payment-proofs/payment-1234567890.jpg"
  *       400:
  *         description: Bad Request - Invalid parameters
  *         content:
@@ -661,15 +810,22 @@ router.get('/user/shares', protect, shareController.getUserShares);
  *                   example: false
  *                 message:
  *                   type: string
- *                   example: "Invalid request. Please provide valid quantity and currency."
+ *                   example: "Please provide quantity, payment method, and payment proof image"
  *       401:
  *         $ref: '#/components/responses/UnauthorizedError'
  *       500:
  *         $ref: '#/components/responses/ServerError'
  */
-router.post('/manual/submit', protect, upload.single('paymentProof'), shareController.submitManualPayment);
 
-/**
+// Enhanced manual payment submission route with better error handling
+router.post('/manual/submit', 
+  protect, 
+  upload.single('paymentProof'), 
+  handleUploadError,
+  logUpload,
+  shareController.submitManualPayment
+);
+/*
  * @swagger
  * /shares/payment-proof/{transactionId}:
  *   get:
@@ -685,7 +841,7 @@ router.post('/manual/submit', protect, upload.single('paymentProof'), shareContr
  *         schema:
  *           type: string
  *         description: Transaction ID
- *         example: "60f7c6b4c8f1a2b3c4d5e6f7"
+ *         example: "TXN-A1B2-123456"
  *     responses:
  *       200:
  *         description: Payment proof retrieved successfully
@@ -722,16 +878,15 @@ router.get('/payment-proof/:transactionId', protect, shareController.getPaymentP
  *             type: object
  *             required:
  *               - transactionId
- *               - status
+ *               - approved
  *             properties:
  *               transactionId:
  *                 type: string
- *                 example: "60f7c6b4c8f1a2b3c4d5e6f7"
- *               status:
- *                 type: string
- *                 enum: [approved, rejected]
- *                 example: "approved"
- *               notes:
+ *                 example: "TXN-A1B2-123456"
+ *               approved:
+ *                 type: boolean
+ *                 example: true
+ *               adminNote:
  *                 type: string
  *                 example: "Transaction verified manually"
  *     responses:
@@ -740,7 +895,17 @@ router.get('/payment-proof/:transactionId', protect, shareController.getPaymentP
  *         content:
  *           application/json:
  *             schema:
- *               $ref: '#/components/schemas/Success'
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *                   example: "Transaction approved successfully"
+ *                 status:
+ *                   type: string
+ *                   example: "completed"
  *       400:
  *         $ref: '#/components/responses/ValidationError'
  *       401:
@@ -794,15 +959,33 @@ router.post('/admin/web3/verify', protect, adminProtect, shareController.adminVe
  *                 success:
  *                   type: boolean
  *                   example: true
- *                 data:
+ *                 transactions:
+ *                   type: array
+ *                   items:
+ *                     allOf:
+ *                       - $ref: '#/components/schemas/Transaction'
+ *                       - type: object
+ *                         properties:
+ *                           user:
+ *                             type: object
+ *                             properties:
+ *                               id:
+ *                                 type: string
+ *                               name:
+ *                                 type: string
+ *                               email:
+ *                                 type: string
+ *                               walletAddress:
+ *                                 type: string
+ *                 pagination:
  *                   type: object
  *                   properties:
- *                     transactions:
- *                       type: array
- *                       items:
- *                         $ref: '#/components/schemas/Transaction'
- *                     pagination:
- *                       type: object
+ *                     currentPage:
+ *                       type: integer
+ *                     totalPages:
+ *                       type: integer
+ *                     totalCount:
+ *                       type: integer
  *       401:
  *         $ref: '#/components/responses/UnauthorizedError'
  *       403:
@@ -869,24 +1052,23 @@ router.get('/admin/web3/transactions', protect, adminProtect, shareController.ad
  *                   example: true
  *                 message:
  *                   type: string
- *                   example: "Pricing updated successfully"
- *                 data:
+ *                   example: "Share pricing updated successfully"
+ *                 pricing:
  *                   type: object
  *                   properties:
- *                     tier:
- *                       type: string
- *                       example: "tier1"
- *                     priceNaira:
- *                       type: number
- *                       format: float
- *                       example: 52000.00
- *                     priceUSDT:
- *                       type: number
- *                       format: float
- *                       example: 52.00
- *                     effectiveDate:
- *                       type: string
- *                       format: date-time
+ *                     tier1:
+ *                       type: object
+ *                       properties:
+ *                         priceNaira:
+ *                           type: number
+ *                           example: 52000
+ *                         priceUSDT:
+ *                           type: number
+ *                           example: 52
+ *                     tier2:
+ *                       type: object
+ *                     tier3:
+ *                       type: object
  *       400:
  *         description: Bad Request - Missing tier or price updates
  *         content:
@@ -914,8 +1096,8 @@ router.post('/admin/update-pricing', protect, adminProtect, shareController.upda
  * /shares/admin/add-shares:
  *   post:
  *     tags: [Shares - Admin]
- *     summary: Add shares to pool
- *     description: Add additional shares to the available pool (admin only)
+ *     summary: Add shares to user
+ *     description: Add shares directly to a user's account (admin only)
  *     security:
  *       - adminAuth: []
  *     requestBody:
@@ -925,28 +1107,67 @@ router.post('/admin/update-pricing', protect, adminProtect, shareController.upda
  *           schema:
  *             type: object
  *             required:
+ *               - userId
  *               - shares
  *             properties:
+ *               userId:
+ *                 type: string
+ *                 example: "60f7c6b4c8f1a2b3c4d5e6f7"
+ *                 description: ID of the user to add shares to
  *               shares:
  *                 type: integer
  *                 minimum: 1
- *                 example: 1000
- *               reason:
+ *                 example: 100
+ *                 description: Number of shares to add
+ *               note:
  *                 type: string
- *                 example: "New share issuance"
+ *                 example: "Bonus shares for early investor"
+ *                 description: Admin note for the transaction
  *     responses:
  *       200:
  *         description: Shares added successfully
  *         content:
  *           application/json:
  *             schema:
- *               $ref: '#/components/schemas/Success'
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *                   example: "Successfully added 100 shares to user"
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     transactionId:
+ *                       type: string
+ *                       example: "TXN-A1B2-123456"
+ *                     userId:
+ *                       type: string
+ *                       example: "60f7c6b4c8f1a2b3c4d5e6f7"
+ *                     shares:
+ *                       type: integer
+ *                       example: 100
  *       400:
  *         $ref: '#/components/responses/ValidationError'
  *       401:
  *         $ref: '#/components/responses/UnauthorizedError'
  *       403:
  *         $ref: '#/components/responses/ForbiddenError'
+ *       404:
+ *         description: User not found
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: false
+ *                 message:
+ *                   type: string
+ *                   example: "User not found"
  *       500:
  *         $ref: '#/components/responses/ServerError'
  */
@@ -973,16 +1194,28 @@ router.post('/admin/add-shares', protect, adminProtect, shareController.adminAdd
  *               walletAddress:
  *                 type: string
  *                 example: "0x742d35Cc6643C673532925e2aC5c48C0F30A37a0"
+ *                 description: New company wallet address
  *               reason:
  *                 type: string
  *                 example: "Security update"
+ *                 description: Reason for wallet update
  *     responses:
  *       200:
  *         description: Wallet address updated successfully
  *         content:
  *           application/json:
  *             schema:
- *               $ref: '#/components/schemas/Success'
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *                   example: "Company wallet address updated successfully"
+ *                 walletAddress:
+ *                   type: string
+ *                   example: "0x742d35Cc6643C673532925e2aC5c48C0F30A37a0"
  *       400:
  *         $ref: '#/components/responses/ValidationError'
  *       401:
@@ -1018,16 +1251,16 @@ router.post('/admin/update-wallet', protect, adminProtect, shareController.updat
  *           maximum: 100
  *           default: 20
  *       - in: query
- *         name: type
+ *         name: paymentMethod
  *         schema:
  *           type: string
- *           enum: [paystack, web3, manual]
- *         description: Filter by transaction type
+ *           enum: [paystack, crypto, web3, manual_bank_transfer, manual_cash, manual_other]
+ *         description: Filter by payment method
  *       - in: query
  *         name: status
  *         schema:
  *           type: string
- *           enum: [pending, completed, failed, cancelled]
+ *           enum: [pending, completed, failed]
  *         description: Filter by transaction status
  *       - in: query
  *         name: fromDate
@@ -1052,25 +1285,38 @@ router.post('/admin/update-wallet', protect, adminProtect, shareController.updat
  *                 success:
  *                   type: boolean
  *                   example: true
- *                 data:
+ *                 transactions:
+ *                   type: array
+ *                   items:
+ *                     allOf:
+ *                       - $ref: '#/components/schemas/Transaction'
+ *                       - type: object
+ *                         properties:
+ *                           user:
+ *                             type: object
+ *                             properties:
+ *                               id:
+ *                                 type: string
+ *                               name:
+ *                                 type: string
+ *                               username:
+ *                                 type: string
+ *                               email:
+ *                                 type: string
+ *                               phone:
+ *                                 type: string
+ *                           paymentProofUrl:
+ *                             type: string
+ *                             example: "/shares/payment-proof/TXN-A1B2-123456"
+ *                 pagination:
  *                   type: object
  *                   properties:
- *                     transactions:
- *                       type: array
- *                       items:
- *                         $ref: '#/components/schemas/Transaction'
- *                     pagination:
- *                       type: object
- *                     summary:
- *                       type: object
- *                       properties:
- *                         totalTransactions:
- *                           type: integer
- *                         totalAmount:
- *                           type: number
- *                           format: float
- *                         totalShares:
- *                           type: integer
+ *                     currentPage:
+ *                       type: integer
+ *                     totalPages:
+ *                       type: integer
+ *                     totalCount:
+ *                       type: integer
  *       401:
  *         $ref: '#/components/responses/UnauthorizedError'
  *       403:
@@ -1100,71 +1346,54 @@ router.get('/admin/transactions', protect, adminProtect, shareController.getAllT
  *                 success:
  *                   type: boolean
  *                   example: true
- *                 data:
+ *                 statistics:
  *                   type: object
  *                   properties:
- *                     shares:
+ *                     totalShares:
+ *                       type: integer
+ *                       example: 10000
+ *                     sharesSold:
+ *                       type: integer
+ *                       example: 2500
+ *                     sharesRemaining:
+ *                       type: integer
+ *                       example: 7500
+ *                     tierSales:
  *                       type: object
  *                       properties:
- *                         total:
+ *                         tier1Sold:
  *                           type: integer
- *                         sold:
+ *                           example: 1500
+ *                         tier2Sold:
  *                           type: integer
- *                         available:
+ *                           example: 800
+ *                         tier3Sold:
  *                           type: integer
- *                         currentPrice:
- *                           type: number
- *                           format: float
- *                     revenue:
+ *                           example: 200
+ *                     investorCount:
+ *                       type: integer
+ *                       example: 150
+ *                     totalValueNaira:
+ *                       type: number
+ *                       example: 125000000
+ *                     totalValueUSDT:
+ *                       type: number
+ *                       example: 125000
+ *                     pendingTransactions:
+ *                       type: integer
+ *                       example: 5
+ *                 pricing:
+ *                   type: object
+ *                   properties:
+ *                     tier1:
  *                       type: object
  *                       properties:
- *                         total:
+ *                         priceNaira:
  *                           type: number
- *                           format: float
- *                         thisMonth:
+ *                           example: 50000
+ *                         priceUSDT:
  *                           type: number
- *                           format: float
- *                         lastMonth:
- *                           type: number
- *                           format: float
- *                     transactions:
- *                       type: object
- *                       properties:
- *                         total:
- *                           type: integer
- *                         pending:
- *                           type: integer
- *                         completed:
- *                           type: integer
- *                         failed:
- *                           type: integer
- *                     paymentMethods:
- *                       type: object
- *                       properties:
- *                         paystack:
- *                           type: object
- *                           properties:
- *                             count:
- *                               type: integer
- *                             amount:
- *                               type: number
- *                               format: float
- *                         web3:
- *                           type: object
- *                           properties:
- *                             count:
- *                               type: integer
- *                             amount:
- *                               type: number
- *                               format: float
- *                         manual:
- *                           type: object
- *                           properties:
- *                             count:
- *                               type: integer
- *                             amount:
- *                               type: number
- *                               format: float
+ *                           example: 50
  *       401:
  *         $ref: '#/components/responses/UnauthorizedError'
  *       403:
@@ -1203,7 +1432,7 @@ router.get('/admin/statistics', protect, adminProtect, shareController.getShareS
  *         name: status
  *         schema:
  *           type: string
- *           enum: [pending, verified, rejected, cancelled]
+ *           enum: [pending, completed, failed]
  *         description: Filter by payment status
  *       - in: query
  *         name: fromDate
@@ -1228,37 +1457,38 @@ router.get('/admin/statistics', protect, adminProtect, shareController.getShareS
  *                 success:
  *                   type: boolean
  *                   example: true
- *                 data:
+ *                 transactions:
+ *                   type: array
+ *                   items:
+ *                     allOf:
+ *                       - $ref: '#/components/schemas/Transaction'
+ *                       - type: object
+ *                         properties:
+ *                           user:
+ *                             type: object
+ *                             properties:
+ *                               id:
+ *                                 type: string
+ *                               name:
+ *                                 type: string
+ *                               username:
+ *                                 type: string
+ *                               email:
+ *                                 type: string
+ *                               phone:
+ *                                 type: string
+ *                           paymentProofPath:
+ *                             type: string
+ *                             example: "uploads/payment-proofs/payment-1234567890.jpg"
+ *                 pagination:
  *                   type: object
  *                   properties:
- *                     transactions:
- *                       type: array
- *                       items:
- *                         allOf:
- *                           - $ref: '#/components/schemas/Transaction'
- *                           - type: object
- *                             properties:
- *                               paymentProofUrl:
- *                                 type: string
- *                                 example: "/api/shares/payment-proof/60f7c6b4c8f1a2b3c4d5e6f7"
- *                               paymentMethod:
- *                                 type: string
- *                                 example: "Bank Transfer"
- *                               paymentReference:
- *                                 type: string
- *                                 example: "TXN123456789"
- *                               notes:
- *                                 type: string
- *                                 example: "Payment made via GTBank"
- *                               user:
- *                                 type: object
- *                                 properties:
- *                                   name:
- *                                     type: string
- *                                   email:
- *                                     type: string
- *                     pagination:
- *                       type: object
+ *                     currentPage:
+ *                       type: integer
+ *                     totalPages:
+ *                       type: integer
+ *                     totalCount:
+ *                       type: integer
  *       401:
  *         $ref: '#/components/responses/UnauthorizedError'
  *       403:
@@ -1285,21 +1515,17 @@ router.get('/admin/manual/transactions', protect, adminProtect, shareController.
  *             type: object
  *             required:
  *               - transactionId
- *               - status
+ *               - approved
  *             properties:
  *               transactionId:
  *                 type: string
- *                 example: "60f7c6b4c8f1a2b3c4d5e6f7"
- *               status:
- *                 type: string
- *                 enum: [verified, rejected]
- *                 example: "verified"
- *               adminNotes:
+ *                 example: "TXN-A1B2-123456"
+ *               approved:
+ *                 type: boolean
+ *                 example: true
+ *               adminNote:
  *                 type: string
  *                 example: "Payment verified through bank statement"
- *               rejectionReason:
- *                 type: string
- *                 example: "Invalid payment proof"
  *     responses:
  *       200:
  *         description: Manual payment verification updated successfully
@@ -1313,9 +1539,10 @@ router.get('/admin/manual/transactions', protect, adminProtect, shareController.
  *                   example: true
  *                 message:
  *                   type: string
- *                   example: "Payment verified successfully"
- *                 data:
- *                   $ref: '#/components/schemas/Transaction'
+ *                   example: "Manual payment approved successfully"
+ *                 status:
+ *                   type: string
+ *                   example: "completed"
  *       400:
  *         $ref: '#/components/responses/ValidationError'
  *       401:
@@ -1335,7 +1562,7 @@ router.post('/admin/manual/verify', protect, adminProtect, shareController.admin
  *   post:
  *     tags: [Shares - Admin Manual Payment]
  *     summary: Cancel manual payment
- *     description: Cancel a manual payment transaction (admin only)
+ *     description: Cancel a completed manual payment transaction (admin only)
  *     security:
  *       - adminAuth: []
  *     requestBody:
@@ -1349,13 +1576,10 @@ router.post('/admin/manual/verify', protect, adminProtect, shareController.admin
  *             properties:
  *               transactionId:
  *                 type: string
- *                 example: "60f7c6b4c8f1a2b3c4d5e6f7"
- *               reason:
+ *                 example: "TXN-A1B2-123456"
+ *               cancelReason:
  *                 type: string
- *                 example: "Duplicate transaction"
- *               adminNotes:
- *                 type: string
- *                 example: "Transaction cancelled due to duplicate submission"
+ *                 example: "Duplicate transaction detected"
  *     responses:
  *       200:
  *         description: Manual payment cancelled successfully
@@ -1369,9 +1593,10 @@ router.post('/admin/manual/verify', protect, adminProtect, shareController.admin
  *                   example: true
  *                 message:
  *                   type: string
- *                   example: "Payment cancelled successfully"
- *                 data:
- *                   $ref: '#/components/schemas/Transaction'
+ *                   example: "Payment approval successfully canceled and returned to pending status"
+ *                 status:
+ *                   type: string
+ *                   example: "pending"
  *       400:
  *         $ref: '#/components/responses/ValidationError'
  *       401:
@@ -1386,3 +1611,4 @@ router.post('/admin/manual/verify', protect, adminProtect, shareController.admin
 router.post('/admin/manual/cancel', protect, adminProtect, shareController.adminCancelManualPayment);
 
 module.exports = router;
+ 
