@@ -37,9 +37,17 @@ const setupSwagger = (app) => {
 
   console.log('✅ Swagger documentation available at /api-docs');
   console.log('📄 Swagger JSON available at /swagger.json');
-  
+
+  // Dynamic URL generation for different environments
   if (process.env.NODE_ENV === 'development') {
-    console.log(`🌐 Access at: http://localhost:${process.env.PORT || 5000}/api-docs`);
+    const port = process.env.PORT || 5000;
+    console.log(`🌐 Development access: http://localhost:${port}/api-docs`);
+  } else {
+    // For production, use environment variables or request host
+    const baseUrl = process.env.BASE_URL || process.env.HEROKU_APP_NAME 
+      ? `https://${process.env.HEROKU_APP_NAME}.herokuapp.com` 
+      : 'your-production-domain.com';
+    console.log(`🌐 Production access: ${baseUrl}/api-docs`);
   }
 };
 
