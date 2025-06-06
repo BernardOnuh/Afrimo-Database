@@ -1,7 +1,8 @@
+// routes/coFounderInstallmentRoutes.js
 const express = require('express');
 const router = express.Router();
 const { protect, adminProtect } = require('../middleware/auth');
-const installmentController = require('../controller/installmentController');
+const coFounderInstallmentController = require('../controller/coFounderInstallmentController');
 
 // Rate limiting middleware (basic implementation)
 const createRateLimiter = (maxRequests, windowMs) => {
@@ -37,12 +38,12 @@ const paymentSubmissionRateLimiter = createRateLimiter(10, 60 * 60 * 1000); // 1
  * @swagger
  * components:
  *   schemas:
- *     InstallmentPlan:
+ *     CoFounderInstallmentPlan:
  *       type: object
  *       properties:
  *         planId:
  *           type: string
- *           example: "INST-A1B2-123456"
+ *           example: "CFI-A1B2-123456"
  *         status:
  *           type: string
  *           enum: [pending, active, late, completed, cancelled]
@@ -52,7 +53,7 @@ const paymentSubmissionRateLimiter = createRateLimiter(10, 60 * 60 * 1000); // 1
  *           example: 1
  *         totalPrice:
  *           type: number
- *           example: 50000
+ *           example: 100000
  *         currency:
  *           type: string
  *           enum: [naira, usdt]
@@ -62,19 +63,19 @@ const paymentSubmissionRateLimiter = createRateLimiter(10, 60 * 60 * 1000); // 1
  *           example: 5
  *         minimumDownPaymentAmount:
  *           type: number
- *           example: 10000
+ *           example: 25000
  *         minimumDownPaymentPercentage:
  *           type: number
- *           example: 20
+ *           example: 25
  *         sharesReleased:
  *           type: integer
  *           example: 0
  *         totalPaidAmount:
  *           type: number
- *           example: 10000
+ *           example: 25000
  *         remainingBalance:
  *           type: number
- *           example: 40000
+ *           example: 75000
  *         installments:
  *           type: array
  *           items:
@@ -105,11 +106,11 @@ const paymentSubmissionRateLimiter = createRateLimiter(10, 60 * 60 * 1000); // 1
 
 /**
  * @swagger
- * /shares/installment/calculate:
+ * /shares/cofounder/installment/calculate:
  *   post:
- *     tags: [Installment - User]
- *     summary: Calculate installment plan
- *     description: Calculate installment plan details for share purchase
+ *     tags: [CoFounder Installment - User]
+ *     summary: Calculate co-founder installment plan
+ *     description: Calculate installment plan details for co-founder share purchase
  *     security:
  *       - bearerAuth: []
  *     requestBody:
@@ -127,7 +128,7 @@ const paymentSubmissionRateLimiter = createRateLimiter(10, 60 * 60 * 1000); // 1
  *                 minimum: 1
  *                 maximum: 1
  *                 example: 1
- *                 description: Number of shares (must be exactly 1 for installment plans)
+ *                 description: Number of co-founder shares (must be exactly 1 for installment plans)
  *               currency:
  *                 type: string
  *                 enum: [naira, usdt]
@@ -142,7 +143,7 @@ const paymentSubmissionRateLimiter = createRateLimiter(10, 60 * 60 * 1000); // 1
  *                 description: Number of months for installment plan
  *     responses:
  *       200:
- *         description: Installment plan calculated successfully
+ *         description: Co-founder installment plan calculated successfully
  *         content:
  *           application/json:
  *             schema:
@@ -159,7 +160,7 @@ const paymentSubmissionRateLimiter = createRateLimiter(10, 60 * 60 * 1000); // 1
  *                       example: 1
  *                     totalPrice:
  *                       type: number
- *                       example: 50000
+ *                       example: 100000
  *                     currency:
  *                       type: string
  *                       example: "naira"
@@ -168,10 +169,13 @@ const paymentSubmissionRateLimiter = createRateLimiter(10, 60 * 60 * 1000); // 1
  *                       example: 5
  *                     minimumDownPaymentAmount:
  *                       type: number
- *                       example: 10000
+ *                       example: 25000
+ *                     minimumDownPaymentPercentage:
+ *                       type: number
+ *                       example: 25
  *                     installmentAmount:
  *                       type: number
- *                       example: 10000
+ *                       example: 20000
  *                     monthlyPayments:
  *                       type: array
  *                       items:
@@ -191,7 +195,7 @@ const paymentSubmissionRateLimiter = createRateLimiter(10, 60 * 60 * 1000); // 1
  *                           isFirstPayment:
  *                             type: boolean
  *       400:
- *         description: Bad Request - Invalid input parameters
+ *         description: Bad Request - Invalid input parameters or insufficient shares
  *       401:
  *         $ref: '#/components/responses/UnauthorizedError'
  *       500:
@@ -200,17 +204,17 @@ const paymentSubmissionRateLimiter = createRateLimiter(10, 60 * 60 * 1000); // 1
 router.post('/calculate', 
   protect, 
   calculateRateLimiter,
-  installmentController.validateInstallmentInput,
-  installmentController.calculateInstallmentPlan
+  coFounderInstallmentController.validateCoFounderInstallmentInput,
+  coFounderInstallmentController.calculateCoFounderInstallmentPlan
 );
 
 /**
  * @swagger
- * /shares/installment/create:
+ * /shares/cofounder/installment/create:
  *   post:
- *     tags: [Installment - User]
- *     summary: Create new installment plan
- *     description: Create a new installment plan for share purchase
+ *     tags: [CoFounder Installment - User]
+ *     summary: Create new co-founder installment plan
+ *     description: Create a new installment plan for co-founder share purchase
  *     security:
  *       - bearerAuth: []
  *     requestBody:
@@ -240,7 +244,7 @@ router.post('/calculate',
  *                 example: 5
  *     responses:
  *       201:
- *         description: Installment plan created successfully
+ *         description: Co-founder installment plan created successfully
  *         content:
  *           application/json:
  *             schema:
@@ -251,12 +255,12 @@ router.post('/calculate',
  *                   example: true
  *                 message:
  *                   type: string
- *                   example: "Installment plan created successfully"
+ *                   example: "Co-founder installment plan created successfully"
  *                 planId:
  *                   type: string
- *                   example: "INST-A1B2-123456"
+ *                   example: "CFI-A1B2-123456"
  *                 plan:
- *                   $ref: '#/components/schemas/InstallmentPlan'
+ *                   $ref: '#/components/schemas/CoFounderInstallmentPlan'
  *       400:
  *         description: Bad Request - User already has active plan or invalid input
  *       401:
@@ -267,17 +271,17 @@ router.post('/calculate',
 router.post('/create', 
   protect, 
   createInstallmentRateLimiter,
-  installmentController.validateInstallmentInput,
-  installmentController.createInstallmentPlan
+  coFounderInstallmentController.validateCoFounderInstallmentInput,
+  coFounderInstallmentController.createCoFounderInstallmentPlan
 );
 
 /**
  * @swagger
- * /shares/installment/plans:
+ * /shares/cofounder/installment/plans:
  *   get:
- *     tags: [Installment - User]
- *     summary: Get user's installment plans
- *     description: Get current user's installment plans
+ *     tags: [CoFounder Installment - User]
+ *     summary: Get user's co-founder installment plans
+ *     description: Get current user's co-founder installment plans
  *     security:
  *       - bearerAuth: []
  *     parameters:
@@ -298,7 +302,7 @@ router.post('/create',
  *         description: Number of plans per page
  *     responses:
  *       200:
- *         description: User installment plans retrieved successfully
+ *         description: User co-founder installment plans retrieved successfully
  *         content:
  *           application/json:
  *             schema:
@@ -310,7 +314,7 @@ router.post('/create',
  *                 plans:
  *                   type: array
  *                   items:
- *                     $ref: '#/components/schemas/InstallmentPlan'
+ *                     $ref: '#/components/schemas/CoFounderInstallmentPlan'
  *                 pagination:
  *                   type: object
  *                   properties:
@@ -327,16 +331,16 @@ router.post('/create',
  */
 router.get('/plans', 
   protect, 
-  installmentController.getUserInstallmentPlans
+  coFounderInstallmentController.getUserCoFounderInstallmentPlans
 );
 
 /**
  * @swagger
- * /shares/installment/cancel:
+ * /shares/cofounder/installment/cancel:
  *   post:
- *     tags: [Installment - User]
- *     summary: Cancel installment plan
- *     description: Cancel an installment plan (only if minimum payment completed)
+ *     tags: [CoFounder Installment - User]
+ *     summary: Cancel co-founder installment plan
+ *     description: Cancel a co-founder installment plan (only if minimum payment completed)
  *     security:
  *       - bearerAuth: []
  *     requestBody:
@@ -350,15 +354,15 @@ router.get('/plans',
  *             properties:
  *               planId:
  *                 type: string
- *                 example: "INST-A1B2-123456"
- *                 description: ID of the installment plan to cancel
+ *                 example: "CFI-A1B2-123456"
+ *                 description: ID of the co-founder installment plan to cancel
  *               reason:
  *                 type: string
  *                 example: "Changed my mind"
  *                 description: Reason for cancellation (optional)
  *     responses:
  *       200:
- *         description: Installment plan cancelled successfully
+ *         description: Co-founder installment plan cancelled successfully
  *         content:
  *           application/json:
  *             schema:
@@ -369,7 +373,7 @@ router.get('/plans',
  *                   example: true
  *                 message:
  *                   type: string
- *                   example: "Installment plan cancelled successfully"
+ *                   example: "Co-founder installment plan cancelled successfully"
  *                 data:
  *                   type: object
  *                   properties:
@@ -394,18 +398,18 @@ router.get('/plans',
 router.post('/cancel', 
   protect, 
   createInstallmentRateLimiter,
-  installmentController.cancelInstallmentPlan
+  coFounderInstallmentController.cancelCoFounderInstallmentPlan
 );
 
 // Payment routes - Paystack only
 
 /**
  * @swagger
- * /shares/installment/paystack/pay:
+ * /shares/cofounder/installment/paystack/pay:
  *   post:
- *     tags: [Installment - Payment]
- *     summary: Pay installment with Paystack
- *     description: Initialize Paystack payment for an installment
+ *     tags: [CoFounder Installment - Payment]
+ *     summary: Pay co-founder installment with Paystack
+ *     description: Initialize Paystack payment for a co-founder installment
  *     security:
  *       - bearerAuth: []
  *     requestBody:
@@ -422,8 +426,8 @@ router.post('/cancel',
  *             properties:
  *               planId:
  *                 type: string
- *                 example: "INST-A1B2-123456"
- *                 description: ID of the installment plan
+ *                 example: "CFI-A1B2-123456"
+ *                 description: ID of the co-founder installment plan
  *               installmentNumber:
  *                 type: integer
  *                 minimum: 1
@@ -432,7 +436,7 @@ router.post('/cancel',
  *               amount:
  *                 type: number
  *                 minimum: 0.01
- *                 example: 10000
+ *                 example: 25000
  *                 description: Amount to pay for this installment
  *               email:
  *                 type: string
@@ -441,7 +445,7 @@ router.post('/cancel',
  *                 description: User's email for Paystack
  *     responses:
  *       200:
- *         description: Paystack payment initialized successfully
+ *         description: Co-founder Paystack payment initialized successfully
  *         content:
  *           application/json:
  *             schema:
@@ -452,7 +456,7 @@ router.post('/cancel',
  *                   example: true
  *                 message:
  *                   type: string
- *                   example: "Paystack payment initialized"
+ *                   example: "Co-founder Paystack payment initialized"
  *                 data:
  *                   type: object
  *                   properties:
@@ -463,10 +467,10 @@ router.post('/cancel',
  *                       type: string
  *                     reference:
  *                       type: string
- *                       example: "INST-A1B2-123456"
+ *                       example: "CFI-A1B2-123456"
  *                     amount:
  *                       type: number
- *                       example: 10000
+ *                       example: 25000
  *                     currency:
  *                       type: string
  *                       example: "naira"
@@ -486,16 +490,16 @@ router.post('/cancel',
 router.post('/paystack/pay', 
   protect, 
   paymentSubmissionRateLimiter,
-  installmentController.payInstallmentWithPaystack
+  coFounderInstallmentController.payCoFounderInstallmentWithPaystack
 );
 
 /**
  * @swagger
- * /shares/installment/paystack/verify:
+ * /shares/cofounder/installment/paystack/verify:
  *   get:
- *     tags: [Installment - Payment]
- *     summary: Verify Paystack installment payment
- *     description: Verify and complete a Paystack installment payment
+ *     tags: [CoFounder Installment - Payment]
+ *     summary: Verify Paystack co-founder installment payment
+ *     description: Verify and complete a Paystack co-founder installment payment
  *     security:
  *       - bearerAuth: []
  *     parameters:
@@ -505,10 +509,10 @@ router.post('/paystack/pay',
  *         schema:
  *           type: string
  *         description: Paystack payment reference
- *         example: "INST-A1B2-123456"
+ *         example: "CFI-A1B2-123456"
  *     responses:
  *       200:
- *         description: Payment verified successfully
+ *         description: Co-founder payment verified successfully
  *         content:
  *           application/json:
  *             schema:
@@ -519,7 +523,7 @@ router.post('/paystack/pay',
  *                   example: true
  *                 message:
  *                   type: string
- *                   example: "Payment verified successfully"
+ *                   example: "Co-founder payment verified successfully"
  *                 data:
  *                   type: object
  *                   properties:
@@ -550,18 +554,18 @@ router.post('/paystack/pay',
  */
 router.get('/paystack/verify', 
   protect, 
-  installmentController.verifyInstallmentPaystack
+  coFounderInstallmentController.verifyCoFounderInstallmentPaystack
 );
 
 // Admin routes
 
 /**
  * @swagger
- * /installment/admin/plans:
+ * /shares/cofounder/installment/admin/plans:
  *   get:
- *     tags: [Installment - Admin]
- *     summary: Get all installment plans
- *     description: Get all installment plans (admin only)
+ *     tags: [CoFounder Installment - Admin]
+ *     summary: Get all co-founder installment plans
+ *     description: Get all co-founder installment plans (admin only)
  *     security:
  *       - adminAuth: []
  *     parameters:
@@ -591,7 +595,7 @@ router.get('/paystack/verify',
  *         description: Filter by specific user ID
  *     responses:
  *       200:
- *         description: Installment plans retrieved successfully
+ *         description: Co-founder installment plans retrieved successfully
  *         content:
  *           application/json:
  *             schema:
@@ -604,7 +608,7 @@ router.get('/paystack/verify',
  *                   type: array
  *                   items:
  *                     allOf:
- *                       - $ref: '#/components/schemas/InstallmentPlan'
+ *                       - $ref: '#/components/schemas/CoFounderInstallmentPlan'
  *                       - type: object
  *                         properties:
  *                           user:
@@ -636,21 +640,21 @@ router.get('/paystack/verify',
  */
 router.get('/admin/plans', 
   adminProtect, 
-  installmentController.adminGetAllInstallmentPlans
+  coFounderInstallmentController.adminGetAllCoFounderInstallmentPlans
 );
 
 /**
  * @swagger
- * /shares/installment/admin/check-late-payments:
+ * /shares/cofounder/installment/admin/check-late-payments:
  *   post:
- *     tags: [Installment - Admin]
+ *     tags: [CoFounder Installment - Admin]
  *     summary: Check for late payments
- *     description: Check and process late payment fees for all active installment plans (admin only)
+ *     description: Check and process late payment fees for all active co-founder installment plans (admin only)
  *     security:
  *       - adminAuth: []
  *     responses:
  *       200:
- *         description: Late payment check completed successfully
+ *         description: Co-founder late payment check completed successfully
  *         content:
  *           application/json:
  *             schema:
@@ -661,10 +665,10 @@ router.get('/admin/plans',
  *                   example: true
  *                 message:
  *                   type: string
- *                   example: "Late payment check completed: 3 late payments found and processed"
+ *                   example: "Co-founder late payment check completed: 2 late payments found and processed"
  *                 latePaymentsFound:
  *                   type: integer
- *                   example: 3
+ *                   example: 2
  *       401:
  *         $ref: '#/components/responses/UnauthorizedError'
  *       403:
@@ -674,15 +678,15 @@ router.get('/admin/plans',
  */
 router.post('/admin/check-late-payments', 
   adminProtect, 
-  installmentController.checkLatePayments
+  coFounderInstallmentController.checkCoFounderLatePayments
 );
 
 // Error handling middleware
 router.use((err, req, res, next) => {
-  console.error('Installment route error:', err);
+  console.error('Co-founder installment route error:', err);
   res.status(500).json({
     success: false,
-    message: 'An unexpected error occurred',
+    message: 'An unexpected error occurred in co-founder installment system',
     error: process.env.NODE_ENV === 'development' ? err.message : undefined
   });
 });
