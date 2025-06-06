@@ -298,7 +298,7 @@ app.use('/api', (req, res, next) => {
 // Routes
 app.use('/api/users', require('./routes/userRoutes'));
 app.use('/api/shares', require('./routes/shareRoutes'));
-app.use('/api/shares', require('./routes/coFounderShareRoutes')); // Fixed to use same base path
+app.use('/api/cofounder', require('./routes/coFounderShareRoutes')); // Fixed to use same base path
 
 // New routes for project stats, leaderboard, and referrals
 app.use('/api/project', require('./routes/projectRoutes'));
