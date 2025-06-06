@@ -15,7 +15,7 @@ const generateTransactionId = () => {
 };
 
 // Get current co-founder share information
-exports.getCoFounderShareInfo = async (req, res) => {
+const getCoFounderShareInfo = async (req, res) => {
     try {
         // Find existing configuration or create a new one if not exists
         let coFounderShare = await CoFounderShare.findOne();
@@ -52,7 +52,7 @@ exports.getCoFounderShareInfo = async (req, res) => {
 };
 
 // Calculate purchase details before payment
-exports.calculateCoFounderPurchase = async (req, res) => {
+const calculateCoFounderPurchase = async (req, res) => {
     try {
         const { quantity, currency } = req.body;
         
@@ -110,7 +110,7 @@ exports.calculateCoFounderPurchase = async (req, res) => {
 };
 
 // Get payment configuration for co-founder shares
-exports.getPaymentConfig = async (req, res) => {
+const getPaymentConfig = async (req, res) => {
     try {
         // Find current payment configuration
         const paymentConfig = await PaymentConfig.getCurrentConfig();
@@ -135,7 +135,7 @@ exports.getPaymentConfig = async (req, res) => {
 };
 
 // Updated initiateCoFounderPaystackPayment function to fix the CoFounderShare.calculatePurchase issue
-exports.initiateCoFounderPaystackPayment = async (req, res) => {
+const initiateCoFounderPaystackPayment = async (req, res) => {
     try {
         const { quantity, email } = req.body;
         const userId = req.user.id;
@@ -246,7 +246,7 @@ exports.initiateCoFounderPaystackPayment = async (req, res) => {
 };
 
 // Submit crypto payment transaction for verification
-exports.verifyWeb3Transaction = async (req, res) => {
+const verifyWeb3Transaction = async (req, res) => {
     try {
         const { transactionHash, amount, currency, shares } = req.body;
         const userId = req.user.id;
@@ -322,7 +322,7 @@ exports.verifyWeb3Transaction = async (req, res) => {
 };
 
 // Verify PayStack payment
-exports.verifyCoFounderPaystackPayment = async (req, res) => {
+const verifyCoFounderPaystackPayment = async (req, res) => {
     try {
         const { reference } = req.params;
         
@@ -451,7 +451,7 @@ exports.verifyCoFounderPaystackPayment = async (req, res) => {
 };
 
 // Get user's co-founder shares
-exports.getUserCoFounderShares = async (req, res) => {
+const getUserCoFounderShares = async (req, res) => {
     try {
         const userId = req.user.id;
         
@@ -480,7 +480,7 @@ exports.getUserCoFounderShares = async (req, res) => {
 };
 
 // Admin verify web3 transaction
-exports.adminVerifyWeb3Transaction = async (req, res) => {
+const adminVerifyWeb3Transaction = async (req, res) => {
     try {
         const { transactionId, status, adminNotes } = req.body;
         const adminId = req.user.id;
@@ -603,7 +603,7 @@ exports.adminVerifyWeb3Transaction = async (req, res) => {
 };
 
 // Get web3 transactions
-exports.adminGetWeb3Transactions = async (req, res) => {
+const adminGetWeb3Transactions = async (req, res) => {
     try {
         const { status, page = 1, limit = 20 } = req.query;
         const adminId = req.user.id;
@@ -655,7 +655,7 @@ exports.adminGetWeb3Transactions = async (req, res) => {
 };
 
 // Update co-founder share pricing
-exports.updateCoFounderSharePricing = async (req, res) => {
+const updateCoFounderSharePricing = async (req, res) => {
     try {
         const { priceNaira, priceUSDT } = req.body;
         const adminId = req.user.id;
@@ -702,7 +702,7 @@ exports.updateCoFounderSharePricing = async (req, res) => {
 };
 
 // Admin manually add co-founder shares to a user
-exports.adminAddCoFounderShares = async (req, res) => {
+const adminAddCoFounderShares = async (req, res) => {
     try {
         const { userId, shares, note } = req.body;
         const adminId = req.user.id;
@@ -821,7 +821,7 @@ exports.adminAddCoFounderShares = async (req, res) => {
 };
 
 // Get all co-founder transactions
-exports.getAllCoFounderTransactions = async (req, res) => {
+const getAllCoFounderTransactions = async (req, res) => {
     try {
         const { status, page = 1, limit = 20 } = req.query;
         const adminId = req.user.id;
@@ -871,7 +871,7 @@ exports.getAllCoFounderTransactions = async (req, res) => {
 };
 
 // Get co-founder share statistics
-exports.getCoFounderShareStatistics = async (req, res) => {
+const getCoFounderShareStatistics = async (req, res) => {
     try {
         const adminId = req.user.id;
         
@@ -932,7 +932,7 @@ exports.getCoFounderShareStatistics = async (req, res) => {
 };
 
 // Update company wallet (for crypto payments)
-exports.updateCompanyWallet = async (req, res) => {
+const updateCompanyWallet = async (req, res) => {
     try {
         const { walletAddress } = req.body;
         const adminId = req.user.id;
@@ -972,4 +972,80 @@ exports.updateCompanyWallet = async (req, res) => {
             error: process.env.NODE_ENV === 'development' ? error.message : undefined
         });
     }
+};
+
+const initiateCoFounderManualPayment = async (req, res) => {
+  res.status(501).json({
+    success: false,
+    message: 'Manual payment initiation not yet implemented'
+  });
+};
+
+const uploadCoFounderPaymentProof = async (req, res) => {
+  res.status(501).json({
+    success: false,
+    message: 'Payment proof upload not yet implemented'
+  });
+};
+
+const getCoFounderManualPaymentStatus = async (req, res) => {
+  res.status(501).json({
+    success: false,
+    message: 'Manual payment status check not yet implemented'
+  });
+};
+
+// Manual Payment - Admin Methods
+const getCoFounderPendingManualPayments = async (req, res) => {
+  res.status(501).json({
+    success: false,
+    message: 'Pending manual payments retrieval not yet implemented'
+  });
+};
+
+const approveCoFounderManualPayment = async (req, res) => {
+  res.status(501).json({
+    success: false,
+    message: 'Manual payment approval not yet implemented'
+  });
+};
+
+const rejectCoFounderManualPayment = async (req, res) => {
+  res.status(501).json({
+    success: false,
+    message: 'Manual payment rejection not yet implemented'
+  });
+};
+
+const getAllCoFounderManualPayments = async (req, res) => {
+  res.status(501).json({
+    success: false,
+    message: 'All manual payments retrieval not yet implemented'
+  });
+};
+
+// Add to exports at the bottom of the file
+module.exports = {
+  // ... your existing exports
+  initiateCoFounderManualPayment,
+  uploadCoFounderPaymentProof,
+  getCoFounderManualPaymentStatus,
+  getCoFounderPendingManualPayments,
+  approveCoFounderManualPayment,
+  rejectCoFounderManualPayment,
+  getAllCoFounderManualPayments,
+  updateCompanyWallet,
+  getCoFounderShareStatistics,
+  getAllCoFounderTransactions,
+  adminAddCoFounderShares,
+  updateCoFounderSharePricing,
+  adminGetWeb3Transactions,
+  adminVerifyWeb3Transaction,
+  getUserCoFounderShares,
+  verifyWeb3Transaction,
+  initiateCoFounderPaystackPayment,
+  getPaymentConfig,
+  calculateCoFounderPurchase,
+  getCoFounderShareInfo,
+  verifyCoFounderPaystackPayment
 };
