@@ -68,12 +68,19 @@ exports.calculateInstallmentPlan = async (req, res) => {
     const installmentPercentage = 100 / installmentMonths;
     const lateFee = 0.34; // 0.34% late fee per month
     
-    // Calculate due dates more accurately
+    // Calculate due dates - MAINTAIN THE CREATION DAY
     const startDate = new Date();
+    const creationDay = startDate.getDate(); // Store the day of creation
+    
     const monthlyPayments = Array.from({ length: installmentMonths }, (_, i) => {
-      const dueDate = new Date(startDate);
-      dueDate.setMonth(startDate.getMonth() + i + 1); // Set to same day next month
-      dueDate.setDate(1); // Set to first day of month for consistency
+      const dueDate = new Date(startDate.getFullYear(), startDate.getMonth() + i + 1, creationDay);
+      
+      // Handle edge case where the target month doesn't have the same day
+      // (e.g., created on Jan 31, but Feb only has 28/29 days)
+      if (dueDate.getDate() !== creationDay) {
+        // The date rolled over to next month, so set to last day of target month
+        dueDate.setDate(0); // Go back to last day of previous month
+      }
       
       return {
         installmentNumber: i + 1,
@@ -112,6 +119,7 @@ exports.calculateInstallmentPlan = async (req, res) => {
     });
   }
 };
+
 
 /**
  * @desc    Create new installment plan
@@ -162,14 +170,18 @@ exports.createInstallmentPlan = async (req, res) => {
     const installmentPercentage = 100 / installmentMonths;
     const lateFee = 0.34;
     
-    // Calculate installments with accurate due dates
     const startDate = new Date();
+    const creationDay = startDate.getDate(); // Store the day of creation
     const installments = [];
     
     for (let i = 0; i < installmentMonths; i++) {
-      const dueDate = new Date(startDate);
-      dueDate.setMonth(startDate.getMonth() + i + 1);
-      dueDate.setDate(1); // Set to first day of month
+      const dueDate = new Date(startDate.getFullYear(), startDate.getMonth() + i + 1, creationDay);
+      
+      // Handle edge case where the target month doesn't have the same day
+      if (dueDate.getDate() !== creationDay) {
+        // The date rolled over to next month, so set to last day of target month
+        dueDate.setDate(0); // Go back to last day of previous month
+      }
       
       const sharesReleased = Math.floor(purchaseDetails.totalShares * (installmentPercentage / 100));
       

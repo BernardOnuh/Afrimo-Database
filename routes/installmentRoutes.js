@@ -105,7 +105,7 @@ const paymentSubmissionRateLimiter = createRateLimiter(10, 60 * 60 * 1000); // 1
 
 /**
  * @swagger
- * /installment/calculate:
+ * /shares/installment/calculate:
  *   post:
  *     tags: [Installment - User]
  *     summary: Calculate installment plan
@@ -206,7 +206,7 @@ router.post('/calculate',
 
 /**
  * @swagger
- * /installment/create:
+ * /shares/installment/create:
  *   post:
  *     tags: [Installment - User]
  *     summary: Create new installment plan
@@ -273,7 +273,7 @@ router.post('/create',
 
 /**
  * @swagger
- * /installment/plans:
+ * /shares/installment/plans:
  *   get:
  *     tags: [Installment - User]
  *     summary: Get user's installment plans
@@ -332,7 +332,7 @@ router.get('/plans',
 
 /**
  * @swagger
- * /installment/cancel:
+ * /shares/installment/cancel:
  *   post:
  *     tags: [Installment - User]
  *     summary: Cancel installment plan
@@ -401,7 +401,7 @@ router.post('/cancel',
 
 /**
  * @swagger
- * /installment/paystack/pay:
+ * /shares/installment/paystack/pay:
  *   post:
  *     tags: [Installment - Payment]
  *     summary: Pay installment with Paystack
@@ -491,7 +491,7 @@ router.post('/paystack/pay',
 
 /**
  * @swagger
- * /installment/paystack/verify:
+ * /shares/installment/paystack/verify:
  *   get:
  *     tags: [Installment - Payment]
  *     summary: Verify Paystack installment payment
@@ -641,7 +641,7 @@ router.get('/admin/plans',
 
 /**
  * @swagger
- * /installment/admin/check-late-payments:
+ * /shares/installment/admin/check-late-payments:
  *   post:
  *     tags: [Installment - Admin]
  *     summary: Check for late payments
