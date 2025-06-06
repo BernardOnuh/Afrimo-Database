@@ -22,5 +22,5 @@ router.post('/cofounder/admin/add-shares', protect, adminProtect, coFounderShare
 router.post('/cofounder/admin/update-wallet', protect, adminProtect, coFounderShareController.updateCompanyWallet);
 router.get('/cofounder/admin/transactions', protect, adminProtect, coFounderShareController.getAllCoFounderTransactions);
 router.get('/cofounder/admin/statistics', protect, adminProtect, coFounderShareController.getCoFounderShareStatistics);
-
+ 
 module.exports = router;
