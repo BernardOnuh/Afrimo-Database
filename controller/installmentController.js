@@ -712,6 +712,7 @@ exports.adminGetAllInstallmentPlans = async (req, res) => {
  * @route   POST /api/shares/installment/paystack/pay
  * @access  Private (User)
  */
+
 exports.payInstallmentWithPaystack = async (req, res) => {
   const session = await InstallmentPlan.startSession();
   session.startTransaction();
@@ -777,6 +778,16 @@ exports.payInstallmentWithPaystack = async (req, res) => {
     
     const installment = plan.installments[installmentIndex];
     
+    // Check if installment is already completed
+    if (installment.status === 'completed') {
+      await session.abortTransaction();
+      session.endSession();
+      return res.status(400).json({
+        success: false,
+        message: 'This installment has already been paid'
+      });
+    }
+    
     // Validate payment amount
     const parsedAmount = parseFloat(amount);
     if (isNaN(parsedAmount) || parsedAmount <= 0) {
@@ -836,9 +847,15 @@ exports.payInstallmentWithPaystack = async (req, res) => {
       }
     );
     
-    // Update installment with pending payment
+    // Update installment with pending payment - USE VALID ENUM VALUE
     installment.transactionId = transactionId;
-    installment.status = 'pending_payment';
+    // Change from 'pending_payment' to 'pending' which should be a valid enum value
+    installment.status = 'pending';
+    
+    // You can also add a separate field to track payment initialization if needed
+    installment.paymentInitialized = true;
+    installment.paymentInitializedAt = new Date();
+    
     plan.updatedAt = new Date();
     await plan.save({ session });
     
@@ -877,7 +894,6 @@ exports.payInstallmentWithPaystack = async (req, res) => {
     });
   }
 };
-
 /**
  * @desc    Verify Paystack installment payment
  * @route   GET /api/shares/installment/paystack/verify
