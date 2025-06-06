@@ -1,7 +1,6 @@
 const express = require('express');
 const router = express.Router();
 const coFounderShareController = require('../controller/coFounderShareController');
-console.log('Content of cofounderController:', coFounderShareController);
 const { protect, adminProtect } = require('../middleware/auth');
 
 // Public routes
@@ -11,7 +10,7 @@ router.get('/cofounder/payment-config', coFounderShareController.getPaymentConfi
 
 // User routes (require authentication)
 router.post('/cofounder/paystack/initiate', protect, coFounderShareController.initiateCoFounderPaystackPayment);
-// router.get('/cofounder/paystack/verify/:reference', protect, coFounderShareController.verifyCoFounderPaystackPayment);
+router.get('/cofounder/paystack/verify/:reference', protect, coFounderShareController.verifyCoFounderPaystackPayment);
 router.post('/cofounder/web3/verify', protect, coFounderShareController.verifyWeb3Transaction);
 
 // Manual Payment Routes - User

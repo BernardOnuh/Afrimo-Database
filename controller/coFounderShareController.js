@@ -1047,4 +1047,5 @@ module.exports = {
   getPaymentConfig,
   calculateCoFounderPurchase,
   getCoFounderShareInfo,
+  verifyCoFounderPaystackPayment
 };
