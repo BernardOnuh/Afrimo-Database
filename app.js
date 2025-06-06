@@ -312,6 +312,13 @@ app.use('/api/exchange-rates', require('./routes/exchangeRateRoutes'));
 app.use('/api/shares/installment', require('./routes/installmentRoutes'));
 
 // ========================================
+// CO-FOUNDER INSTALLMENT ROUTES (NEW)
+// ========================================
+
+// Add co-founder installment routes
+app.use('/api/shares/cofounder/installment', require('./routes/coFounderInstallmentRoutes'));
+
+// ========================================
 // DEBUG AND MONITORING ENDPOINTS
 // ========================================
 
@@ -556,6 +563,97 @@ app.get('/api/referral/debug/:userId?', async (req, res) => {
 });
 
 // ========================================
+// CO-FOUNDER INSTALLMENT DEBUG ENDPOINTS (NEW)
+// ========================================
+
+// Add manual co-founder installment penalty check endpoint
+app.post('/api/cofounder/installment/manual-penalty-check', async (req, res) => {
+  try {
+    console.log('\n======================================');
+    console.log('MANUAL CO-FOUNDER INSTALLMENT PENALTY CHECK TRIGGERED');
+    console.log('======================================');
+    console.log('Time:', new Date().toISOString());
+    
+    const coFounderInstallmentScheduler = require('./utils/coFounderInstallmentScheduler');
+    
+    console.log('Starting co-founder installment penalty check...');
+    const results = await coFounderInstallmentScheduler.manualPenaltyCheck();
+    
+    console.log('Co-founder installment penalty check completed successfully!');
+    console.log('Results:', JSON.stringify(results, null, 2));
+    
+    res.json({
+      success: true,
+      message: 'Co-founder installment penalty check completed successfully',
+      results,
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    console.error('\n======================================');
+    console.error('MANUAL CO-FOUNDER INSTALLMENT PENALTY CHECK FAILED');
+    console.error('======================================');
+    console.error('Error message:', error.message);
+    console.error('Error stack:', error.stack);
+    console.error('======================================');
+    
+    res.status(500).json({
+      success: false,
+      message: 'Co-founder installment penalty check failed',
+      error: error.message,
+      timestamp: new Date().toISOString()
+    });
+  }
+});
+
+// Add co-founder installment statistics endpoint
+app.get('/api/cofounder/installment/stats', async (req, res) => {
+  try {
+    const CoFounderInstallmentPlan = require('./models/CoFounderInstallmentPlan');
+    
+    const stats = {
+      total: await CoFounderInstallmentPlan.countDocuments(),
+      pending: await CoFounderInstallmentPlan.countDocuments({ status: 'pending' }),
+      active: await CoFounderInstallmentPlan.countDocuments({ status: 'active' }),
+      late: await CoFounderInstallmentPlan.countDocuments({ status: 'late' }),
+      completed: await CoFounderInstallmentPlan.countDocuments({ status: 'completed' }),
+      cancelled: await CoFounderInstallmentPlan.countDocuments({ status: 'cancelled' })
+    };
+
+    // Calculate financial stats
+    const allPlans = await CoFounderInstallmentPlan.find({});
+    const financialStats = allPlans.reduce((acc, plan) => {
+      acc.totalValue += plan.totalPrice;
+      acc.totalPaid += plan.totalPaidAmount || 0;
+      acc.totalPending += (plan.totalPrice - (plan.totalPaidAmount || 0));
+      acc.totalLateFees += plan.currentLateFee || 0;
+      return acc;
+    }, {
+      totalValue: 0,
+      totalPaid: 0,
+      totalPending: 0,
+      totalLateFees: 0
+    });
+
+    res.json({
+      success: true,
+      stats: {
+        ...stats,
+        ...financialStats,
+        completionRate: stats.total > 0 ? ((stats.completed / stats.total) * 100).toFixed(2) : 0
+      },
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    console.error('Error fetching co-founder installment stats:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch co-founder installment statistics',
+      error: error.message
+    });
+  }
+});
+
+// ========================================
 // CRON JOBS SETUP
 // ========================================
 
@@ -613,6 +711,33 @@ if (process.env.NODE_ENV === 'production') {
       console.error('Error in late installment payment check job:', error);
     }
   });
+
+  // ========================================
+  // CO-FOUNDER INSTALLMENT SCHEDULER SETUP (NEW)
+  // ========================================
+  
+  console.log('\n======================================');
+  console.log('SETTING UP CO-FOUNDER INSTALLMENT SCHEDULER');
+  console.log('======================================');
+
+  try {
+    const coFounderInstallmentScheduler = require('./utils/coFounderInstallmentScheduler');
+    
+    // Setup co-founder installment penalties (production only)
+    coFounderInstallmentScheduler.scheduleCoFounderInstallmentPenalties();
+    console.log('✅ Co-founder installment penalty scheduler initialized for production');
+    console.log('📅 Daily check: 2:00 AM');
+    console.log('📅 Weekly comprehensive: Sunday 3:00 AM');
+    console.log('📅 Monthly penalties: 1st of month 4:00 AM');
+  } catch (error) {
+    console.error('❌ ERROR LOADING CO-FOUNDER INSTALLMENT SCHEDULER:', error.message);
+    console.error(error.stack);
+  }
+
+  console.log('======================================\n');
+} else {
+  console.log('ℹ️  Co-founder installment scheduler disabled in development mode');
+  console.log('🔧 To test manually, use: POST /api/cofounder/installment/manual-penalty-check');
 }
 
 // REFERRAL SYNC CRON JOBS SETUP
@@ -760,6 +885,22 @@ app.get('/', (req, res) => {
       enabled: true,
       origin: req.get('Origin'),
       method: req.method
+    },
+    // Add co-founder installment system info
+    coFounderInstallments: {
+      enabled: true,
+      endpoints: [
+        '/api/shares/cofounder/installment/calculate',
+        '/api/shares/cofounder/installment/create',
+        '/api/shares/cofounder/installment/plans',
+        '/api/shares/cofounder/installment/paystack/pay',
+        '/api/shares/cofounder/installment/paystack/verify',
+        '/api/shares/cofounder/installment/cancel'
+      ],
+      debugEndpoints: [
+        '/api/cofounder/installment/stats',
+        '/api/cofounder/installment/manual-penalty-check'
+      ]
     }
   });
 });
@@ -863,6 +1004,17 @@ const server = app.listen(PORT, () => {
   console.log(`🔍 CORS Test: http://localhost:${PORT}/api/cors-test`);
   console.log(`📁 Working Directory: ${process.cwd()}`);
   console.log(`📂 Upload Directory: ${path.join(process.cwd(), 'uploads')}`);
+  
+  // Add co-founder installment specific endpoints
+  console.log('\n🏛️ Co-Founder Installment Endpoints:');
+  console.log(`   Stats: http://localhost:${PORT}/api/cofounder/installment/stats`);
+  console.log(`   Manual Check: http://localhost:${PORT}/api/cofounder/installment/manual-penalty-check`);
+  console.log(`   Calculate: http://localhost:${PORT}/api/shares/cofounder/installment/calculate`);
+  console.log(`   Create: http://localhost:${PORT}/api/shares/cofounder/installment/create`);
+  console.log(`   Plans: http://localhost:${PORT}/api/shares/cofounder/installment/plans`);
+  console.log(`   Pay: http://localhost:${PORT}/api/shares/cofounder/installment/paystack/pay`);
+  console.log(`   Verify: http://localhost:${PORT}/api/shares/cofounder/installment/paystack/verify`);
+  
   console.log('**********************************************\n');
   
   // Log initial file system state
@@ -896,13 +1048,20 @@ const server = app.listen(PORT, () => {
   console.log('✅ File system setup complete.');
   console.log('🔐 CORS configuration active');
   console.log('📡 Static file serving enabled: /uploads/payment-proofs/');
+  console.log('⏰ Installment schedulers active (regular + co-founder)');
   console.log('\n🎯 Quick Test URLs:');
   console.log(`   Health: https://afrimo-database.onrender.com/`);
   console.log(`   CORS: https://afrimo-database.onrender.com/api/cors-test`);
   console.log(`   Files: https://afrimo-database.onrender.com/api/debug/files`);
   console.log(`   Docs: https://afrimo-database.onrender.com/api-docs`);
+  console.log(`   CoFounder Stats: https://afrimo-database.onrender.com/api/cofounder/installment/stats`);
+  console.log(`   Manual Check: https://afrimo-database.onrender.com/api/cofounder/installment/manual-penalty-check`);
   console.log('');
 });
+
+// ========================================
+// ENHANCED GRACEFUL SHUTDOWN
+// ========================================
 
 // Handle graceful shutdown
 process.on('SIGTERM', () => {
@@ -916,7 +1075,12 @@ process.on('SIGTERM', () => {
     // Stop referral cron jobs
     const referralCronJobs = require('./referralCronJobs');
     referralCronJobs.stopReferralJobs();
-    console.log('✅ All cron jobs stopped');
+    
+    // Stop co-founder installment scheduler
+    const coFounderInstallmentScheduler = require('./utils/coFounderInstallmentScheduler');
+    coFounderInstallmentScheduler.stopAll();
+    
+    console.log('✅ All cron jobs stopped (withdrawal, referral, installment, co-founder installment)');
   } catch (error) {
     console.error('❌ Error stopping cron jobs:', error);
   }
