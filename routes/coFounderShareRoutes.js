@@ -3,17 +3,31 @@ const express = require('express');
 const router = express.Router();
 const coFounderController = require('../controller/coFounderController');
 const { protect, adminProtect } = require('../middleware/auth');
+const User = require('../models/User');
+const PaymentTransaction = require('../models/Transaction');
 const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
 
-// Configure multer for file uploads
+
+// Configure multer for file uploads with better path handling
 const storage = multer.diskStorage({
   destination: function(req, file, cb) {
-    // For production (Render.com), store in a more persistent location
-    const uploadDir = process.env.NODE_ENV === 'production' 
-      ? path.join(process.cwd(), 'uploads', 'cofounder-payment-proofs')
-      : 'uploads/cofounder-payment-proofs';
+    // FIXED: More robust upload directory handling
+    let uploadDir;
+    
+    if (process.env.NODE_ENV === 'production') {
+      // For production, try multiple possible writable locations
+      const possibleDirs = [
+        '/tmp/uploads/cofounder-payment-proofs',
+        path.join(process.cwd(), 'uploads', 'cofounder-payment-proofs'),
+        path.join('/opt/render/project/src', 'uploads', 'cofounder-payment-proofs')
+      ];
+      
+      uploadDir = possibleDirs[0]; // Default to /tmp for render.com
+    } else {
+      uploadDir = path.join(process.cwd(), 'uploads', 'cofounder-payment-proofs');
+    }
     
     console.log(`[multer] Environment: ${process.env.NODE_ENV}`);
     console.log(`[multer] Target upload directory: ${uploadDir}`);
@@ -26,7 +40,14 @@ const storage = multer.diskStorage({
         console.log(`[multer] Directory created successfully`);
       } catch (err) {
         console.error(`[multer] Error creating directory: ${err.message}`);
-        return cb(err);
+        
+        // Fallback to /tmp if main directory creation fails
+        if (process.env.NODE_ENV === 'production') {
+          uploadDir = '/tmp';
+          console.log(`[multer] Falling back to /tmp directory`);
+        } else {
+          return cb(err);
+        }
       }
     } else {
       console.log(`[multer] Directory already exists: ${uploadDir}`);
@@ -38,15 +59,22 @@ const storage = multer.diskStorage({
       console.log(`[multer] Directory is writable`);
     } catch (err) {
       console.error(`[multer] Directory is not writable: ${err.message}`);
-      return cb(new Error('Upload directory is not writable'));
+      
+      // Fallback to /tmp for production
+      if (process.env.NODE_ENV === 'production') {
+        uploadDir = '/tmp';
+        console.log(`[multer] Falling back to /tmp directory for write access`);
+      } else {
+        return cb(new Error('Upload directory is not writable'));
+      }
     }
     
-    console.log(`[multer] Using upload directory: ${uploadDir}`);
+    console.log(`[multer] Final upload directory: ${uploadDir}`);
     cb(null, uploadDir);
   },
   filename: function(req, file, cb) {
     const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
-    const ext = path.extname(file.originalname);
+    const ext = path.extname(file.originalname).toLowerCase();
     const filename = 'cofounder-payment-' + uniqueSuffix + ext;
     
     console.log(`[multer] Original filename: ${file.originalname}`);
@@ -58,28 +86,39 @@ const storage = multer.diskStorage({
   }
 });
 
-// Enhanced file filter for uploads with better logging
+// Enhanced file filter with better validation
 const fileFilter = (req, file, cb) => {
   console.log(`[multer] Processing file upload:`);
   console.log(`[multer] - Original name: ${file.originalname}`);
   console.log(`[multer] - MIME type: ${file.mimetype}`);
   console.log(`[multer] - Field name: ${file.fieldname}`);
+  console.log(`[multer] - Size: ${file.size || 'unknown'} bytes`);
   
-  if (file.mimetype.startsWith('image/')) {
+  // Accept images and PDFs
+  const allowedMimeTypes = [
+    'image/jpeg',
+    'image/jpg', 
+    'image/png',
+    'image/gif',
+    'image/webp',
+    'application/pdf'
+  ];
+  
+  if (allowedMimeTypes.includes(file.mimetype)) {
     console.log(`[multer] File accepted: ${file.originalname}`);
     cb(null, true);
   } else {
-    console.log(`[multer] File rejected: ${file.originalname} (not an image)`);
-    cb(new Error('Only image files are allowed'), false);
+    console.log(`[multer] File rejected: ${file.originalname} (unsupported type: ${file.mimetype})`);
+    cb(new Error(`File type not allowed. Accepted types: ${allowedMimeTypes.join(', ')}`), false);
   }
 };
 
-// Enhanced multer configuration with better error handling
+// Enhanced multer configuration
 const upload = multer({
   storage: storage,
   fileFilter: fileFilter,
   limits: {
-    fileSize: 5 * 1024 * 1024, // 5MB limit
+    fileSize: 10 * 1024 * 1024, // Increased to 10MB limit
     files: 1 // Only allow 1 file per request
   },
   onError: function(err, next) {
@@ -88,7 +127,7 @@ const upload = multer({
   }
 });
 
-// Add middleware to log successful uploads
+// Enhanced upload success logging middleware
 const logUpload = (req, res, next) => {
   if (req.file) {
     console.log(`[upload-success] File uploaded successfully:`);
@@ -96,14 +135,22 @@ const logUpload = (req, res, next) => {
     console.log(`[upload-success] - Filename: ${req.file.filename}`);
     console.log(`[upload-success] - Size: ${req.file.size} bytes`);
     console.log(`[upload-success] - MIME type: ${req.file.mimetype}`);
+    console.log(`[upload-success] - Destination: ${req.file.destination}`);
     
     // Verify file was actually written
     if (fs.existsSync(req.file.path)) {
       const stats = fs.statSync(req.file.path);
       console.log(`[upload-success] - File verified on disk: ${stats.size} bytes`);
+      
+      // Store additional info for the controller
+      req.file.verified = true;
+      req.file.actualSize = stats.size;
     } else {
       console.error(`[upload-success] - WARNING: File not found on disk after upload!`);
+      req.file.verified = false;
     }
+  } else {
+    console.log(`[upload-info] No file in request`);
   }
   next();
 };
@@ -2090,48 +2137,57 @@ router.get('/admin/debug/manual', protect, adminProtect, coFounderController.deb
  *         $ref: '#/components/responses/ServerError'
  */
 router.get('/admin/debug/all-transactions', protect, adminProtect, async (req, res) => {
-    try {
-        const adminId = req.user.id;
-        const { limit = 20 } = req.query;
-        
-        // Verify admin
-        const admin = await User.findById(adminId);
-        if (!admin || !admin.isAdmin) {
-            return res.status(403).json({
-                success: false,
-                message: 'Unauthorized: Admin access required'
-            });
-        }
-        
-        // Get all co-founder transactions
-        const transactions = await PaymentTransaction.find({ 
-            type: 'co-founder' 
-        })
-        .select('_id transactionId paymentMethod status paymentProofPath createdAt userId shares amount currency')
-        .populate('userId', 'name email')
-        .sort({ createdAt: -1 })
-        .limit(Number(limit));
-        
-        // Get payment method summary
-        const paymentMethods = await PaymentTransaction.distinct('paymentMethod', { type: 'co-founder' });
-        
-        res.status(200).json({
-            success: true,
-            transactions: transactions,
-            summary: {
-                total: transactions.length,
-                paymentMethods: paymentMethods
-            }
-        });
-        
-    } catch (error) {
-        console.error('Error in debug all-transactions:', error);
-        res.status(500).json({
-            success: false,
-            message: 'Debug failed',
-            error: error.message
-        });
-    }
+  try {
+      const adminId = req.user.id;
+      const { limit = 20 } = req.query;
+      
+      // Verify admin
+      const admin = await User.findById(adminId);
+      if (!admin || !admin.isAdmin) {
+          return res.status(403).json({
+              success: false,
+              message: 'Unauthorized: Admin access required'
+          });
+      }
+      
+      // Get all co-founder transactions
+      const transactions = await PaymentTransaction.find({ 
+          type: 'co-founder' 
+      })
+      .select('_id transactionId paymentMethod status paymentProofPath createdAt userId shares amount currency')
+      .populate('userId', 'name email')
+      .sort({ createdAt: -1 })
+      .limit(Number(limit));
+      
+      // Get payment method summary
+      const paymentMethods = await PaymentTransaction.distinct('paymentMethod', { type: 'co-founder' });
+      
+      res.status(200).json({
+          success: true,
+          transactions: transactions,
+          summary: {
+              total: transactions.length,
+              paymentMethods: paymentMethods,
+              // ADDED: More detailed breakdown
+              statusBreakdown: await PaymentTransaction.aggregate([
+                  { $match: { type: 'co-founder' } },
+                  { $group: { _id: '$status', count: { $sum: 1 } } }
+              ]),
+              paymentMethodBreakdown: await PaymentTransaction.aggregate([
+                  { $match: { type: 'co-founder' } },
+                  { $group: { _id: '$paymentMethod', count: { $sum: 1 } } }
+              ])
+          }
+      });
+      
+  } catch (error) {
+      console.error('Error in debug all-transactions:', error);
+      res.status(500).json({
+          success: false,
+          message: 'Debug failed',
+          error: error.message
+      });
+  }
 });
 
 // ===========================================
