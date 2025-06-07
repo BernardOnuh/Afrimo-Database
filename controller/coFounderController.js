@@ -714,7 +714,7 @@ const getCoFounderPaymentProof = async (req, res) => {
     }
 };
 
-// Get user's co-founder shares
+// Fix for getUserCoFounderShares
 const getUserCoFounderShares = async (req, res) => {
     try {
         const userId = req.user.id;
@@ -724,29 +724,37 @@ const getUserCoFounderShares = async (req, res) => {
             userId,
             type: 'co-founder',
             status: 'completed'
-        });
+        }).sort({ createdAt: -1 });
         
-        const totalShares = transactions.reduce((sum, t) => sum + t.shares, 0);
+        const totalShares = transactions.reduce((sum, t) => sum + (t.shares || 0), 0);
         
         res.status(200).json({
             success: true,
             totalShares,
-            transactions: transactions.map(t => ({
-                transactionId: t.transactionId,
-                shares: t.shares,
-                amount: t.amount,
-                currency: t.currency,
-                paymentMethod: t.paymentMethod.replace('manual_', ''),
-                status: t.status,
-                date: t.createdAt
-            }))
+            transactions: transactions.map(t => {
+                // Safe handling of paymentMethod
+                let cleanPaymentMethod = 'unknown';
+                if (t.paymentMethod && typeof t.paymentMethod === 'string') {
+                    cleanPaymentMethod = t.paymentMethod.replace('manual_', '');
+                }
+                
+                return {
+                    transactionId: t.transactionId || 'No ID',
+                    shares: t.shares || 0,
+                    amount: t.amount || 0,
+                    currency: t.currency || 'unknown',
+                    paymentMethod: cleanPaymentMethod,
+                    status: t.status || 'unknown',
+                    date: t.createdAt
+                };
+            })
         });
     } catch (error) {
         console.error('Error fetching user co-founder shares:', error);
         res.status(500).json({
             success: false,
             message: 'Failed to fetch co-founder shares',
-            error: process.env.NODE_ENV === 'development' ? error.message : undefined
+            error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
         });
     }
 };
@@ -926,6 +934,7 @@ const adminGetWeb3Transactions = async (req, res) => {
 };
 
 // NEW: Admin get manual payment transactions
+// Fix for adminGetCoFounderManualTransactions
 const adminGetCoFounderManualTransactions = async (req, res) => {
     try {
         const { status, page = 1, limit = 20 } = req.query;
@@ -954,35 +963,48 @@ const adminGetCoFounderManualTransactions = async (req, res) => {
         const transactions = await PaymentTransaction.find(query)
             .skip((page - 1) * limit)
             .limit(Number(limit))
-            .populate('userId', 'name email phone');
+            .populate('userId', 'name email phone')
+            .sort({ createdAt: -1 });
         
-        // Format response
+        // Format response with safe paymentMethod handling
         const formattedTransactions = transactions.map(transaction => {
             let paymentProofUrl = null;
-            if (transaction.paymentProofPath) {
-                const path = require('path');
-                const filename = path.basename(transaction.paymentProofPath);
+            if (transaction.paymentProofPath && transaction.transactionId) {
                 paymentProofUrl = `/cofounder/payment-proof/${transaction.transactionId}`;
             }
             
+            // Safe handling of paymentMethod
+            let cleanPaymentMethod = 'unknown';
+            if (transaction.paymentMethod && typeof transaction.paymentMethod === 'string') {
+                cleanPaymentMethod = transaction.paymentMethod.replace('manual_', '');
+            }
+            
+            // Safe handling of user data
+            const userData = transaction.userId ? {
+                id: transaction.userId._id,
+                name: transaction.userId.name || 'Unknown',
+                email: transaction.userId.email || 'No email',
+                phone: transaction.userId.phone || 'No phone'
+            } : {
+                id: 'unknown',
+                name: 'Unknown User',
+                email: 'No email',
+                phone: 'No phone'
+            };
+            
             return {
-                transactionId: transaction.transactionId,
-                user: {
-                    id: transaction.userId._id,
-                    name: transaction.userId.name,
-                    email: transaction.userId.email,
-                    phone: transaction.userId.phone
-                },
-                shares: transaction.shares,
-                amount: transaction.amount,
-                currency: transaction.currency,
-                paymentMethod: transaction.paymentMethod.replace('manual_', ''),
-                status: transaction.status,
+                transactionId: transaction.transactionId || 'No ID',
+                user: userData,
+                shares: transaction.shares || 0,
+                amount: transaction.amount || 0,
+                currency: transaction.currency || 'unknown',
+                paymentMethod: cleanPaymentMethod,
+                status: transaction.status || 'unknown',
                 date: transaction.createdAt,
                 paymentProofUrl: paymentProofUrl,
-                paymentProofPath: transaction.paymentProofPath,
+                paymentProofPath: transaction.paymentProofPath || null,
                 manualPaymentDetails: transaction.manualPaymentDetails || {},
-                adminNotes: transaction.adminNotes
+                adminNotes: transaction.adminNotes || ''
             };
         });
         
@@ -1003,10 +1025,12 @@ const adminGetCoFounderManualTransactions = async (req, res) => {
         res.status(500).json({
             success: false,
             message: 'Failed to fetch manual transactions',
-            error: process.env.NODE_ENV === 'development' ? error.message : undefined
+            error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
         });
     }
 };
+
+
 
 // NEW: Admin verify manual payment
 // NEW: Admin verify manual payment
@@ -1608,9 +1632,10 @@ const adminAddCoFounderShares = async (req, res) => {
 };
 
 // Get all co-founder transactions
+// Get all co-founder transactions (FIXED VERSION)
 const getAllCoFounderTransactions = async (req, res) => {
     try {
-        const { status, page = 1, limit = 20 } = req.query;
+        const { status, page = 1, limit = 20, paymentMethod, fromDate, toDate } = req.query;
         const adminId = req.user.id;
         
         // Verify admin
@@ -1629,36 +1654,71 @@ const getAllCoFounderTransactions = async (req, res) => {
             query.status = status;
         }
         
+        if (paymentMethod) {
+            query.paymentMethod = paymentMethod;
+        }
+        
+        // Add date filters if provided
+        if (fromDate || toDate) {
+            query.createdAt = {};
+            if (fromDate) {
+                query.createdAt.$gte = new Date(fromDate);
+            }
+            if (toDate) {
+                query.createdAt.$lte = new Date(toDate);
+            }
+        }
+        
         // Paginate transactions
         const transactions = await PaymentTransaction.find(query)
             .skip((page - 1) * limit)
             .limit(Number(limit))
-            .populate('userId', 'name email');
+            .populate('userId', 'name email')
+            .sort({ createdAt: -1 }); // Sort by newest first
         
-        // Format transactions
+        // Format transactions with proper null/undefined handling
         const formattedTransactions = transactions.map(transaction => {
             let paymentProofUrl = null;
-            if (transaction.paymentProofPath) {
+            if (transaction.paymentProofPath && transaction.transactionId) {
                 paymentProofUrl = `/cofounder/payment-proof/${transaction.transactionId}`;
             }
             
+            // Safe handling of paymentMethod
+            let cleanPaymentMethod = 'unknown';
+            if (transaction.paymentMethod) {
+                if (typeof transaction.paymentMethod === 'string') {
+                    cleanPaymentMethod = transaction.paymentMethod.replace('manual_', '');
+                } else {
+                    cleanPaymentMethod = String(transaction.paymentMethod).replace('manual_', '');
+                }
+            }
+            
+            // Safe handling of user data
+            const userData = transaction.userId ? {
+                id: transaction.userId._id,
+                name: transaction.userId.name || 'Unknown',
+                email: transaction.userId.email || 'No email'
+            } : {
+                id: 'unknown',
+                name: 'Unknown User',
+                email: 'No email'
+            };
+            
             return {
-                transactionId: transaction.transactionId,
-                user: {
-                    id: transaction.userId._id,
-                    name: transaction.userId.name,
-                    email: transaction.userId.email
-                },
-                shares: transaction.shares,
-                amount: transaction.amount,
-                currency: transaction.currency,
-                paymentMethod: transaction.paymentMethod.replace('manual_', ''),
-                status: transaction.status,
+                id: transaction._id, // Include MongoDB ID
+                transactionId: transaction.transactionId || 'No ID',
+                user: userData,
+                shares: transaction.shares || 0,
+                amount: transaction.amount || 0,
+                currency: transaction.currency || 'unknown',
+                paymentMethod: cleanPaymentMethod,
+                status: transaction.status || 'unknown',
                 date: transaction.createdAt,
                 paymentProofUrl: paymentProofUrl,
                 manualPaymentDetails: transaction.manualPaymentDetails || {},
-                adminNotes: transaction.adminNotes,
-                transactionHash: transaction.transactionHash
+                adminNotes: transaction.adminNotes || '',
+                transactionHash: transaction.transactionHash || null,
+                verifiedBy: transaction.verifiedBy || null
             };
         });
         
@@ -1671,7 +1731,9 @@ const getAllCoFounderTransactions = async (req, res) => {
             pagination: {
                 currentPage: Number(page),
                 totalPages: Math.ceil(totalCount / limit),
-                totalCount
+                totalCount,
+                hasNext: Number(page) < Math.ceil(totalCount / limit),
+                hasPrev: Number(page) > 1
             }
         });
     } catch (error) {
@@ -1679,7 +1741,7 @@ const getAllCoFounderTransactions = async (req, res) => {
         res.status(500).json({
             success: false,
             message: 'Failed to fetch transactions',
-            error: process.env.NODE_ENV === 'development' ? error.message : undefined
+            error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
         });
     }
 };
