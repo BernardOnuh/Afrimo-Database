@@ -1,4 +1,4 @@
-// routes/coFounderRoutes.js
+// routes/coFounderRoutes.js - CLEAN VERSION WITH COMPLETE SWAGGER DOCUMENTATION
 const express = require('express');
 const router = express.Router();
 const coFounderController = require('../controller/coFounderController');
@@ -9,30 +9,23 @@ const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
 
+// ===================================================================
+// MULTER CONFIGURATION FOR FILE UPLOADS (FIXED)
+// ===================================================================
 
-// Configure multer for file uploads with better path handling
 const storage = multer.diskStorage({
   destination: function(req, file, cb) {
-    // FIXED: More robust upload directory handling
     let uploadDir;
     
     if (process.env.NODE_ENV === 'production') {
-      // For production, try multiple possible writable locations
-      const possibleDirs = [
-        '/tmp/uploads/cofounder-payment-proofs',
-        path.join(process.cwd(), 'uploads', 'cofounder-payment-proofs'),
-        path.join('/opt/render/project/src', 'uploads', 'cofounder-payment-proofs')
-      ];
-      
-      uploadDir = possibleDirs[0]; // Default to /tmp for render.com
-    } else {
       uploadDir = path.join(process.cwd(), 'uploads', 'cofounder-payment-proofs');
+    } else {
+      uploadDir = 'uploads/cofounder-payment-proofs';
     }
     
     console.log(`[multer] Environment: ${process.env.NODE_ENV}`);
     console.log(`[multer] Target upload directory: ${uploadDir}`);
     
-    // Create directory if it doesn't exist
     if (!fs.existsSync(uploadDir)) {
       console.log(`[multer] Creating directory: ${uploadDir}`);
       try {
@@ -40,157 +33,76 @@ const storage = multer.diskStorage({
         console.log(`[multer] Directory created successfully`);
       } catch (err) {
         console.error(`[multer] Error creating directory: ${err.message}`);
-        
-        // Fallback to /tmp if main directory creation fails
-        if (process.env.NODE_ENV === 'production') {
-          uploadDir = '/tmp';
-          console.log(`[multer] Falling back to /tmp directory`);
-        } else {
-          return cb(err);
-        }
+        return cb(err);
       }
-    } else {
-      console.log(`[multer] Directory already exists: ${uploadDir}`);
     }
     
-    // Verify directory is writable
     try {
       fs.accessSync(uploadDir, fs.constants.W_OK);
       console.log(`[multer] Directory is writable`);
     } catch (err) {
       console.error(`[multer] Directory is not writable: ${err.message}`);
-      
-      // Fallback to /tmp for production
-      if (process.env.NODE_ENV === 'production') {
-        uploadDir = '/tmp';
-        console.log(`[multer] Falling back to /tmp directory for write access`);
-      } else {
-        return cb(new Error('Upload directory is not writable'));
-      }
+      return cb(new Error('Upload directory is not writable'));
     }
     
-    console.log(`[multer] Final upload directory: ${uploadDir}`);
     cb(null, uploadDir);
   },
   filename: function(req, file, cb) {
     const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
     const ext = path.extname(file.originalname).toLowerCase();
     const filename = 'cofounder-payment-' + uniqueSuffix + ext;
-    
-    console.log(`[multer] Original filename: ${file.originalname}`);
-    console.log(`[multer] Generated filename: ${filename}`);
-    console.log(`[multer] File extension: ${ext}`);
-    console.log(`[multer] File MIME type: ${file.mimetype}`);
-    
     cb(null, filename);
   }
 });
 
-// Enhanced file filter with better validation
 const fileFilter = (req, file, cb) => {
-  console.log(`[multer] Processing file upload:`);
-  console.log(`[multer] - Original name: ${file.originalname}`);
-  console.log(`[multer] - MIME type: ${file.mimetype}`);
-  console.log(`[multer] - Field name: ${file.fieldname}`);
-  console.log(`[multer] - Size: ${file.size || 'unknown'} bytes`);
-  
-  // Accept images and PDFs
-  const allowedMimeTypes = [
-    'image/jpeg',
-    'image/jpg', 
-    'image/png',
-    'image/gif',
-    'image/webp',
-    'application/pdf'
-  ];
-  
-  if (allowedMimeTypes.includes(file.mimetype)) {
-    console.log(`[multer] File accepted: ${file.originalname}`);
+  if (file.mimetype.startsWith('image/') || file.mimetype === 'application/pdf') {
     cb(null, true);
   } else {
-    console.log(`[multer] File rejected: ${file.originalname} (unsupported type: ${file.mimetype})`);
-    cb(new Error(`File type not allowed. Accepted types: ${allowedMimeTypes.join(', ')}`), false);
+    cb(new Error('Only image files and PDFs are allowed'), false);
   }
 };
 
-// Enhanced multer configuration
 const upload = multer({
   storage: storage,
   fileFilter: fileFilter,
   limits: {
-    fileSize: 10 * 1024 * 1024, // Increased to 10MB limit
-    files: 1 // Only allow 1 file per request
-  },
-  onError: function(err, next) {
-    console.error(`[multer] Upload error: ${err.message}`);
-    next(err);
+    fileSize: 5 * 1024 * 1024, // 5MB limit
+    files: 1
   }
 });
 
-// Enhanced upload success logging middleware
 const logUpload = (req, res, next) => {
   if (req.file) {
-    console.log(`[upload-success] File uploaded successfully:`);
-    console.log(`[upload-success] - Path: ${req.file.path}`);
-    console.log(`[upload-success] - Filename: ${req.file.filename}`);
-    console.log(`[upload-success] - Size: ${req.file.size} bytes`);
-    console.log(`[upload-success] - MIME type: ${req.file.mimetype}`);
-    console.log(`[upload-success] - Destination: ${req.file.destination}`);
-    
-    // Verify file was actually written
+    console.log(`[upload-success] File uploaded: ${req.file.path}, Size: ${req.file.size} bytes`);
     if (fs.existsSync(req.file.path)) {
-      const stats = fs.statSync(req.file.path);
-      console.log(`[upload-success] - File verified on disk: ${stats.size} bytes`);
-      
-      // Store additional info for the controller
       req.file.verified = true;
-      req.file.actualSize = stats.size;
-    } else {
-      console.error(`[upload-success] - WARNING: File not found on disk after upload!`);
-      req.file.verified = false;
     }
-  } else {
-    console.log(`[upload-info] No file in request`);
   }
   next();
 };
 
-// Enhanced error handling middleware for multer
 const handleUploadError = (err, req, res, next) => {
   if (err instanceof multer.MulterError) {
-    console.error(`[multer-error] Multer error: ${err.code} - ${err.message}`);
-    
     switch (err.code) {
       case 'LIMIT_FILE_SIZE':
-        return res.status(400).json({
-          success: false,
-          message: 'File too large. Maximum size is 5MB.'
-        });
+        return res.status(400).json({ success: false, message: 'File too large. Maximum size is 5MB.' });
       case 'LIMIT_FILE_COUNT':
-        return res.status(400).json({
-          success: false,
-          message: 'Too many files. Only 1 file allowed.'
-        });
+        return res.status(400).json({ success: false, message: 'Too many files. Only 1 file allowed.' });
       case 'LIMIT_UNEXPECTED_FILE':
-        return res.status(400).json({
-          success: false,
-          message: 'Unexpected file field. Use "paymentProof" field name.'
-        });
+        return res.status(400).json({ success: false, message: 'Unexpected file field. Use "paymentProof" field name.' });
       default:
-        return res.status(400).json({
-          success: false,
-          message: `Upload error: ${err.message}`
-        });
+        return res.status(400).json({ success: false, message: `Upload error: ${err.message}` });
     }
   } else if (err) {
-    console.error(`[upload-error] General upload error: ${err.message}`);
-    return res.status(400).json({
-      success: false,
-      message: err.message || 'File upload failed'
-    });
+    return res.status(400).json({ success: false, message: err.message || 'File upload failed' });
   }
   next();
 };
+
+// ===================================================================
+// SWAGGER COMPONENT SCHEMAS
+// ===================================================================
 
 /**
  * @swagger
@@ -207,69 +119,72 @@ const handleUploadError = (err, req, res, next) => {
  *           properties:
  *             priceNaira:
  *               type: number
- *               format: float
  *               example: 100000
- *               description: Price per co-founder share in Naira
  *             priceUSDT:
  *               type: number
- *               format: float
  *               example: 100
- *               description: Price per co-founder share in USDT
  *         availability:
  *           type: object
  *           properties:
  *             totalShares:
  *               type: integer
  *               example: 1000
- *               description: Total co-founder shares available
  *             sharesSold:
  *               type: integer
  *               example: 250
- *               description: Number of co-founder shares already sold
  *             sharesRemaining:
  *               type: integer
  *               example: 750
- *               description: Number of co-founder shares still available
- *     
+ * 
  *     CoFounderTransaction:
  *       type: object
  *       properties:
+ *         id:
+ *           type: string
+ *           example: "60f7c6b4c8f1a2b3c4d5e6f7"
  *         transactionId:
  *           type: string
  *           example: "CFD-A1B2-123456"
- *           description: Unique co-founder transaction identifier
+ *         user:
+ *           type: object
+ *           properties:
+ *             id:
+ *               type: string
+ *               example: "60f7c6b4c8f1a2b3c4d5e6f8"
+ *             name:
+ *               type: string
+ *               example: "John Doe"
+ *             email:
+ *               type: string
+ *               example: "john@example.com"
+ *             phone:
+ *               type: string
+ *               example: "+2348123456789"
  *         shares:
  *           type: integer
  *           example: 5
- *           description: Number of co-founder shares purchased
  *         amount:
  *           type: number
- *           format: float
  *           example: 500000
- *           description: Total amount paid
  *         currency:
  *           type: string
  *           enum: [naira, usdt]
  *           example: "naira"
- *           description: Currency used for payment
  *         paymentMethod:
  *           type: string
- *           enum: [paystack, crypto, web3, manual_bank_transfer, manual_cash, manual_other]
- *           example: "paystack"
- *           description: Payment method used
+ *           enum: [paystack, crypto, bank_transfer, cash, other]
+ *           example: "bank_transfer"
  *         status:
  *           type: string
  *           enum: [pending, completed, failed]
- *           example: "completed"
- *           description: Transaction status
- *         transactionHash:
+ *           example: "pending"
+ *         date:
  *           type: string
- *           example: "0x1234567890abcdef..."
- *           description: Blockchain transaction hash (for crypto payments)
- *         paymentProofPath:
+ *           format: date-time
+ *           example: "2024-01-15T10:30:00Z"
+ *         paymentProofUrl:
  *           type: string
- *           example: "uploads/cofounder-payment-proofs/cofounder-payment-1234567890.jpg"
- *           description: Path to payment proof image (for manual payments)
+ *           example: "/cofounder/payment-proof/CFD-A1B2-123456"
  *         manualPaymentDetails:
  *           type: object
  *           properties:
@@ -281,20 +196,15 @@ const handleUploadError = (err, req, res, next) => {
  *               example: "John Doe"
  *             reference:
  *               type: string
- *               example: "FBN12345678"
+ *               example: "FBN123456789"
  *         adminNotes:
  *           type: string
- *           example: "Transaction verified manually"
- *           description: Admin notes about the transaction
- *         createdAt:
- *           type: string
- *           format: date-time
- *           example: "2024-01-15T10:30:00Z"
+ *           example: "Payment verification in progress"
  */
 
-// ===========================================
-// PUBLIC ROUTES - Co-Founder Share Information
-// ===========================================
+// ===================================================================
+// PUBLIC ROUTES
+// ===================================================================
 
 /**
  * @swagger
@@ -302,16 +212,16 @@ const handleUploadError = (err, req, res, next) => {
  *   get:
  *     tags: [Co-Founder - Public]
  *     summary: Get co-founder share information
- *     description: Get current co-founder share pricing and availability information
+ *     description: Get current co-founder share pricing and availability
  *     responses:
  *       200:
- *         description: Co-founder share information retrieved successfully
+ *         description: Share information retrieved successfully
  *         content:
  *           application/json:
  *             schema:
  *               $ref: '#/components/schemas/CoFounderShareInfo'
  *       500:
- *         $ref: '#/components/responses/ServerError'
+ *         description: Server error
  */
 router.get('/info', coFounderController.getCoFounderShareInfo);
 
@@ -321,30 +231,26 @@ router.get('/info', coFounderController.getCoFounderShareInfo);
  *   post:
  *     tags: [Co-Founder - Public]
  *     summary: Calculate co-founder purchase amount
- *     description: Calculate total amount for specified number of co-founder shares in the selected currency
+ *     description: Calculate total amount for specified number of co-founder shares
  *     requestBody:
  *       required: true
  *       content:
  *         application/json:
  *           schema:
  *             type: object
- *             required:
- *               - quantity
- *               - currency
+ *             required: [quantity, currency]
  *             properties:
  *               quantity:
  *                 type: integer
  *                 minimum: 1
  *                 example: 5
- *                 description: Number of co-founder shares to purchase
  *               currency:
  *                 type: string
  *                 enum: [naira, usdt]
  *                 example: "naira"
- *                 description: Currency for the calculation (naira or usdt)
  *     responses:
  *       200:
- *         description: Purchase calculation successful
+ *         description: Calculation successful
  *         content:
  *           application/json:
  *             schema:
@@ -361,33 +267,17 @@ router.get('/info', coFounderController.getCoFounderShareInfo);
  *                       example: 5
  *                     pricePerShare:
  *                       type: number
- *                       format: float
  *                       example: 100000
  *                     totalPrice:
  *                       type: number
- *                       format: float
  *                       example: 500000
  *                     currency:
  *                       type: string
  *                       example: "naira"
- *                     availableSharesAfterPurchase:
- *                       type: integer
- *                       example: 745
  *       400:
- *         description: Bad Request - Invalid quantity or currency
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 success:
- *                   type: boolean
- *                   example: false
- *                 message:
- *                   type: string
- *                   example: "Invalid request. Please provide valid quantity and currency (naira or usdt)."
+ *         description: Invalid request parameters
  *       500:
- *         $ref: '#/components/responses/ServerError'
+ *         description: Server error
  */
 router.post('/calculate', coFounderController.calculateCoFounderPurchase);
 
@@ -397,10 +287,10 @@ router.post('/calculate', coFounderController.calculateCoFounderPurchase);
  *   get:
  *     tags: [Co-Founder - Public]
  *     summary: Get payment configuration
- *     description: Get available payment methods and their configurations for co-founder shares
+ *     description: Get available payment methods and configurations
  *     responses:
  *       200:
- *         description: Payment configuration retrieved successfully
+ *         description: Payment config retrieved successfully
  *         content:
  *           application/json:
  *             schema:
@@ -420,24 +310,22 @@ router.post('/calculate', coFounderController.calculateCoFounderPurchase);
  *                       items:
  *                         type: string
  *                       example: ["USDT", "USDC", "ETH"]
- *                     paymentInstructions:
- *                       type: object
  *       500:
- *         $ref: '#/components/responses/ServerError'
+ *         description: Server error
  */
 router.get('/payment-config', coFounderController.getPaymentConfig);
 
-// ===========================================
+// ===================================================================
 // USER PAYMENT ROUTES
-// ===========================================
+// ===================================================================
 
 /**
  * @swagger
  * /cofounder/paystack/initiate:
  *   post:
  *     tags: [Co-Founder - Payment]
- *     summary: Initiate Paystack payment for co-founder shares
- *     description: Initialize a Paystack payment for co-founder share purchase
+ *     summary: Initiate Paystack payment
+ *     description: Initialize Paystack payment for co-founder shares
  *     security:
  *       - bearerAuth: []
  *     requestBody:
@@ -446,23 +334,19 @@ router.get('/payment-config', coFounderController.getPaymentConfig);
  *         application/json:
  *           schema:
  *             type: object
- *             required:
- *               - quantity
- *               - email
+ *             required: [quantity, email]
  *             properties:
  *               quantity:
  *                 type: integer
  *                 minimum: 1
  *                 example: 5
- *                 description: Number of co-founder shares to purchase
  *               email:
  *                 type: string
  *                 format: email
  *                 example: "user@example.com"
- *                 description: User's email for Paystack
  *     responses:
  *       200:
- *         description: Payment initialization successful
+ *         description: Payment initialized successfully
  *         content:
  *           application/json:
  *             schema:
@@ -471,9 +355,6 @@ router.get('/payment-config', coFounderController.getPaymentConfig);
  *                 success:
  *                   type: boolean
  *                   example: true
- *                 message:
- *                   type: string
- *                   example: "Payment initialized successfully"
  *                 data:
  *                   type: object
  *                   properties:
@@ -487,22 +368,11 @@ router.get('/payment-config', coFounderController.getPaymentConfig);
  *                       type: number
  *                       example: 500000
  *       400:
- *         description: Bad Request - Invalid quantity or email
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 success:
- *                   type: boolean
- *                   example: false
- *                 message:
- *                   type: string
- *                   example: "Please provide quantity and email"
+ *         description: Bad request
  *       401:
- *         $ref: '#/components/responses/UnauthorizedError'
+ *         description: Unauthorized
  *       500:
- *         $ref: '#/components/responses/ServerError'
+ *         description: Server error
  */
 router.post('/paystack/initiate', protect, coFounderController.initiateCoFounderPaystackPayment);
 
@@ -511,19 +381,19 @@ router.post('/paystack/initiate', protect, coFounderController.initiateCoFounder
  * /cofounder/paystack/verify/{reference}:
  *   get:
  *     tags: [Co-Founder - Payment]
- *     summary: Verify Paystack payment for co-founder shares
- *     description: Verify and complete a Paystack payment transaction for co-founder shares
+ *     summary: Verify Paystack payment
+ *     description: Verify and complete Paystack payment
  *     parameters:
  *       - in: path
  *         name: reference
  *         required: true
  *         schema:
  *           type: string
- *         description: Paystack payment reference
+ *         description: Payment reference
  *         example: "CFD-A1B2-123456"
  *     responses:
  *       200:
- *         description: Payment verification successful
+ *         description: Payment verified successfully
  *         content:
  *           application/json:
  *             schema:
@@ -542,11 +412,11 @@ router.post('/paystack/initiate', protect, coFounderController.initiateCoFounder
  *                   type: number
  *                   example: 500000
  *       400:
- *         $ref: '#/components/responses/ValidationError'
+ *         description: Verification failed
  *       404:
- *         $ref: '#/components/responses/NotFoundError'
+ *         description: Transaction not found
  *       500:
- *         $ref: '#/components/responses/ServerError'
+ *         description: Server error
  */
 router.get('/paystack/verify/:reference', coFounderController.verifyCoFounderPaystackPayment);
 
@@ -555,8 +425,8 @@ router.get('/paystack/verify/:reference', coFounderController.verifyCoFounderPay
  * /cofounder/web3/verify:
  *   post:
  *     tags: [Co-Founder - Payment]
- *     summary: Verify Web3 transaction for co-founder shares
- *     description: Verify a blockchain transaction for co-founder share purchase
+ *     summary: Verify Web3 transaction
+ *     description: Submit blockchain transaction for verification
  *     security:
  *       - bearerAuth: []
  *     requestBody:
@@ -565,32 +435,24 @@ router.get('/paystack/verify/:reference', coFounderController.verifyCoFounderPay
  *         application/json:
  *           schema:
  *             type: object
- *             required:
- *               - transactionHash
- *               - amount
- *               - currency
- *               - shares
+ *             required: [transactionHash, amount, currency, shares]
  *             properties:
  *               transactionHash:
  *                 type: string
  *                 example: "0x1234567890abcdef..."
- *                 description: Blockchain transaction hash
  *               amount:
  *                 type: number
  *                 example: 500
- *                 description: Amount paid in the specified currency
  *               currency:
  *                 type: string
  *                 enum: [usdt, usdc, eth]
  *                 example: "usdt"
- *                 description: Cryptocurrency used for payment
  *               shares:
  *                 type: integer
  *                 example: 5
- *                 description: Number of co-founder shares purchased
  *     responses:
  *       200:
- *         description: Web3 transaction submitted for verification
+ *         description: Transaction submitted for verification
  *         content:
  *           application/json:
  *             schema:
@@ -607,7 +469,6 @@ router.get('/paystack/verify/:reference', coFounderController.verifyCoFounderPay
  *                   properties:
  *                     id:
  *                       type: string
- *                       example: "60f7c6b4c8f1a2b3c4d5e6f7"
  *                     status:
  *                       type: string
  *                       example: "pending"
@@ -615,22 +476,11 @@ router.get('/paystack/verify/:reference', coFounderController.verifyCoFounderPay
  *                       type: integer
  *                       example: 5
  *       400:
- *         description: Bad Request - Invalid parameters
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 success:
- *                   type: boolean
- *                   example: false
- *                 message:
- *                   type: string
- *                   example: "Please provide transaction hash, amount, currency, and shares"
+ *         description: Invalid parameters
  *       401:
- *         $ref: '#/components/responses/UnauthorizedError'
+ *         description: Unauthorized
  *       500:
- *         $ref: '#/components/responses/ServerError'
+ *         description: Server error
  */
 router.post('/web3/verify', protect, coFounderController.verifyWeb3Transaction);
 
@@ -640,12 +490,12 @@ router.post('/web3/verify', protect, coFounderController.verifyWeb3Transaction);
  *   get:
  *     tags: [Co-Founder - User]
  *     summary: Get user's co-founder shares
- *     description: Get current user's co-founder share holdings and transaction history
+ *     description: Get current user's co-founder share holdings
  *     security:
  *       - bearerAuth: []
  *     responses:
  *       200:
- *         description: User co-founder shares retrieved successfully
+ *         description: User shares retrieved successfully
  *         content:
  *           application/json:
  *             schema:
@@ -657,29 +507,35 @@ router.post('/web3/verify', protect, coFounderController.verifyWeb3Transaction);
  *                 totalShares:
  *                   type: integer
  *                   example: 15
- *                   description: Total co-founder shares owned by user
  *                 transactions:
  *                   type: array
  *                   items:
  *                     $ref: '#/components/schemas/CoFounderTransaction'
  *       401:
- *         $ref: '#/components/responses/UnauthorizedError'
+ *         description: Unauthorized
  *       500:
- *         $ref: '#/components/responses/ServerError'
+ *         description: Server error
  */
 router.get('/user/shares', protect, coFounderController.getUserCoFounderShares);
 
-// ===========================================
-// MANUAL PAYMENT ROUTES
-// ===========================================
+// ===================================================================
+// MANUAL PAYMENT ROUTES (FIXED)
+// ===================================================================
 
 /**
  * @swagger
  * /cofounder/manual/submit:
  *   post:
  *     tags: [Co-Founder - Manual Payment]
- *     summary: Submit manual payment for co-founder shares
- *     description: Submit a manual payment with proof for co-founder share purchase
+ *     summary: Submit manual payment (FIXED)
+ *     description: |
+ *       Submit manual payment with proof for co-founder shares.
+ *       
+ *       **FIXED ISSUES:**
+ *       - ✅ Proper file upload handling
+ *       - ✅ Consistent payment method formatting
+ *       - ✅ Admin visibility of transactions
+ *       - ✅ File path resolution
  *     security:
  *       - bearerAuth: []
  *     requestBody:
@@ -688,46 +544,42 @@ router.get('/user/shares', protect, coFounderController.getUserCoFounderShares);
  *         multipart/form-data:
  *           schema:
  *             type: object
- *             required:
- *               - quantity
- *               - currency
- *               - paymentMethod
- *               - paymentProof
+ *             required: [quantity, currency, paymentMethod, paymentProof]
  *             properties:
  *               quantity:
  *                 type: integer
  *                 minimum: 1
  *                 example: 5
- *                 description: Number of co-founder shares to purchase
+ *                 description: Number of co-founder shares
  *               currency:
  *                 type: string
  *                 enum: [naira, usdt]
  *                 example: "naira"
- *                 description: Currency used for payment
+ *                 description: Payment currency
  *               paymentMethod:
  *                 type: string
  *                 enum: [bank_transfer, cash, other]
  *                 example: "bank_transfer"
- *                 description: Method of payment used
+ *                 description: Payment method used
  *               bankName:
  *                 type: string
  *                 example: "First Bank of Nigeria"
- *                 description: Bank name (for bank transfers)
+ *                 description: Bank name (for transfers)
  *               accountName:
  *                 type: string
  *                 example: "John Doe"
- *                 description: Account holder name (for bank transfers)
+ *                 description: Account holder name
  *               reference:
  *                 type: string
  *                 example: "FBN123456789"
- *                 description: Payment reference/receipt number
+ *                 description: Payment reference
  *               paymentProof:
  *                 type: string
  *                 format: binary
- *                 description: Payment proof image (max 5MB)
+ *                 description: Payment proof image/PDF (max 5MB)
  *     responses:
  *       200:
- *         description: Manual payment submitted successfully
+ *         description: Payment submitted successfully
  *         content:
  *           application/json:
  *             schema:
@@ -756,29 +608,29 @@ router.get('/user/shares', protect, coFounderController.getUserCoFounderShares);
  *                       example: "pending"
  *                     fileUrl:
  *                       type: string
- *                       example: "/uploads/cofounder-payment-proofs/cofounder-payment-1234567890.jpg"
+ *                       example: "/cofounder/payment-proof/CFD-A1B2-123456"
  *       400:
- *         description: Bad Request - Invalid parameters
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 success:
- *                   type: boolean
- *                   example: false
- *                 message:
- *                   type: string
- *                   example: "Please provide quantity, payment method, and payment proof image"
+ *         description: Bad request - invalid parameters or file upload error
  *       401:
- *         $ref: '#/components/responses/UnauthorizedError'
+ *         description: Unauthorized
  *       500:
- *         $ref: '#/components/responses/ServerError'
+ *         description: Server error
+ *     x-codeSamples:
+ *       - lang: 'curl'
+ *         source: |
+ *           curl -X POST "https://api.afrimobile.com/cofounder/manual/submit" \
+ *             -H "Authorization: Bearer YOUR_JWT_TOKEN" \
+ *             -F "quantity=5" \
+ *             -F "currency=naira" \
+ *             -F "paymentMethod=bank_transfer" \
+ *             -F "bankName=First Bank" \
+ *             -F "accountName=John Doe" \
+ *             -F "reference=FBN123456789" \
+ *             -F "paymentProof=@/path/to/receipt.jpg"
  */
-// Enhanced manual payment submission route with better error handling
 router.post('/manual/submit', 
   protect, 
-  upload.single('paymentProof'), 
+  upload.single('paymentProof'),
   handleUploadError,
   logUpload,
   coFounderController.submitCoFounderManualPayment
@@ -789,8 +641,14 @@ router.post('/manual/submit',
  * /cofounder/payment-proof/{transactionId}:
  *   get:
  *     tags: [Co-Founder - Manual Payment]
- *     summary: Get payment proof for co-founder shares
- *     description: Retrieve payment proof image for a co-founder share transaction
+ *     summary: Get payment proof (FIXED)
+ *     description: |
+ *       Retrieve payment proof image/PDF for transaction.
+ *       
+ *       **FIXED ISSUES:**
+ *       - ✅ Enhanced file path resolution
+ *       - ✅ Multiple environment support
+ *       - ✅ Proper content-type detection
  *     security:
  *       - bearerAuth: []
  *     parameters:
@@ -805,18 +663,26 @@ router.post('/manual/submit',
  *       200:
  *         description: Payment proof retrieved successfully
  *         content:
- *           image/*:
+ *           image/jpeg:
+ *             schema:
+ *               type: string
+ *               format: binary
+ *           image/png:
+ *             schema:
+ *               type: string
+ *               format: binary
+ *           application/pdf:
  *             schema:
  *               type: string
  *               format: binary
  *       401:
- *         $ref: '#/components/responses/UnauthorizedError'
+ *         description: Unauthorized
  *       403:
- *         description: Forbidden - User not authorized to view this payment proof
+ *         description: Forbidden - not authorized to view this proof
  *       404:
- *         $ref: '#/components/responses/NotFoundError'
+ *         description: Transaction or file not found
  *       500:
- *         $ref: '#/components/responses/ServerError'
+ *         description: Server error
  */
 router.get('/payment-proof/:transactionId', protect, coFounderController.getCoFounderPaymentProof);
 
@@ -825,8 +691,8 @@ router.get('/payment-proof/:transactionId', protect, coFounderController.getCoFo
  * /cofounder/manual/status/{transactionId}:
  *   get:
  *     tags: [Co-Founder - Manual Payment]
- *     summary: Get manual payment status
- *     description: Get the status of a manual payment transaction for co-founder shares
+ *     summary: Get payment status
+ *     description: Get status of manual payment transaction
  *     security:
  *       - bearerAuth: []
  *     parameters:
@@ -839,7 +705,7 @@ router.get('/payment-proof/:transactionId', protect, coFounderController.getCoFo
  *         example: "CFD-A1B2-123456"
  *     responses:
  *       200:
- *         description: Manual payment status retrieved successfully
+ *         description: Status retrieved successfully
  *         content:
  *           application/json:
  *             schema:
@@ -851,17 +717,17 @@ router.get('/payment-proof/:transactionId', protect, coFounderController.getCoFo
  *                 transaction:
  *                   $ref: '#/components/schemas/CoFounderTransaction'
  *       401:
- *         $ref: '#/components/responses/UnauthorizedError'
+ *         description: Unauthorized
  *       404:
- *         $ref: '#/components/responses/NotFoundError'
+ *         description: Transaction not found
  *       500:
- *         $ref: '#/components/responses/ServerError'
+ *         description: Server error
  */
 router.get('/manual/status/:transactionId', protect, coFounderController.getCoFounderManualPaymentStatus);
 
-// ===========================================
+// ===================================================================
 // ADMIN ROUTES
-// ===========================================
+// ===================================================================
 
 /**
  * @swagger
@@ -869,7 +735,7 @@ router.get('/manual/status/:transactionId', protect, coFounderController.getCoFo
  *   post:
  *     tags: [Co-Founder - Admin]
  *     summary: Admin verify Web3 transaction
- *     description: Manually verify a Web3 transaction for co-founder shares (admin only)
+ *     description: Manually verify Web3 transaction (admin only)
  *     security:
  *       - adminAuth: []
  *     requestBody:
@@ -878,62 +744,31 @@ router.get('/manual/status/:transactionId', protect, coFounderController.getCoFo
  *         application/json:
  *           schema:
  *             type: object
- *             required:
- *               - transactionId
- *               - status
+ *             required: [transactionId, status]
  *             properties:
  *               transactionId:
  *                 type: string
  *                 example: "60f7c6b4c8f1a2b3c4d5e6f7"
- *                 description: MongoDB transaction ID
  *               status:
  *                 type: string
  *                 enum: [completed, failed]
  *                 example: "completed"
- *                 description: New transaction status
  *               adminNotes:
  *                 type: string
  *                 example: "Transaction verified manually"
- *                 description: Admin notes about the verification
  *     responses:
  *       200:
- *         description: Transaction status updated successfully
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 success:
- *                   type: boolean
- *                   example: true
- *                 message:
- *                   type: string
- *                   example: "Transaction verified successfully"
- *                 transaction:
- *                   type: object
- *                   properties:
- *                     id:
- *                       type: string
- * example: "60f7c6b4c8f1a2b3c4d5e6f7"
- *                     status:
- *                       type: string
- *                       example: "completed"
- *                     shares:
- *                       type: integer
- *                       example: 5
- *                     amount:
- *                       type: number
- *                       example: 500
+ *         description: Transaction verified successfully
  *       400:
- *         $ref: '#/components/responses/ValidationError'
+ *         description: Bad request
  *       401:
- *         $ref: '#/components/responses/UnauthorizedError'
+ *         description: Unauthorized
  *       403:
- *         $ref: '#/components/responses/ForbiddenError'
+ *         description: Admin access required
  *       404:
- *         $ref: '#/components/responses/NotFoundError'
+ *         description: Transaction not found
  *       500:
- *         $ref: '#/components/responses/ServerError'
+ *         description: Server error
  */
 router.post('/admin/web3/verify', protect, adminProtect, coFounderController.adminVerifyWeb3Transaction);
 
@@ -942,8 +777,8 @@ router.post('/admin/web3/verify', protect, adminProtect, coFounderController.adm
  * /cofounder/admin/web3/transactions:
  *   get:
  *     tags: [Co-Founder - Admin]
- *     summary: Get Web3 transactions for co-founder shares
- *     description: Get all Web3 transactions for co-founder shares (admin only)
+ *     summary: Get Web3 transactions
+ *     description: Get all Web3 transactions (admin only)
  *     security:
  *       - adminAuth: []
  *     parameters:
@@ -965,10 +800,9 @@ router.post('/admin/web3/verify', protect, adminProtect, coFounderController.adm
  *         schema:
  *           type: string
  *           enum: [pending, completed, failed]
- *         description: Filter by transaction status
  *     responses:
  *       200:
- *         description: Web3 transactions retrieved successfully
+ *         description: Transactions retrieved successfully
  *         content:
  *           application/json:
  *             schema:
@@ -980,19 +814,7 @@ router.post('/admin/web3/verify', protect, adminProtect, coFounderController.adm
  *                 transactions:
  *                   type: array
  *                   items:
- *                     allOf:
- *                       - $ref: '#/components/schemas/CoFounderTransaction'
- *                       - type: object
- *                         properties:
- *                           user:
- *                             type: object
- *                             properties:
- *                               id:
- *                                 type: string
- *                               name:
- *                                 type: string
- *                               email:
- *                                 type: string
+ *                     $ref: '#/components/schemas/CoFounderTransaction'
  *                 pagination:
  *                   type: object
  *                   properties:
@@ -1003,11 +825,11 @@ router.post('/admin/web3/verify', protect, adminProtect, coFounderController.adm
  *                     totalCount:
  *                       type: integer
  *       401:
- *         $ref: '#/components/responses/UnauthorizedError'
+ *         description: Unauthorized
  *       403:
- *         $ref: '#/components/responses/ForbiddenError'
+ *         description: Admin access required
  *       500:
- *         $ref: '#/components/responses/ServerError'
+ *         description: Server error
  */
 router.get('/admin/web3/transactions', protect, adminProtect, coFounderController.adminGetWeb3Transactions);
 
@@ -1016,8 +838,8 @@ router.get('/admin/web3/transactions', protect, adminProtect, coFounderControlle
  * /cofounder/admin/update-pricing:
  *   post:
  *     tags: [Co-Founder - Admin]
- *     summary: Update co-founder share pricing
- *     description: Update the current co-founder share price (admin only)
+ *     summary: Update share pricing
+ *     description: Update co-founder share prices (admin only)
  *     security:
  *       - adminAuth: []
  *     requestBody:
@@ -1029,67 +851,23 @@ router.get('/admin/web3/transactions', protect, adminProtect, coFounderControlle
  *             properties:
  *               priceNaira:
  *                 type: number
- *                 format: float
  *                 minimum: 0.01
- *                 example: 120000.00
- *                 description: New price in Naira (provide either priceNaira or priceUSDT or both)
+ *                 example: 120000
  *               priceUSDT:
  *                 type: number
- *                 format: float
  *                 minimum: 0.01
- *                 example: 120.00
- *                 description: New price in USDT (provide either priceNaira or priceUSDT or both)
- *               effectiveDate:
- *                 type: string
- *                 format: date-time
- *                 example: "2024-02-01T00:00:00Z"
- *                 description: When the new pricing takes effect (optional)
- *               reason:
- *                 type: string
- *                 example: "Market adjustment for co-founder shares"
- *                 description: Reason for the price update (optional)
+ *                 example: 120
  *     responses:
  *       200:
- *         description: Co-founder share pricing updated successfully
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 success:
- *                   type: boolean
- *                   example: true
- *                 message:
- *                   type: string
- *                   example: "Co-founder share pricing updated successfully"
- *                 pricing:
- *                   type: object
- *                   properties:
- *                     priceNaira:
- *                       type: number
- *                       example: 120000
- *                     priceUSDT:
- *                       type: number
- *                       example: 120
+ *         description: Pricing updated successfully
  *       400:
- *         description: Bad Request - Missing price updates
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 success:
- *                   type: boolean
- *                   example: false
- *                 message:
- *                   type: string
- *                   example: "Please provide at least one price update"
+ *         description: Bad request
  *       401:
- *         $ref: '#/components/responses/UnauthorizedError'
+ *         description: Unauthorized
  *       403:
- *         $ref: '#/components/responses/ForbiddenError'
+ *         description: Admin access required
  *       500:
- *         $ref: '#/components/responses/ServerError'
+ *         description: Server error
  */
 router.post('/admin/update-pricing', protect, adminProtect, coFounderController.updateCoFounderSharePricing);
 
@@ -1098,8 +876,8 @@ router.post('/admin/update-pricing', protect, adminProtect, coFounderController.
  * /cofounder/admin/add-shares:
  *   post:
  *     tags: [Co-Founder - Admin]
- *     summary: Add co-founder shares to user
- *     description: Add co-founder shares directly to a user's account (admin only)
+ *     summary: Add shares to user
+ *     description: Add co-founder shares directly to user account (admin only)
  *     security:
  *       - adminAuth: []
  *     requestBody:
@@ -1108,72 +886,43 @@ router.post('/admin/update-pricing', protect, adminProtect, coFounderController.
  *         application/json:
  *           schema:
  *             type: object
- *             required:
- *               - userId
- *               - shares
+ *             required: [userId, shares]
  *             properties:
  *               userId:
  *                 type: string
  *                 example: "60f7c6b4c8f1a2b3c4d5e6f7"
- *                 description: ID of the user to add co-founder shares to
  *               shares:
  *                 type: integer
  *                 minimum: 1
  *                 example: 10
- *                 description: Number of co-founder shares to add
  *               note:
  *                 type: string
- *                 example: "Bonus co-founder shares for early investor"
- *                 description: Admin note for the transaction
+ *                 example: "Bonus shares for early investor"
  *     responses:
  *       200:
- *         description: Co-founder shares added successfully
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 success:
- *                   type: boolean
- *                   example: true
- *                 message:
- *                   type: string
- *                   example: "Successfully added 10 co-founder shares to user"
- *                 transaction:
- *                   type: string
- *                   example: "60f7c6b4c8f1a2b3c4d5e6f8"
- *                   description: Transaction ID
+ *         description: Shares added successfully
  *       400:
- *         $ref: '#/components/responses/ValidationError'
+ *         description: Bad request
  *       401:
- *         $ref: '#/components/responses/UnauthorizedError'
+ *         description: Unauthorized
  *       403:
- *         $ref: '#/components/responses/ForbiddenError'
+ *         description: Admin access required
  *       404:
  *         description: User not found
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 success:
- *                   type: boolean
- *                   example: false
- *                 message:
- *                   type: string
- *                   example: "User not found"
  *       500:
- *         $ref: '#/components/responses/ServerError'
+ *         description: Server error
  */
 router.post('/admin/add-shares', protect, adminProtect, coFounderController.adminAddCoFounderShares);
+
+// CONTINUATION OF coFounderRoutes.js - ADMIN MANUAL PAYMENT ROUTES
 
 /**
  * @swagger
  * /cofounder/admin/update-wallet:
  *   post:
  *     tags: [Co-Founder - Admin]
- *     summary: Update company wallet for co-founder payments
- *     description: Update the company's Web3 wallet address for co-founder share payments (admin only)
+ *     summary: Update company wallet
+ *     description: Update company Web3 wallet address (admin only)
  *     security:
  *       - adminAuth: []
  *     requestBody:
@@ -1182,42 +931,25 @@ router.post('/admin/add-shares', protect, adminProtect, coFounderController.admi
  *         application/json:
  *           schema:
  *             type: object
- *             required:
- *               - walletAddress
+ *             required: [walletAddress]
  *             properties:
  *               walletAddress:
  *                 type: string
  *                 example: "0x742d35Cc6643C673532925e2aC5c48C0F30A37a0"
- *                 description: New company wallet address
  *               reason:
  *                 type: string
- *                 example: "Security update for co-founder payments"
- *                 description: Reason for wallet update
+ *                 example: "Security update"
  *     responses:
  *       200:
- *         description: Wallet address updated successfully
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 success:
- *                   type: boolean
- *                   example: true
- *                 message:
- *                   type: string
- *                   example: "Company wallet address updated successfully"
- *                 walletAddress:
- *                   type: string
- *                   example: "0x742d35Cc6643C673532925e2aC5c48C0F30A37a0"
+ *         description: Wallet updated successfully
  *       400:
- *         $ref: '#/components/responses/ValidationError'
+ *         description: Invalid wallet address
  *       401:
- *         $ref: '#/components/responses/UnauthorizedError'
+ *         description: Unauthorized
  *       403:
- *         $ref: '#/components/responses/ForbiddenError'
+ *         description: Admin access required
  *       500:
- *         $ref: '#/components/responses/ServerError'
+ *         description: Server error
  */
 router.post('/admin/update-wallet', protect, adminProtect, coFounderController.updateCompanyWallet);
 
@@ -1226,8 +958,8 @@ router.post('/admin/update-wallet', protect, adminProtect, coFounderController.u
  * /cofounder/admin/transactions:
  *   get:
  *     tags: [Co-Founder - Admin]
- *     summary: Get all co-founder transactions
- *     description: Get all co-founder share transactions across all payment methods (admin only)
+ *     summary: Get all transactions
+ *     description: Get all co-founder transactions across all payment methods (admin only)
  *     security:
  *       - adminAuth: []
  *     parameters:
@@ -1248,26 +980,24 @@ router.post('/admin/update-wallet', protect, adminProtect, coFounderController.u
  *         name: paymentMethod
  *         schema:
  *           type: string
- *           enum: [paystack, crypto, web3, manual_bank_transfer, manual_cash, manual_other]
- *         description: Filter by payment method
+ *           enum: [paystack, crypto, manual_bank_transfer, manual_cash, manual_other]
  *       - in: query
  *         name: status
  *         schema:
  *           type: string
  *           enum: [pending, completed, failed]
- *         description: Filter by transaction status
  *       - in: query
  *         name: fromDate
  *         schema:
  *           type: string
  *           format: date
- *         description: Filter transactions from this date
+ *           example: "2024-01-01"
  *       - in: query
  *         name: toDate
  *         schema:
  *           type: string
  *           format: date
- *         description: Filter transactions to this date
+ *           example: "2024-12-31"
  *     responses:
  *       200:
  *         description: Transactions retrieved successfully
@@ -1282,22 +1012,7 @@ router.post('/admin/update-wallet', protect, adminProtect, coFounderController.u
  *                 transactions:
  *                   type: array
  *                   items:
- *                     allOf:
- *                       - $ref: '#/components/schemas/CoFounderTransaction'
- *                       - type: object
- *                         properties:
- *                           user:
- *                             type: object
- *                             properties:
- *                               id:
- *                                 type: string
- *                               name:
- *                                 type: string
- *                               email:
- *                                 type: string
- *                           paymentProofUrl:
- *                             type: string
- *                             example: "/cofounder/payment-proof/CFD-A1B2-123456"
+ *                     $ref: '#/components/schemas/CoFounderTransaction'
  *                 pagination:
  *                   type: object
  *                   properties:
@@ -1308,11 +1023,11 @@ router.post('/admin/update-wallet', protect, adminProtect, coFounderController.u
  *                     totalCount:
  *                       type: integer
  *       401:
- *         $ref: '#/components/responses/UnauthorizedError'
+ *         description: Unauthorized
  *       403:
- *         $ref: '#/components/responses/ForbiddenError'
+ *         description: Admin access required
  *       500:
- *         $ref: '#/components/responses/ServerError'
+ *         description: Server error
  */
 router.get('/admin/transactions', protect, adminProtect, coFounderController.getAllCoFounderTransactions);
 
@@ -1321,8 +1036,8 @@ router.get('/admin/transactions', protect, adminProtect, coFounderController.get
  * /cofounder/admin/statistics:
  *   get:
  *     tags: [Co-Founder - Admin]
- *     summary: Get co-founder share statistics
- *     description: Get comprehensive co-founder share and transaction statistics (admin only)
+ *     summary: Get share statistics
+ *     description: Get comprehensive co-founder share statistics (admin only)
  *     security:
  *       - adminAuth: []
  *     responses:
@@ -1342,19 +1057,15 @@ router.get('/admin/transactions', protect, adminProtect, coFounderController.get
  *                     totalShares:
  *                       type: integer
  *                       example: 1000
- *                       description: Total co-founder shares available
  *                     sharesSold:
  *                       type: integer
  *                       example: 250
- *                       description: Number of co-founder shares sold
  *                     sharesRemaining:
  *                       type: integer
  *                       example: 750
- *                       description: Number of co-founder shares remaining
  *                     investorCount:
  *                       type: integer
  *                       example: 50
- *                       description: Number of co-founder investors
  *                     transactions:
  *                       type: array
  *                       items:
@@ -1362,13 +1073,10 @@ router.get('/admin/transactions', protect, adminProtect, coFounderController.get
  *                         properties:
  *                           _id:
  *                             type: string
- *                             example: "naira"
  *                           totalAmount:
  *                             type: number
- *                             example: 25000000
  *                           totalShares:
  *                             type: integer
- *                             example: 200
  *                 pricing:
  *                   type: object
  *                   properties:
@@ -1379,25 +1087,32 @@ router.get('/admin/transactions', protect, adminProtect, coFounderController.get
  *                       type: number
  *                       example: 100
  *       401:
- *         $ref: '#/components/responses/UnauthorizedError'
+ *         description: Unauthorized
  *       403:
- *         $ref: '#/components/responses/ForbiddenError'
+ *         description: Admin access required
  *       500:
- *         $ref: '#/components/responses/ServerError'
+ *         description: Server error
  */
 router.get('/admin/statistics', protect, adminProtect, coFounderController.getCoFounderShareStatistics);
 
-// ===========================================
-// ADMIN MANUAL PAYMENT ROUTES
-// ===========================================
+// ===================================================================
+// ADMIN MANUAL PAYMENT ROUTES (FIXED)
+// ===================================================================
 
 /**
  * @swagger
  * /cofounder/admin/manual/transactions:
  *   get:
  *     tags: [Co-Founder - Admin Manual Payment]
- *     summary: Get manual payment transactions for co-founder shares
- *     description: Get all manual payment transactions for co-founder shares (admin only)
+ *     summary: Get manual payment transactions (FIXED)
+ *     description: |
+ *       Get all manual payment transactions for co-founder shares (admin only).
+ *       
+ *       **FIXED ISSUES:**
+ *       - ✅ Improved query logic to find manual transactions
+ *       - ✅ Enhanced transaction formatting
+ *       - ✅ Better pagination and filtering
+ *       - ✅ Consistent response structure
  *     security:
  *       - adminAuth: []
  *     parameters:
@@ -1407,6 +1122,7 @@ router.get('/admin/statistics', protect, adminProtect, coFounderController.getCo
  *           type: integer
  *           minimum: 1
  *           default: 1
+ *         example: 1
  *       - in: query
  *         name: limit
  *         schema:
@@ -1414,27 +1130,28 @@ router.get('/admin/statistics', protect, adminProtect, coFounderController.getCo
  *           minimum: 1
  *           maximum: 100
  *           default: 20
+ *         example: 20
  *       - in: query
  *         name: status
  *         schema:
  *           type: string
  *           enum: [pending, completed, failed]
- *         description: Filter by payment status
+ *         example: "pending"
  *       - in: query
  *         name: fromDate
  *         schema:
  *           type: string
  *           format: date
- *         description: Filter transactions from this date
+ *         example: "2024-01-01"
  *       - in: query
  *         name: toDate
  *         schema:
  *           type: string
  *           format: date
- *         description: Filter transactions to this date
+ *         example: "2024-12-31"
  *     responses:
  *       200:
- *         description: Manual payment transactions retrieved successfully
+ *         description: Manual transactions retrieved successfully
  *         content:
  *           application/json:
  *             schema:
@@ -1446,39 +1163,30 @@ router.get('/admin/statistics', protect, adminProtect, coFounderController.getCo
  *                 transactions:
  *                   type: array
  *                   items:
- *                     allOf:
- *                       - $ref: '#/components/schemas/CoFounderTransaction'
- *                       - type: object
- *                         properties:
- *                           user:
- *                             type: object
- *                             properties:
- *                               id:
- *                                 type: string
- *                               name:
- *                                 type: string
- *                               email:
- *                                 type: string
- *                               phone:
- *                                 type: string
- *                           paymentProofUrl:
- *                             type: string
- *                             example: "/cofounder/payment-proof/CFD-A1B2-123456"
+ *                     $ref: '#/components/schemas/CoFounderTransaction'
  *                 pagination:
  *                   type: object
  *                   properties:
  *                     currentPage:
  *                       type: integer
+ *                       example: 1
  *                     totalPages:
  *                       type: integer
+ *                       example: 5
  *                     totalCount:
  *                       type: integer
+ *                       example: 85
  *       401:
- *         $ref: '#/components/responses/UnauthorizedError'
+ *         description: Unauthorized
  *       403:
- *         $ref: '#/components/responses/ForbiddenError'
+ *         description: Admin access required
  *       500:
- *         $ref: '#/components/responses/ServerError'
+ *         description: Server error
+ *     x-codeSamples:
+ *       - lang: 'curl'
+ *         source: |
+ *           curl -X GET "https://api.afrimobile.com/cofounder/admin/manual/transactions?status=pending" \
+ *             -H "Authorization: Bearer ADMIN_JWT_TOKEN"
  */
 router.get('/admin/manual/transactions', protect, adminProtect, coFounderController.adminGetCoFounderManualTransactions);
 
@@ -1487,8 +1195,15 @@ router.get('/admin/manual/transactions', protect, adminProtect, coFounderControl
  * /cofounder/admin/manual/verify:
  *   post:
  *     tags: [Co-Founder - Admin Manual Payment]
- *     summary: Verify manual payment for co-founder shares
- *     description: Approve or reject a manual payment transaction for co-founder shares (admin only)
+ *     summary: Verify manual payment (FIXED)
+ *     description: |
+ *       Approve or reject a manual payment transaction (admin only).
+ *       
+ *       **FIXED ISSUES:**
+ *       - ✅ Uses PaymentTransaction model directly
+ *       - ✅ Proper transaction status updates
+ *       - ✅ Correct referral commission processing
+ *       - ✅ Reliable email notifications
  *     security:
  *       - adminAuth: []
  *     requestBody:
@@ -1497,9 +1212,7 @@ router.get('/admin/manual/transactions', protect, adminProtect, coFounderControl
  *         application/json:
  *           schema:
  *             type: object
- *             required:
- *               - transactionId
- *               - approved
+ *             required: [transactionId, approved]
  *             properties:
  *               transactionId:
  *                 type: string
@@ -1508,14 +1221,14 @@ router.get('/admin/manual/transactions', protect, adminProtect, coFounderControl
  *               approved:
  *                 type: boolean
  *                 example: true
- *                 description: Whether to approve or reject the payment
+ *                 description: Whether to approve (true) or reject (false)
  *               adminNote:
  *                 type: string
  *                 example: "Payment verified through bank statement"
- *                 description: Admin note about the verification
+ *                 description: Admin note about the decision
  *     responses:
  *       200:
- *         description: Manual payment verification updated successfully
+ *         description: Verification completed successfully
  *         content:
  *           application/json:
  *             schema:
@@ -1526,20 +1239,47 @@ router.get('/admin/manual/transactions', protect, adminProtect, coFounderControl
  *                   example: true
  *                 message:
  *                   type: string
- *                   example: "Manual payment approved successfully"
+ *                   examples:
+ *                     approved:
+ *                       value: "Manual payment approved successfully"
+ *                     rejected:
+ *                       value: "Manual payment declined successfully"
  *                 status:
  *                   type: string
+ *                   enum: [completed, failed]
  *                   example: "completed"
  *       400:
- *         $ref: '#/components/responses/ValidationError'
+ *         description: Bad request - transaction already processed
  *       401:
- *         $ref: '#/components/responses/UnauthorizedError'
+ *         description: Unauthorized
  *       403:
- *         $ref: '#/components/responses/ForbiddenError'
+ *         description: Admin access required
  *       404:
- *         $ref: '#/components/responses/NotFoundError'
+ *         description: Transaction not found
  *       500:
- *         $ref: '#/components/responses/ServerError'
+ *         description: Server error
+ *     x-codeSamples:
+ *       - lang: 'curl'
+ *         source: |
+ *           # Approve payment
+ *           curl -X POST "https://api.afrimobile.com/cofounder/admin/manual/verify" \
+ *             -H "Authorization: Bearer ADMIN_JWT_TOKEN" \
+ *             -H "Content-Type: application/json" \
+ *             -d '{
+ *               "transactionId": "CFD-A1B2-123456",
+ *               "approved": true,
+ *               "adminNote": "Payment verified"
+ *             }'
+ *           
+ *           # Reject payment
+ *           curl -X POST "https://api.afrimobile.com/cofounder/admin/manual/verify" \
+ *             -H "Authorization: Bearer ADMIN_JWT_TOKEN" \
+ *             -H "Content-Type: application/json" \
+ *             -d '{
+ *               "transactionId": "CFD-A1B2-123456",
+ *               "approved": false,
+ *               "adminNote": "Insufficient proof"
+ *             }'
  */
 router.post('/admin/manual/verify', protect, adminProtect, coFounderController.adminVerifyCoFounderManualPayment);
 
@@ -1548,8 +1288,14 @@ router.post('/admin/manual/verify', protect, adminProtect, coFounderController.a
  * /cofounder/admin/manual/cancel:
  *   post:
  *     tags: [Co-Founder - Admin Manual Payment]
- *     summary: Cancel manual payment for co-founder shares
- *     description: Cancel a completed manual payment transaction for co-founder shares (admin only)
+ *     summary: Cancel manual payment (FIXED)
+ *     description: |
+ *       Cancel a completed manual payment transaction (admin only).
+ *       
+ *       This will revert the transaction to pending and rollback:
+ *       - ✅ Global share counts
+ *       - ✅ User share allocations
+ *       - ✅ Referral commissions
  *     security:
  *       - adminAuth: []
  *     requestBody:
@@ -1558,20 +1304,17 @@ router.post('/admin/manual/verify', protect, adminProtect, coFounderController.a
  *         application/json:
  *           schema:
  *             type: object
- *             required:
- *               - transactionId
+ *             required: [transactionId]
  *             properties:
  *               transactionId:
  *                 type: string
  *                 example: "CFD-A1B2-123456"
- *                 description: Co-founder transaction ID
  *               cancelReason:
  *                 type: string
  *                 example: "Duplicate transaction detected"
- *                 description: Reason for cancelling the payment
  *     responses:
  *       200:
- *         description: Manual payment cancelled successfully
+ *         description: Payment cancelled successfully
  *         content:
  *           application/json:
  *             schema:
@@ -1587,15 +1330,15 @@ router.post('/admin/manual/verify', protect, adminProtect, coFounderController.a
  *                   type: string
  *                   example: "pending"
  *       400:
- *         $ref: '#/components/responses/ValidationError'
+ *         description: Cannot cancel non-completed transaction
  *       401:
- *         $ref: '#/components/responses/UnauthorizedError'
+ *         description: Unauthorized
  *       403:
- *         $ref: '#/components/responses/ForbiddenError'
+ *         description: Admin access required
  *       404:
- *         $ref: '#/components/responses/NotFoundError'
+ *         description: Transaction not found
  *       500:
- *         $ref: '#/components/responses/ServerError'
+ *         description: Server error
  */
 router.post('/admin/manual/cancel', protect, adminProtect, coFounderController.adminCancelCoFounderManualPayment);
 
@@ -1604,8 +1347,16 @@ router.post('/admin/manual/cancel', protect, adminProtect, coFounderController.a
  * /cofounder/admin/manual/{transactionId}:
  *   delete:
  *     tags: [Co-Founder - Admin Manual Payment]
- *     summary: Delete manual payment transaction for co-founder shares
- *     description: Permanently delete a manual payment transaction for co-founder shares (admin only). This will remove the transaction completely, rollback shares if it was completed, delete payment proof files, and reverse any referral commissions.
+ *     summary: Delete manual payment transaction (FIXED)
+ *     description: |
+ *       **⚠️ PERMANENT DELETION** - Delete a manual payment transaction (admin only).
+ *       
+ *       **WARNING**: This action is irreversible and will:
+ *       - ✅ Remove transaction from database
+ *       - ✅ Rollback shares if completed
+ *       - ✅ Delete payment proof files
+ *       - ✅ Reverse referral commissions
+ *       - ✅ Notify user via email
  *     security:
  *       - adminAuth: []
  *     parameters:
@@ -1614,11 +1365,11 @@ router.post('/admin/manual/cancel', protect, adminProtect, coFounderController.a
  *         required: true
  *         schema:
  *           type: string
- *         description: Co-founder transaction ID to delete
+ *         description: Transaction ID to delete
  *         example: "CFD-A1B2-123456"
  *     responses:
  *       200:
- *         description: Manual payment transaction deleted successfully
+ *         description: Transaction deleted successfully
  *         content:
  *           application/json:
  *             schema:
@@ -1652,37 +1403,20 @@ router.post('/admin/manual/cancel', protect, adminProtect, coFounderController.a
  *                           type: string
  *                           example: "completed"
  *       400:
- *         description: Bad Request - Missing transaction ID
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 success:
- *                   type: boolean
- *                   example: false
- *                 message:
- *                   type: string
- *                   example: "Transaction ID is required"
+ *         description: Missing transaction ID
  *       401:
- *         $ref: '#/components/responses/UnauthorizedError'
+ *         description: Unauthorized
  *       403:
- *         $ref: '#/components/responses/ForbiddenError'
+ *         description: Admin access required
  *       404:
  *         description: Transaction not found
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 success:
- *                   type: boolean
- *                   example: false
- *                 message:
- *                   type: string
- *                   example: "Manual transaction not found"
  *       500:
- *         $ref: '#/components/responses/ServerError'
+ *         description: Server error
+ *     x-codeSamples:
+ *       - lang: 'curl'
+ *         source: |
+ *           curl -X DELETE "https://api.afrimobile.com/cofounder/admin/manual/CFD-A1B2-123456" \
+ *             -H "Authorization: Bearer ADMIN_JWT_TOKEN"
  */
 router.delete('/admin/manual/:transactionId', protect, adminProtect, coFounderController.adminDeleteCoFounderManualPayment);
 
@@ -1691,8 +1425,8 @@ router.delete('/admin/manual/:transactionId', protect, adminProtect, coFounderCo
  * /cofounder/admin/manual/pending:
  *   get:
  *     tags: [Co-Founder - Admin Manual Payment]
- *     summary: Get pending manual payments for co-founder shares
- *     description: Get all pending manual payment transactions for co-founder shares (admin only)
+ *     summary: Get pending manual payments
+ *     description: Get only pending manual payment transactions (admin only)
  *     security:
  *       - adminAuth: []
  *     parameters:
@@ -1711,7 +1445,7 @@ router.delete('/admin/manual/:transactionId', protect, adminProtect, coFounderCo
  *           default: 20
  *     responses:
  *       200:
- *         description: Pending manual payments retrieved successfully
+ *         description: Pending transactions retrieved successfully
  *         content:
  *           application/json:
  *             schema:
@@ -1734,11 +1468,11 @@ router.delete('/admin/manual/:transactionId', protect, adminProtect, coFounderCo
  *                     totalCount:
  *                       type: integer
  *       401:
- *         $ref: '#/components/responses/UnauthorizedError'
+ *         description: Unauthorized
  *       403:
- *         $ref: '#/components/responses/ForbiddenError'
+ *         description: Admin access required
  *       500:
- *         $ref: '#/components/responses/ServerError'
+ *         description: Server error
  */
 router.get('/admin/manual/pending', protect, adminProtect, coFounderController.getCoFounderPendingManualPayments);
 
@@ -1747,8 +1481,8 @@ router.get('/admin/manual/pending', protect, adminProtect, coFounderController.g
  * /cofounder/admin/manual/approve/{transactionId}:
  *   post:
  *     tags: [Co-Founder - Admin Manual Payment]
- *     summary: Approve manual payment for co-founder shares
- *     description: Approve a pending manual payment transaction for co-founder shares (admin only)
+ *     summary: Quick approve manual payment
+ *     description: Quick approve a pending manual payment (convenience endpoint)
  *     security:
  *       - adminAuth: []
  *     parameters:
@@ -1757,7 +1491,6 @@ router.get('/admin/manual/pending', protect, adminProtect, coFounderController.g
  *         required: true
  *         schema:
  *           type: string
- *         description: Co-founder transaction ID
  *         example: "CFD-A1B2-123456"
  *     requestBody:
  *       content:
@@ -1767,11 +1500,10 @@ router.get('/admin/manual/pending', protect, adminProtect, coFounderController.g
  *             properties:
  *               adminNote:
  *                 type: string
- *                 example: "Payment verified through bank statement"
- *                 description: Admin note about the approval
+ *                 example: "Payment verified"
  *     responses:
  *       200:
- *         description: Manual payment approved successfully
+ *         description: Payment approved successfully
  *         content:
  *           application/json:
  *             schema:
@@ -1787,15 +1519,13 @@ router.get('/admin/manual/pending', protect, adminProtect, coFounderController.g
  *                   type: string
  *                   example: "completed"
  *       401:
- *         $ref: '#/components/responses/Unauthorize
- * 401:
-         $ref: '#/components/responses/UnauthorizedError'
-       403:
-         $ref: '#/components/responses/ForbiddenError'
-       404:
-         $ref: '#/components/responses/NotFoundError'
-       500:
-         $ref: '#/components/responses/ServerError'
+ *         description: Unauthorized
+ *       403:
+ *         description: Admin access required
+ *       404:
+ *         description: Transaction not found
+ *       500:
+ *         description: Server error
  */
 router.post('/admin/manual/approve/:transactionId', protect, adminProtect, coFounderController.approveCoFounderManualPayment);
 
@@ -1804,8 +1534,8 @@ router.post('/admin/manual/approve/:transactionId', protect, adminProtect, coFou
  * /cofounder/admin/manual/reject/{transactionId}:
  *   post:
  *     tags: [Co-Founder - Admin Manual Payment]
- *     summary: Reject manual payment for co-founder shares
- *     description: Reject a pending manual payment transaction for co-founder shares (admin only)
+ *     summary: Quick reject manual payment
+ *     description: Quick reject a pending manual payment (convenience endpoint)
  *     security:
  *       - adminAuth: []
  *     parameters:
@@ -1814,7 +1544,6 @@ router.post('/admin/manual/approve/:transactionId', protect, adminProtect, coFou
  *         required: true
  *         schema:
  *           type: string
- *         description: Co-founder transaction ID
  *         example: "CFD-A1B2-123456"
  *     requestBody:
  *       content:
@@ -1824,11 +1553,10 @@ router.post('/admin/manual/approve/:transactionId', protect, adminProtect, coFou
  *             properties:
  *               adminNote:
  *                 type: string
- *                 example: "Payment proof insufficient"
- *                 description: Admin note about the rejection
+ *                 example: "Insufficient payment proof"
  *     responses:
  *       200:
- *         description: Manual payment rejected successfully
+ *         description: Payment rejected successfully
  *         content:
  *           application/json:
  *             schema:
@@ -1844,13 +1572,13 @@ router.post('/admin/manual/approve/:transactionId', protect, adminProtect, coFou
  *                   type: string
  *                   example: "failed"
  *       401:
- *         $ref: '#/components/responses/UnauthorizedError'
+ *         description: Unauthorized
  *       403:
- *         $ref: '#/components/responses/ForbiddenError'
+ *         description: Admin access required
  *       404:
- *         $ref: '#/components/responses/NotFoundError'
+ *         description: Transaction not found
  *       500:
- *         $ref: '#/components/responses/ServerError'
+ *         description: Server error
  */
 router.post('/admin/manual/reject/:transactionId', protect, adminProtect, coFounderController.rejectCoFounderManualPayment);
 
@@ -1859,8 +1587,8 @@ router.post('/admin/manual/reject/:transactionId', protect, adminProtect, coFoun
  * /cofounder/admin/manual/all:
  *   get:
  *     tags: [Co-Founder - Admin Manual Payment]
- *     summary: Get all manual payments for co-founder shares
- *     description: Get all manual payment transactions for co-founder shares with filtering options (admin only)
+ *     summary: Get all manual payments
+ *     description: Get all manual payment transactions with filtering (admin only)
  *     security:
  *       - adminAuth: []
  *     parameters:
@@ -1882,7 +1610,6 @@ router.post('/admin/manual/reject/:transactionId', protect, adminProtect, coFoun
  *         schema:
  *           type: string
  *           enum: [pending, completed, failed]
- *         description: Filter by payment status
  *     responses:
  *       200:
  *         description: All manual payments retrieved successfully
@@ -1908,121 +1635,30 @@ router.post('/admin/manual/reject/:transactionId', protect, adminProtect, coFoun
  *                     totalCount:
  *                       type: integer
  *       401:
- *         $ref: '#/components/responses/UnauthorizedError'
+ *         description: Unauthorized
  *       403:
- *         $ref: '#/components/responses/ForbiddenError'
+ *         description: Admin access required
  *       500:
- *         $ref: '#/components/responses/ServerError'
+ *         description: Server error
  */
 router.get('/admin/manual/all', protect, adminProtect, coFounderController.getAllCoFounderManualPayments);
 
-// ===========================================
-// LEGACY/COMPATIBILITY ROUTES
-// ===========================================
-
-/**
- * @swagger
- * /cofounder/manual/initiate:
- *   post:
- *     tags: [Co-Founder - Manual Payment]
- *     summary: Initiate manual payment (Legacy)
- *     description: Legacy endpoint for initiating manual payment - use /manual/submit instead
- *     security:
- *       - bearerAuth: []
- *     deprecated: true
- *     requestBody:
- *       required: true
- *       content:
- *         application/json:
- *           schema:
- *             type: object
- *             required:
- *               - quantity
- *               - currency
- *               - paymentMethod
- *             properties:
- *               quantity:
- *                 type: integer
- *                 minimum: 1
- *                 example: 5
- *               currency:
- *                 type: string
- *                 enum: [naira, usdt]
- *                 example: "naira"
- *               paymentMethod:
- *                 type: string
- *                 enum: [bank_transfer, cash, other]
- *                 example: "bank_transfer"
- *     responses:
- *       200:
- *         description: Manual payment initiated (Legacy response)
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 success:
- *                   type: boolean
- *                   example: true
- *                 message:
- *                   type: string
- *                   example: "Manual payment initiated. Please upload payment proof."
- *                 data:
- *                   type: object
- *                   properties:
- *                     transactionId:
- *                       type: string
- *                       example: "CFD-A1B2-123456"
- *                     instructions:
- *                       type: string
- *                       example: "Please make payment and upload proof using the upload endpoint"
- *       400:
- *         $ref: '#/components/responses/ValidationError'
- *       401:
- *         $ref: '#/components/responses/UnauthorizedError'
- *       500:
- *         $ref: '#/components/responses/ServerError'
- */
-router.post('/manual/initiate', protect, coFounderController.initiateCoFounderManualPayment);
-
-/**
- * @swagger
- * /cofounder/manual/upload:
- *   post:
- *     tags: [Co-Founder - Manual Payment]
- *     summary: Upload payment proof (Legacy)
- *     description: Legacy endpoint for uploading payment proof - use /manual/submit instead
- *     security:
- *       - bearerAuth: []
- *     deprecated: true
- *     responses:
- *       200:
- *         description: Legacy endpoint notice
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 success:
- *                   type: boolean
- *                   example: true
- *                 message:
- *                   type: string
- *                   example: "Please use the manual payment submission endpoint with payment proof"
- *       401:
- *         $ref: '#/components/responses/UnauthorizedError'
- *       500:
- *         $ref: '#/components/responses/ServerError'
- */
-router.post('/manual/upload', protect, coFounderController.uploadCoFounderPaymentProof);
+// ===================================================================
+// DEBUG/TROUBLESHOOTING ROUTES (TEMPORARY)
+// ===================================================================
 
 /**
  * @swagger
  * /cofounder/admin/debug/manual:
  *   get:
- *     tags: [Co-Founder - Admin Debug]
- *     summary: Debug manual payment transactions
- *     description: Debug endpoint to check what manual payment transactions exist in the database (admin only)
+ *     tags: [Co-Founder - Debug]
+ *     summary: Debug manual payment data
+ *     description: |
+ *       Debug endpoint to analyze manual payment transactions (admin only).
+ *       
+ *       **Purpose**: Troubleshoot manual payment visibility issues.
+ *       
+ *       Returns detailed breakdown of transaction data for analysis.
  *     security:
  *       - adminAuth: []
  *     responses:
@@ -2053,35 +1689,22 @@ router.post('/manual/upload', protect, coFounderController.uploadCoFounderPaymen
  *                     potentialManualTransactions:
  *                       type: integer
  *                       example: 5
- *                     sampleTransactions:
- *                       type: array
- *                       items:
- *                         type: object
- *                     transactionsWithProofSample:
- *                       type: array
- *                       items:
- *                         type: object
- *                     potentialManualSample:
- *                       type: array
- *                       items:
- *                         type: object
  *       401:
- *         $ref: '#/components/responses/UnauthorizedError'
+ *         description: Unauthorized
  *       403:
- *         $ref: '#/components/responses/ForbiddenError'
+ *         description: Admin access required
  *       500:
- *         $ref: '#/components/responses/ServerError'
+ *         description: Server error
  */
 router.get('/admin/debug/manual', protect, adminProtect, coFounderController.debugManualTransactions);
 
-// Alternative: Simple query endpoint to check what transactions exist
 /**
  * @swagger
  * /cofounder/admin/debug/all-transactions:
  *   get:
- *     tags: [Co-Founder - Admin Debug]
- *     summary: Get all co-founder transactions for debugging
- *     description: Get all co-founder transactions with minimal filtering for debugging purposes (admin only)
+ *     tags: [Co-Founder - Debug]
+ *     summary: Debug all transactions
+ *     description: Get all co-founder transactions for debugging (admin only)
  *     security:
  *       - adminAuth: []
  *     parameters:
@@ -2094,7 +1717,7 @@ router.get('/admin/debug/manual', protect, adminProtect, coFounderController.deb
  *           default: 20
  *     responses:
  *       200:
- *         description: All transactions retrieved successfully
+ *         description: Debug data retrieved successfully
  *         content:
  *           application/json:
  *             schema:
@@ -2107,19 +1730,6 @@ router.get('/admin/debug/manual', protect, adminProtect, coFounderController.deb
  *                   type: array
  *                   items:
  *                     type: object
- *                     properties:
- *                       _id:
- *                         type: string
- *                       transactionId:
- *                         type: string
- *                       paymentMethod:
- *                         type: string
- *                       status:
- *                         type: string
- *                       paymentProofPath:
- *                         type: string
- *                       createdAt:
- *                         type: string
  *                 summary:
  *                   type: object
  *                   properties:
@@ -2127,14 +1737,16 @@ router.get('/admin/debug/manual', protect, adminProtect, coFounderController.deb
  *                       type: integer
  *                     paymentMethods:
  *                       type: array
- *                       items:
- *                         type: string
+ *                     statusBreakdown:
+ *                       type: array
+ *                     paymentMethodBreakdown:
+ *                       type: array
  *       401:
- *         $ref: '#/components/responses/UnauthorizedError'
+ *         description: Unauthorized
  *       403:
- *         $ref: '#/components/responses/ForbiddenError'
+ *         description: Admin access required
  *       500:
- *         $ref: '#/components/responses/ServerError'
+ *         description: Server error
  */
 router.get('/admin/debug/all-transactions', protect, adminProtect, async (req, res) => {
   try {
@@ -2159,8 +1771,16 @@ router.get('/admin/debug/all-transactions', protect, adminProtect, async (req, r
       .sort({ createdAt: -1 })
       .limit(Number(limit));
       
-      // Get payment method summary
+      // Get summary data
       const paymentMethods = await PaymentTransaction.distinct('paymentMethod', { type: 'co-founder' });
+      const statusBreakdown = await PaymentTransaction.aggregate([
+          { $match: { type: 'co-founder' } },
+          { $group: { _id: '$status', count: { $sum: 1 } } }
+      ]);
+      const paymentMethodBreakdown = await PaymentTransaction.aggregate([
+          { $match: { type: 'co-founder' } },
+          { $group: { _id: '$paymentMethod', count: { $sum: 1 } } }
+      ]);
       
       res.status(200).json({
           success: true,
@@ -2168,15 +1788,8 @@ router.get('/admin/debug/all-transactions', protect, adminProtect, async (req, r
           summary: {
               total: transactions.length,
               paymentMethods: paymentMethods,
-              // ADDED: More detailed breakdown
-              statusBreakdown: await PaymentTransaction.aggregate([
-                  { $match: { type: 'co-founder' } },
-                  { $group: { _id: '$status', count: { $sum: 1 } } }
-              ]),
-              paymentMethodBreakdown: await PaymentTransaction.aggregate([
-                  { $match: { type: 'co-founder' } },
-                  { $group: { _id: '$paymentMethod', count: { $sum: 1 } } }
-              ])
+              statusBreakdown: statusBreakdown,
+              paymentMethodBreakdown: paymentMethodBreakdown
           }
       });
       
@@ -2190,31 +1803,29 @@ router.get('/admin/debug/all-transactions', protect, adminProtect, async (req, r
   }
 });
 
+// CONTINUATION OF coFounderRoutes.js - Part 3: Emergency Fix & Legacy Routes
+
 /**
  * @swagger
  * /cofounder/admin/emergency/fix-payment-methods:
  *   post:
- *     tags: [Co-Founder - Admin Emergency]
+ *     tags: [Co-Founder - Emergency]
  *     summary: Emergency fix for null payment methods
  *     description: |
- *       **EMERGENCY ROUTE** - One-time fix for transactions with null paymentMethod values.
+ *       **⚠️ EMERGENCY ROUTE** - One-time fix for transactions with null paymentMethod values.
  *       
- *       This endpoint will:
- *       - Find all co-founder transactions with null paymentMethod
- *       - Analyze each transaction to determine the correct payment method
- *       - Update transactions based on available data:
- *         - If has transactionHash → set to 'crypto'
- *         - If has reference (no hash) → set to 'paystack' 
- *         - If has paymentProofPath or CFD- pattern → set to 'manual_bank_transfer'
- *         - Default fallback → set to 'manual_bank_transfer'
+ *       **Purpose**: Fix existing data where manual transactions have `paymentMethod: null`.
  *       
- *       **⚠️ WARNING**: This is a one-time data migration. Only run this once to fix existing data.
+ *       **Usage Steps**:
+ *       1. Run with `dryRun: true` to preview changes
+ *       2. Review the analysis breakdown
+ *       3. Run with `force: true` to apply changes
+ *       4. Remove this route after successful fix
  *       
- *       **🔧 PURPOSE**: Fixes the issue where manual payment transactions are not visible in admin dashboard due to null paymentMethod values.
+ *       **⚠️ WARNING**: This is a one-time data migration.
  *     security:
  *       - adminAuth: []
  *     requestBody:
- *       required: false
  *       content:
  *         application/json:
  *           schema:
@@ -2223,14 +1834,16 @@ router.get('/admin/debug/all-transactions', protect, adminProtect, async (req, r
  *               dryRun:
  *                 type: boolean
  *                 default: false
- *                 description: If true, only shows what would be fixed without making changes
+ *                 description: Preview changes without applying them
+ *                 example: true
  *               force:
  *                 type: boolean
  *                 default: false
- *                 description: Set to true to confirm you want to run the fix
+ *                 description: Apply the actual fix
+ *                 example: false
  *     responses:
  *       200:
- *         description: Emergency fix completed successfully
+ *         description: Emergency fix completed or previewed
  *         content:
  *           application/json:
  *             schema:
@@ -2241,33 +1854,24 @@ router.get('/admin/debug/all-transactions', protect, adminProtect, async (req, r
  *                   example: true
  *                 message:
  *                   type: string
- *                   example: "Emergency fix completed. Updated 6 transactions."
+ *                   examples:
+ *                     preview:
+ *                       value: "Emergency fix preview. Would update 6 transactions."
+ *                     completed:
+ *                       value: "Emergency fix completed. Updated 6 transactions."
  *                 data:
  *                   type: object
  *                   properties:
+ *                     mode:
+ *                       type: string
+ *                       enum: ["DRY RUN", "ACTUAL FIX"]
+ *                       example: "DRY RUN"
  *                     totalTransactionsFixed:
  *                       type: integer
  *                       example: 6
- *                       description: Number of transactions that were updated
- *                     manualTransactionsNow:
+ *                     totalErrors:
  *                       type: integer
- *                       example: 6
- *                       description: Total manual transactions after fix
- *                     sampleFixed:
- *                       type: array
- *                       items:
- *                         type: object
- *                         properties:
- *                           _id:
- *                             type: string
- *                             example: "6844092e6fcb7ae39de138bd"
- *                           transactionId:
- *                             type: string
- *                             example: "CFD-D0326B6C-262046"
- *                           paymentMethod:
- *                             type: string
- *                             example: "manual_bank_transfer"
- *                       description: Sample of fixed transactions
+ *                       example: 0
  *                     analysisBreakdown:
  *                       type: object
  *                       properties:
@@ -2286,8 +1890,20 @@ router.get('/admin/debug/all-transactions', protect, adminProtect, async (req, r
  *                         errors:
  *                           type: integer
  *                           example: 0
+ *                 warning:
+ *                   type: string
+ *                   example: "This was a preview. Set force: true to actually apply changes."
+ *                 nextSteps:
+ *                   type: array
+ *                   items:
+ *                     type: string
+ *                   example: [
+ *                     "Review the analysis breakdown",
+ *                     "If results look correct, run again with force: true",
+ *                     "Test manual transaction visibility after fix"
+ *                   ]
  *       400:
- *         description: Bad Request - Fix not confirmed
+ *         description: Fix not confirmed - preview mode
  *         content:
  *           application/json:
  *             schema:
@@ -2298,7 +1914,7 @@ router.get('/admin/debug/all-transactions', protect, adminProtect, async (req, r
  *                   example: false
  *                 message:
  *                   type: string
- *                   example: "This is an emergency data migration. Set 'force: true' to confirm."
+ *                   example: "This is an emergency data migration. Set 'force: true' to confirm or 'dryRun: true' to preview."
  *                 preview:
  *                   type: object
  *                   properties:
@@ -2310,24 +1926,58 @@ router.get('/admin/debug/all-transactions', protect, adminProtect, async (req, r
  *                       items:
  *                         type: object
  *       401:
- *         $ref: '#/components/responses/UnauthorizedError'
+ *         description: Unauthorized
  *       403:
- *         $ref: '#/components/responses/ForbiddenError'
+ *         description: Admin access required
  *       500:
- *         $ref: '#/components/responses/ServerError'
- *     examples:
- *       dryRun:
- *         summary: Preview what will be fixed
- *         value:
- *           dryRun: true
- *       actualFix:
- *         summary: Run the actual fix
- *         value:
- *           force: true
+ *         description: Server error
+ *     x-codeSamples:
+ *       - lang: 'curl'
+ *         source: |
+ *           # Step 1: Preview what will be fixed
+ *           curl -X POST "https://api.afrimobile.com/cofounder/admin/emergency/fix-payment-methods" \
+ *             -H "Authorization: Bearer ADMIN_JWT_TOKEN" \
+ *             -H "Content-Type: application/json" \
+ *             -d '{"dryRun": true}'
+ *           
+ *           # Step 2: Apply the actual fix
+ *           curl -X POST "https://api.afrimobile.com/cofounder/admin/emergency/fix-payment-methods" \
+ *             -H "Authorization: Bearer ADMIN_JWT_TOKEN" \
+ *             -H "Content-Type: application/json" \
+ *             -d '{"force": true}'
+ *       - lang: 'JavaScript'
+ *         source: |
+ *           // Preview the fix first
+ *           const previewFix = async () => {
+ *             const response = await fetch('/cofounder/admin/emergency/fix-payment-methods', {
+ *               method: 'POST',
+ *               headers: {
+ *                 'Authorization': 'Bearer ' + adminToken,
+ *                 'Content-Type': 'application/json'
+ *               },
+ *               body: JSON.stringify({ dryRun: true })
+ *             });
+ *             const result = await response.json();
+ *             console.log('Preview results:', result);
+ *             return result;
+ *           };
+ *           
+ *           // Apply the fix if preview looks good
+ *           const applyFix = async () => {
+ *             if (confirm('Are you sure you want to apply the emergency fix?')) {
+ *               const response = await fetch('/cofounder/admin/emergency/fix-payment-methods', {
+ *                 method: 'POST',
+ *                 headers: {
+ *                   'Authorization': 'Bearer ' + adminToken,
+ *                   'Content-Type': 'application/json'
+ *                 },
+ *                 body: JSON.stringify({ force: true })
+ *               });
+ *               const result = await response.json();
+ *               console.log('Fix applied:', result);
+ *             }
+ *           };
  */
-
-// EMERGENCY SCRIPT: Add this as a new route to fix existing transactions
-// Add this to your coFounderRoutes.js temporarily
 router.post('/admin/emergency/fix-payment-methods', protect, adminProtect, async (req, res) => {
   try {
       const adminId = req.user.id;
@@ -2470,8 +2120,233 @@ router.post('/admin/emergency/fix-payment-methods', protect, adminProtect, async
   }
 });
 
-// ===========================================
+// ===================================================================
+// LEGACY/COMPATIBILITY ROUTES
+// ===================================================================
+
+/**
+ * @swagger
+ * /cofounder/manual/initiate:
+ *   post:
+ *     tags: [Co-Founder - Legacy]
+ *     summary: Initiate manual payment (DEPRECATED)
+ *     description: |
+ *       **DEPRECATED** - Legacy endpoint for initiating manual payment.
+ *       
+ *       **⚠️ Use `/cofounder/manual/submit` instead.**
+ *       
+ *       This endpoint is kept for backward compatibility but will be removed in future versions.
+ *     security:
+ *       - bearerAuth: []
+ *     deprecated: true
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [quantity, currency, paymentMethod]
+ *             properties:
+ *               quantity:
+ *                 type: integer
+ *                 minimum: 1
+ *                 example: 5
+ *               currency:
+ *                 type: string
+ *                 enum: [naira, usdt]
+ *                 example: "naira"
+ *               paymentMethod:
+ *                 type: string
+ *                 enum: [bank_transfer, cash, other]
+ *                 example: "bank_transfer"
+ *     responses:
+ *       200:
+ *         description: Manual payment initiated (Legacy response)
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *                   example: "Manual payment initiated. Please upload payment proof."
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     transactionId:
+ *                       type: string
+ *                       example: "CFD-A1B2-123456"
+ *                     instructions:
+ *                       type: string
+ *                       example: "Please make payment and upload proof using the upload endpoint"
+ *       400:
+ *         description: Bad request
+ *       401:
+ *         description: Unauthorized
+ *       500:
+ *         description: Server error
+ */
+router.post('/manual/initiate', protect, coFounderController.initiateCoFounderManualPayment);
+
+/**
+ * @swagger
+ * /cofounder/manual/upload:
+ *   post:
+ *     tags: [Co-Founder - Legacy]
+ *     summary: Upload payment proof (DEPRECATED)
+ *     description: |
+ *       **DEPRECATED** - Legacy endpoint for uploading payment proof.
+ *       
+ *       **⚠️ Use `/cofounder/manual/submit` instead.**
+ *       
+ *       This endpoint is kept for backward compatibility but will be removed in future versions.
+ *     security:
+ *       - bearerAuth: []
+ *     deprecated: true
+ *     responses:
+ *       200:
+ *         description: Legacy endpoint notice
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *                   example: "Please use the manual payment submission endpoint with payment proof"
+ *       401:
+ *         description: Unauthorized
+ *       500:
+ *         description: Server error
+ */
+router.post('/manual/upload', protect, coFounderController.uploadCoFounderPaymentProof);
+
+// ===================================================================
 // EXPORT ROUTER
-// ===========================================
+// ===================================================================
 
 module.exports = router;
+
+// ===================================================================
+// TESTING EXAMPLES FOR SWAGGER UI
+// ===================================================================
+
+/*
+
+TESTING WORKFLOW:
+
+1. **Test File Upload (User)**:
+   POST /cofounder/manual/submit
+   - Use form-data with paymentProof file
+   - Should return success with transactionId
+
+2. **Check Admin Visibility**:
+   GET /cofounder/admin/manual/transactions
+   - Should see the uploaded transaction
+
+3. **View Payment Proof**:
+   GET /cofounder/payment-proof/{transactionId}
+   - Should return the uploaded image/PDF
+
+4. **Admin Approve/Reject**:
+   POST /cofounder/admin/manual/verify
+   - Test both approval and rejection
+
+5. **Check Status Update**:
+   GET /cofounder/manual/status/{transactionId}
+   - Should reflect the admin decision
+
+6. **Debug if Issues**:
+   GET /cofounder/admin/debug/manual
+   GET /cofounder/admin/debug/all-transactions
+   - Use these to troubleshoot data issues
+
+7. **Emergency Fix (if needed)**:
+   POST /cofounder/admin/emergency/fix-payment-methods
+   - Run with dryRun: true first
+   - Then with force: true if needed
+
+SAMPLE CURL COMMANDS:
+
+# 1. Submit manual payment
+curl -X POST "https://api.afrimobile.com/cofounder/manual/submit" \
+  -H "Authorization: Bearer USER_JWT_TOKEN" \
+  -F "quantity=5" \
+  -F "currency=naira" \
+  -F "paymentMethod=bank_transfer" \
+  -F "bankName=First Bank" \
+  -F "accountName=John Doe" \
+  -F "reference=FBN123456789" \
+  -F "paymentProof=@/path/to/receipt.jpg"
+
+# 2. Get admin manual transactions
+curl -X GET "https://api.afrimobile.com/cofounder/admin/manual/transactions?status=pending" \
+  -H "Authorization: Bearer ADMIN_JWT_TOKEN"
+
+# 3. Approve payment
+curl -X POST "https://api.afrimobile.com/cofounder/admin/manual/verify" \
+  -H "Authorization: Bearer ADMIN_JWT_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "transactionId": "CFD-A1B2-123456",
+    "approved": true,
+    "adminNote": "Payment verified"
+  }'
+
+# 4. Check payment proof
+curl -X GET "https://api.afrimobile.com/cofounder/payment-proof/CFD-A1B2-123456" \
+  -H "Authorization: Bearer USER_JWT_TOKEN" \
+  --output payment-proof.jpg
+
+# 5. Emergency fix (preview first)
+curl -X POST "https://api.afrimobile.com/cofounder/admin/emergency/fix-payment-methods" \
+  -H "Authorization: Bearer ADMIN_JWT_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"dryRun": true}'
+
+JAVASCRIPT EXAMPLES:
+
+// Submit manual payment
+const formData = new FormData();
+formData.append('quantity', '5');
+formData.append('currency', 'naira');
+formData.append('paymentMethod', 'bank_transfer');
+formData.append('bankName', 'First Bank');
+formData.append('accountName', 'John Doe');
+formData.append('reference', 'FBN123456789');
+formData.append('paymentProof', fileInput.files[0]);
+
+fetch('/cofounder/manual/submit', {
+  method: 'POST',
+  headers: { 'Authorization': 'Bearer ' + token },
+  body: formData
+});
+
+// Get admin transactions
+fetch('/cofounder/admin/manual/transactions?status=pending', {
+  headers: { 'Authorization': 'Bearer ' + adminToken }
+})
+.then(response => response.json())
+.then(data => console.log('Pending transactions:', data.transactions));
+
+// Approve payment
+fetch('/cofounder/admin/manual/verify', {
+  method: 'POST',
+  headers: {
+    'Authorization': 'Bearer ' + adminToken,
+    'Content-Type': 'application/json'
+  },
+  body: JSON.stringify({
+    transactionId: 'CFD-A1B2-123456',
+    approved: true,
+    adminNote: 'Payment verified'
+  })
+});
+
+*/
