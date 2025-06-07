@@ -40,8 +40,8 @@ const corsOptions = {
       'http://localhost:5000',
       'http://localhost:8080',
       'https://afrimo-database.onrender.com',
-      'https://your-frontend-domain.com', // Add your actual frontend domain
-      'https://your-frontend-domain.vercel.app', // If using Vercel
+      'https://www.afrimobil.com',  // ← ADD THIS LINE
+      'https://afrimobil.com',      // ← AND THIS (without www)
       'https://your-frontend-domain.netlify.app', // If using Netlify
       // Add more domains as needed
     ];
