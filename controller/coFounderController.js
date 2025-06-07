@@ -934,7 +934,6 @@ const adminGetWeb3Transactions = async (req, res) => {
 };
 
 // NEW: Admin get manual payment transactions
-// Fix for adminGetCoFounderManualTransactions
 const adminGetCoFounderManualTransactions = async (req, res) => {
     try {
         const { status, page = 1, limit = 20 } = req.query;
@@ -949,15 +948,10 @@ const adminGetCoFounderManualTransactions = async (req, res) => {
             });
         }
         
-        // FIXED: Build query for manual payment methods with more specific matching
+        // FIXED QUERY - Much simpler and more reliable
         const query = {
             type: 'co-founder',
-            $or: [
-                { paymentMethod: { $regex: /^manual_/i } },  // Case insensitive
-                { paymentMethod: 'manual_bank_transfer' },
-                { paymentMethod: 'manual_cash' },
-                { paymentMethod: 'manual_other' }
-            ]
+            paymentMethod: { $regex: '^manual_' } // Remove the /i flag that might be causing issues
         };
         
         // Add status filter if provided
@@ -976,11 +970,23 @@ const adminGetCoFounderManualTransactions = async (req, res) => {
         
         console.log(`Found ${transactions.length} manual transactions`);
         
+        // If still no results, let's debug further
+        if (transactions.length === 0) {
+            console.log('No manual transactions found. Let\'s check all co-founder transactions...');
+            
+            // Debug: Check all co-founder transactions
+            const allCoFounderTransactions = await PaymentTransaction.find({ 
+                type: 'co-founder' 
+            }).select('transactionId paymentMethod status createdAt').limit(10);
+            
+            console.log('All co-founder transactions:', JSON.stringify(allCoFounderTransactions, null, 2));
+        }
+        
         // Format response with safe paymentMethod handling
         const formattedTransactions = transactions.map(transaction => {
             let paymentProofUrl = null;
             if (transaction.paymentProofPath && transaction.transactionId) {
-                paymentProofUrl = `/cofounder/payment-proof/${transaction.transactionId}`;
+                paymentProofUrl = `/api/cofounder/payment-proof/${transaction.transactionId}`;
             }
             
             // Safe handling of paymentMethod
@@ -1039,7 +1045,6 @@ const adminGetCoFounderManualTransactions = async (req, res) => {
         });
     }
 };
-
 
 // NEW: Admin verify manual payment
 // NEW: Admin verify manual payment
