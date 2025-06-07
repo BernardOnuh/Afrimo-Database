@@ -441,41 +441,35 @@ const verifyCoFounderPaystackPayment = async (req, res) => {
 };
 
 // EMERGENCY FIX: Replace the submitCoFounderManualPayment function in your coFounderController.js
-
 const submitCoFounderManualPayment = async (req, res) => {
     try {
         const { quantity, paymentMethod, bankName, accountName, reference, currency } = req.body;
         const userId = req.user.id;
         const paymentProofImage = req.file;
         
-        console.log('[submitCoFounderManualPayment] Request body:', req.body);
-        console.log('[submitCoFounderManualPayment] User ID:', userId);
-        console.log('[submitCoFounderManualPayment] File info:', paymentProofImage ? {
-            fieldname: paymentProofImage.fieldname,
-            originalname: paymentProofImage.originalname,
-            mimetype: paymentProofImage.mimetype,
-            size: paymentProofImage.size,
-            path: paymentProofImage.path,
-            filename: paymentProofImage.filename
-        } : 'No file uploaded');
+        console.log('[FIXED submitCoFounderManualPayment] Request:', {
+            quantity, paymentMethod, currency, userId,
+            hasFile: !!paymentProofImage,
+            fileName: paymentProofImage?.filename
+        });
         
-        // FIXED: Validate required fields
-        if (!quantity || !paymentMethod || !paymentProofImage) {
+        // Validate required fields
+        if (!quantity || !paymentMethod || !currency || !paymentProofImage) {
             return res.status(400).json({
                 success: false,
-                message: 'Please provide quantity, payment method, and payment proof image'
+                message: 'Please provide quantity, payment method, currency, and payment proof image'
             });
         }
         
-        // FIXED: Validate currency
-        if (!currency || !['naira', 'usdt'].includes(currency)) {
+        // Validate currency
+        if (!['naira', 'usdt'].includes(currency)) {
             return res.status(400).json({
                 success: false,
                 message: 'Please provide a valid currency (naira or usdt)'
             });
         }
         
-        // FIXED: Get co-founder share configuration
+        // Get co-founder share configuration
         const coFounderShare = await CoFounderShare.findOne();
         if (!coFounderShare) {
             return res.status(400).json({
@@ -484,8 +478,9 @@ const submitCoFounderManualPayment = async (req, res) => {
             });
         }
         
-        // FIXED: Validate available shares
-        if (coFounderShare.sharesSold + parseInt(quantity) > coFounderShare.totalShares) {
+        // Validate available shares
+        const requestedShares = parseInt(quantity);
+        if (coFounderShare.sharesSold + requestedShares > coFounderShare.totalShares) {
             return res.status(400).json({
                 success: false,
                 message: 'Insufficient shares available',
@@ -493,41 +488,25 @@ const submitCoFounderManualPayment = async (req, res) => {
             });
         }
         
-        // FIXED: Calculate price correctly
+        // Calculate price
         const price = currency === 'naira' ? 
             coFounderShare.pricing.priceNaira : 
             coFounderShare.pricing.priceUSDT;
         
-        const totalPrice = parseInt(quantity) * price;
+        const totalPrice = requestedShares * price;
         const transactionId = generateTransactionId();
-        const paymentProofPath = paymentProofImage.path;
         
-        // FIXED: Format payment method correctly (consistent with shareController)
-        const formattedPaymentMethod = `manual_${paymentMethod}`;
-        
-        console.log(`[submitCoFounderManualPayment] About to create transaction with:`, {
-            userId,
-            type: 'co-founder',
-            amount: totalPrice,
-            currency: currency.toLowerCase(),
-            shares: parseInt(quantity),
-            status: 'pending',
-            transactionId,
-            paymentMethod: formattedPaymentMethod,
-            paymentProofPath: paymentProofPath
-        });
-        
-        // FIXED: Create transaction with proper structure (based on shareController pattern)
+        // FIXED: Create transaction with all required fields
         const transactionData = {
             userId: userId,
             type: 'co-founder',
+            transactionId: transactionId,  // CRITICAL: Include transactionId
             amount: totalPrice,
             currency: currency.toLowerCase(),
-            shares: parseInt(quantity),
+            shares: requestedShares,
             status: 'pending',
-            transactionId: transactionId,
-            paymentMethod: formattedPaymentMethod,
-            paymentProofPath: paymentProofPath,
+            paymentMethod: `manual_${paymentMethod}`,  // Consistent naming
+            paymentProofPath: paymentProofImage.path,  // Store file path
             manualPaymentDetails: {
                 bankName: bankName || null,
                 accountName: accountName || null,
@@ -535,66 +514,67 @@ const submitCoFounderManualPayment = async (req, res) => {
             }
         };
         
-        console.log('[submitCoFounderManualPayment] Transaction data to be saved:', JSON.stringify(transactionData, null, 2));
+        console.log('[FIXED] Creating transaction with data:', JSON.stringify(transactionData, null, 2));
         
-        // FIXED: Create the transaction
+        // Create the transaction
         const transaction = await PaymentTransaction.create(transactionData);
         
-        console.log('[submitCoFounderManualPayment] Transaction created:', {
+        console.log('[FIXED] Transaction created successfully:', {
             id: transaction._id,
             transactionId: transaction.transactionId,
             paymentMethod: transaction.paymentMethod,
-            paymentProofPath: transaction.paymentProofPath,
             status: transaction.status
         });
         
-        // FIXED: Get user details and send admin notification
-        const user = await User.findById(userId);
-        
+        // Send admin notification
         try {
+            const user = await User.findById(userId);
             const adminEmail = process.env.ADMIN_EMAIL || 'admin@afrimobile.com';
+            
             await sendEmail({
                 email: adminEmail,
-                subject: 'AfriMobile - New Co-Founder Manual Payment Requires Verification',
+                subject: 'New Co-Founder Manual Payment - Verification Required',
                 html: `
-                    <h2>Co-Founder Manual Payment Verification Required</h2>
-                    <p>A new manual payment has been submitted:</p>
+                    <h2>New Co-Founder Manual Payment Submitted</h2>
+                    <p><strong>Transaction Details:</strong></p>
                     <ul>
                         <li>User: ${user.name} (${user.email})</li>
                         <li>Transaction ID: ${transactionId}</li>
                         <li>Amount: ${currency === 'naira' ? '₦' : '$'}${totalPrice}</li>
-                        <li>Shares: ${quantity}</li>
+                        <li>Shares: ${requestedShares}</li>
                         <li>Payment Method: ${paymentMethod}</li>
-                        ${bankName ? `<li>Bank Name: ${bankName}</li>` : ''}
-                        ${accountName ? `<li>Account Name: ${accountName}</li>` : ''}
-                        ${reference ? `<li>Reference/Receipt No: ${reference}</li>` : ''}
+                        ${bankName ? `<li>Bank: ${bankName}</li>` : ''}
+                        ${accountName ? `<li>Account: ${accountName}</li>` : ''}
+                        ${reference ? `<li>Reference: ${reference}</li>` : ''}
                     </ul>
                     <p>Please verify this payment in the admin dashboard.</p>
+                    <p>Payment proof URL: /cofounder/payment-proof/${transactionId}</p>
                 `
             });
         } catch (emailError) {
             console.error('Failed to send admin notification:', emailError);
         }
         
-        // FIXED: Return success response with proper file URL
+        // Return success response
         res.status(200).json({
             success: true,
             message: 'Payment proof submitted successfully and awaiting verification',
             data: {
                 transactionId,
-                shares: parseInt(quantity),
+                shares: requestedShares,
                 amount: totalPrice,
                 status: 'pending',
-                paymentMethod: formattedPaymentMethod,
-                fileUrl: `/cofounder/payment-proof/${transactionId}` // FIXED: Use proper endpoint
+                paymentMethod: `manual_${paymentMethod}`,
+                fileUrl: `/cofounder/payment-proof/${transactionId}`
             }
         });
+        
     } catch (error) {
-        console.error('Error submitting co-founder manual payment:', error);
+        console.error('Error in submitCoFounderManualPayment:', error);
         res.status(500).json({
             success: false,
             message: 'Failed to submit manual payment',
-            error: process.env.NODE_ENV === 'development' ? error.message : undefined
+            error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
         });
     }
 };
@@ -605,16 +585,16 @@ const getCoFounderPaymentProof = async (req, res) => {
         const { transactionId } = req.params;
         const userId = req.user.id;
         
-        console.log(`[getCoFounderPaymentProof] Request for transaction: ${transactionId} from user: ${userId}`);
+        console.log(`[FIXED getCoFounderPaymentProof] Request for transaction: ${transactionId}`);
         
-        // FIXED: Find the transaction using correct query
+        // Find transaction using transactionId field (not _id)
         const transaction = await PaymentTransaction.findOne({
             transactionId: transactionId,
             type: 'co-founder'
         });
         
         if (!transaction) {
-            console.log(`[getCoFounderPaymentProof] Transaction not found: ${transactionId}`);
+            console.log(`[FIXED] Transaction not found: ${transactionId}`);
             return res.status(404).json({
                 success: false,
                 message: 'Transaction not found'
@@ -622,132 +602,98 @@ const getCoFounderPaymentProof = async (req, res) => {
         }
         
         if (!transaction.paymentProofPath) {
-            console.log(`[getCoFounderPaymentProof] Payment proof path not found for transaction: ${transactionId}`);
+            console.log(`[FIXED] No payment proof path for transaction: ${transactionId}`);
             return res.status(404).json({
                 success: false,
-                message: 'Payment proof path not found for this transaction'
+                message: 'No payment proof file found for this transaction'
             });
         }
         
-        console.log(`[getCoFounderPaymentProof] Original payment proof path: ${transaction.paymentProofPath}`);
-        
-        // FIXED: Check if user is admin or transaction owner
+        // Check authorization (admin or transaction owner)
         const user = await User.findById(userId);
         if (!(user && (user.isAdmin || transaction.userId.toString() === userId))) {
-            console.log(`[getCoFounderPaymentProof] Unauthorized access: ${userId}`);
             return res.status(403).json({
                 success: false,
-                message: 'Unauthorized: You do not have permission to view this payment proof'
+                message: 'Unauthorized access to payment proof'
             });
         }
-
-        // FIXED: Enhanced file path resolution (copied from working shareController)
+        
+        // FIXED: Enhanced file path resolution
         const fs = require('fs');
         const path = require('path');
         
-        // Create an array of possible paths to check (same logic as shareController)
-        const possiblePaths = [];
+        const possiblePaths = [
+            transaction.paymentProofPath,
+            path.join(process.cwd(), transaction.paymentProofPath),
+            path.join('/opt/render/project/src/', transaction.paymentProofPath)
+        ];
         
-        // 1. Original path as stored in DB
-        possiblePaths.push(transaction.paymentProofPath);
-        
-        // 2. Relative to current working directory
-        possiblePaths.push(path.join(process.cwd(), transaction.paymentProofPath));
-        
-        // 3. If path has 'uploads', extract that part and try both ways
+        // Add uploads-specific paths
         if (transaction.paymentProofPath.includes('uploads')) {
             const uploadsPart = transaction.paymentProofPath.substring(
                 transaction.paymentProofPath.indexOf('uploads')
             );
             possiblePaths.push(path.join(process.cwd(), uploadsPart));
-            possiblePaths.push(uploadsPart);
+            possiblePaths.push(path.join('/opt/render/project/src/', uploadsPart));
         }
         
-        // 4. Try /opt/render/project/src/ path (common for render.com)
-        if (process.env.NODE_ENV === 'production') {
-            possiblePaths.push(path.join('/opt/render/project/src/', transaction.paymentProofPath));
-            
-            if (transaction.paymentProofPath.includes('uploads')) {
-                const uploadsPart = transaction.paymentProofPath.substring(
-                    transaction.paymentProofPath.indexOf('uploads')
-                );
-                possiblePaths.push(path.join('/opt/render/project/src/', uploadsPart));
-            }
-        }
-
-        // 5. Try /tmp path (render.com sometimes uses this for temp storage)
-        if (process.env.NODE_ENV === 'production') {
-            possiblePaths.push(path.join('/tmp/', path.basename(transaction.paymentProofPath)));
-        }
+        console.log('[FIXED] Checking file paths:', possiblePaths);
         
-        console.log('[getCoFounderPaymentProof] Checking possible file paths:', JSON.stringify(possiblePaths));
-        
-        // Check each path
+        // Find the valid file path
         let validFilePath = null;
-        
         for (const testPath of possiblePaths) {
             try {
-                if (fs.existsSync(testPath)) {
-                    const stats = fs.statSync(testPath);
-                    if (stats.isFile()) {
-                        validFilePath = testPath;
-                        console.log(`[getCoFounderPaymentProof] Found file at: ${validFilePath}, size: ${stats.size} bytes`);
-                        break;
-                    }
+                if (fs.existsSync(testPath) && fs.statSync(testPath).isFile()) {
+                    validFilePath = testPath;
+                    console.log(`[FIXED] Found file at: ${validFilePath}`);
+                    break;
                 }
             } catch (err) {
-                console.log(`[getCoFounderPaymentProof] Error checking path ${testPath}: ${err.message}`);
+                // Continue checking other paths
             }
         }
         
         if (!validFilePath) {
-            console.error('[getCoFounderPaymentProof] File not found at any checked location');
-            
-            // Return detailed debugging info in development
-            if (process.env.NODE_ENV === 'development') {
-                return res.status(404).json({
-                    success: false,
-                    message: 'Payment proof file not found on server',
-                    debug: {
-                        originalPath: transaction.paymentProofPath,
-                        checkedPaths: possiblePaths,
-                        cwd: process.cwd(),
-                        env: process.env.NODE_ENV,
-                        platform: process.platform
-                    }
-                });
-            } else {
-                return res.status(404).json({
-                    success: false,
-                    message: 'Payment proof file not found on server'
-                });
-            }
+            console.error('[FIXED] Payment proof file not found at any location');
+            return res.status(404).json({
+                success: false,
+                message: 'Payment proof file not found on server',
+                debug: process.env.NODE_ENV === 'development' ? {
+                    originalPath: transaction.paymentProofPath,
+                    checkedPaths: possiblePaths
+                } : undefined
+            });
         }
         
-        // FIXED: Determine content type (same as shareController)
+        // Determine content type
         const ext = path.extname(validFilePath).toLowerCase();
-        let contentType = 'application/octet-stream'; // Default
+        const contentTypes = {
+            '.jpg': 'image/jpeg',
+            '.jpeg': 'image/jpeg',
+            '.png': 'image/png',
+            '.gif': 'image/gif',
+            '.pdf': 'application/pdf'
+        };
         
-        if (ext === '.jpg' || ext === '.jpeg') contentType = 'image/jpeg';
-        else if (ext === '.png') contentType = 'image/png';
-        else if (ext === '.gif') contentType = 'image/gif';
-        else if (ext === '.pdf') contentType = 'application/pdf';
+        const contentType = contentTypes[ext] || 'application/octet-stream';
         
-        console.log(`[getCoFounderPaymentProof] Serving file with content type: ${contentType}`);
+        console.log(`[FIXED] Serving file with content type: ${contentType}`);
         
-        // Send the file
+        // Stream the file
         res.setHeader('Content-Type', contentType);
+        res.setHeader('Cache-Control', 'public, max-age=3600'); // Cache for 1 hour
         fs.createReadStream(validFilePath).pipe(res);
         
     } catch (error) {
-        console.error(`[getCoFounderPaymentProof] Server error: ${error.message}`, error);
+        console.error('Error in getCoFounderPaymentProof:', error);
         res.status(500).json({
             success: false,
-            message: 'Failed to fetch payment proof',
+            message: 'Failed to retrieve payment proof',
             error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
         });
     }
 };
+
 
 // Fix for getUserCoFounderShares
 const getUserCoFounderShares = async (req, res) => {
@@ -969,10 +915,9 @@ const adminGetWeb3Transactions = async (req, res) => {
 };
 
 // FIXED: adminGetCoFounderManualTransactions function in coFounderController.js
-
 const adminGetCoFounderManualTransactions = async (req, res) => {
     try {
-        const { status, page = 1, limit = 20 } = req.query;
+        const { status, page = 1, limit = 20, fromDate, toDate } = req.query;
         const adminId = req.user.id;
         
         // Verify admin
@@ -984,45 +929,47 @@ const adminGetCoFounderManualTransactions = async (req, res) => {
             });
         }
         
-        console.log('=== FIXED: Admin Manual Transactions Query ===');
-        console.log('Request params:', { status, page, limit });
+        console.log('[FIXED adminGetCoFounderManualTransactions] Query params:', { status, page, limit, fromDate, toDate });
         
-        // FIXED: Better query for manual transactions (based on shareController pattern)
+        // FIXED: Better query for co-founder manual transactions
         const query = {
             type: 'co-founder',
-            paymentMethod: { $regex: /^manual_/i } // Look for manual_* payment methods
+            paymentMethod: { $regex: /^manual_/i }  // Find all manual_* payment methods
         };
         
-        // Add status filter if provided
+        // Add status filter
         if (status && ['pending', 'completed', 'failed'].includes(status)) {
             query.status = status;
         }
         
-        console.log('Fixed query being used:', JSON.stringify(query, null, 2));
+        // Add date filters
+        if (fromDate || toDate) {
+            query.createdAt = {};
+            if (fromDate) query.createdAt.$gte = new Date(fromDate);
+            if (toDate) query.createdAt.$lte = new Date(toDate);
+        }
         
-        // Get transactions
+        console.log('[FIXED] Using query:', JSON.stringify(query, null, 2));
+        
+        // Get transactions with user details
         const transactions = await PaymentTransaction.find(query)
             .skip((page - 1) * limit)
             .limit(Number(limit))
             .populate('userId', 'name email phone')
             .sort({ createdAt: -1 });
         
-        console.log(`Fixed query found ${transactions.length} transactions`);
+        console.log(`[FIXED] Found ${transactions.length} transactions`);
         
-        // FIXED: Format transactions (same pattern as shareController)
+        // FIXED: Format transactions safely
         const formattedTransactions = transactions.map(transaction => {
-            let paymentProofUrl = null;
-            if (transaction.transactionId) {
-                paymentProofUrl = `/cofounder/payment-proof/${transaction.transactionId}`;
-            }
+            const paymentProofUrl = transaction.transactionId ? 
+                `/cofounder/payment-proof/${transaction.transactionId}` : null;
             
-            // Safe handling of paymentMethod - clean up the display
-            let cleanPaymentMethod = 'manual';
-            if (transaction.paymentMethod && typeof transaction.paymentMethod === 'string') {
-                cleanPaymentMethod = transaction.paymentMethod.replace('manual_', '');
-            }
+            // Clean payment method display
+            const cleanPaymentMethod = transaction.paymentMethod ? 
+                transaction.paymentMethod.replace('manual_', '') : 'unknown';
             
-            // Safe handling of user data
+            // Safe user data handling
             const userData = transaction.userId ? {
                 id: transaction.userId._id,
                 name: transaction.userId.name || 'Unknown',
@@ -1048,14 +995,15 @@ const adminGetCoFounderManualTransactions = async (req, res) => {
                 paymentProofUrl: paymentProofUrl,
                 paymentProofPath: transaction.paymentProofPath || null,
                 manualPaymentDetails: transaction.manualPaymentDetails || {},
-                adminNotes: transaction.adminNotes || ''
+                adminNotes: transaction.adminNotes || '',
+                verifiedBy: transaction.verifiedBy || null
             };
         });
         
-        // Count total with same query
+        // Count total matching transactions
         const totalCount = await PaymentTransaction.countDocuments(query);
         
-        console.log(`Total matching transactions: ${totalCount}`);
+        console.log(`[FIXED] Total matching transactions: ${totalCount}`);
         
         res.status(200).json({
             success: true,
@@ -1068,7 +1016,7 @@ const adminGetCoFounderManualTransactions = async (req, res) => {
         });
         
     } catch (error) {
-        console.error('Error fetching co-founder manual transactions:', error);
+        console.error('Error in adminGetCoFounderManualTransactions:', error);
         res.status(500).json({
             success: false,
             message: 'Failed to fetch manual transactions',
@@ -1076,6 +1024,7 @@ const adminGetCoFounderManualTransactions = async (req, res) => {
         });
     }
 };
+
 
 // Helper function to format transactions safely
 function formatTransaction(transaction) {
@@ -1133,38 +1082,87 @@ const debugManualTransactions = async (req, res) => {
             });
         }
         
-        // Get ALL co-founder transactions to see what we have
-        const allTransactions = await PaymentTransaction.find({ 
+        // Get comprehensive debug info
+        const allCoFounderTransactions = await PaymentTransaction.find({ 
             type: 'co-founder' 
-        }).select('transactionId paymentMethod status paymentProofPath createdAt').sort({ createdAt: -1 });
+        }).select('transactionId paymentMethod status paymentProofPath manualPaymentDetails createdAt userId')
+         .populate('userId', 'name email')
+         .sort({ createdAt: -1 });
         
-        // Get unique payment methods
-        const uniquePaymentMethods = [...new Set(allTransactions.map(t => t.paymentMethod))];
+        // Analyze payment methods
+        const paymentMethods = [...new Set(allCoFounderTransactions.map(t => t.paymentMethod))];
         
-        // Find transactions with payment proof
-        const transactionsWithProof = allTransactions.filter(t => 
+        // Find manual transactions
+        const manualTransactions = allCoFounderTransactions.filter(t => 
+            t.paymentMethod && t.paymentMethod.toString().includes('manual')
+        );
+        
+        // Find transactions with proof
+        const transactionsWithProof = allCoFounderTransactions.filter(t => 
             t.paymentProofPath && t.paymentProofPath !== null
         );
         
-        // Find transactions that look like manual payments
-        const potentialManualTransactions = allTransactions.filter(t => 
-            t.paymentMethod && (
-                t.paymentMethod.includes('manual') ||
-                t.paymentProofPath ||
-                (t.paymentMethod !== 'paystack' && t.paymentMethod !== 'crypto' && t.paymentMethod !== 'web3')
-            )
-        );
+        // Check file existence for transactions with proof
+        const fs = require('fs');
+        const path = require('path');
+        const fileCheckResults = [];
+        
+        for (const tx of transactionsWithProof.slice(0, 5)) { // Check first 5
+            const possiblePaths = [
+                tx.paymentProofPath,
+                path.join(process.cwd(), tx.paymentProofPath)
+            ];
+            
+            let fileExists = false;
+            let existingPath = null;
+            
+            for (const testPath of possiblePaths) {
+                try {
+                    if (fs.existsSync(testPath)) {
+                        fileExists = true;
+                        existingPath = testPath;
+                        break;
+                    }
+                } catch (err) {
+                    // Continue
+                }
+            }
+            
+            fileCheckResults.push({
+                transactionId: tx.transactionId,
+                paymentProofPath: tx.paymentProofPath,
+                fileExists,
+                existingPath
+            });
+        }
         
         res.status(200).json({
             success: true,
             debug: {
-                totalCoFounderTransactions: allTransactions.length,
-                uniquePaymentMethods: uniquePaymentMethods,
-                transactionsWithProof: transactionsWithProof.length,
-                potentialManualTransactions: potentialManualTransactions.length,
-                sampleTransactions: allTransactions.slice(0, 5),
-                transactionsWithProofSample: transactionsWithProof.slice(0, 3),
-                potentialManualSample: potentialManualTransactions.slice(0, 3)
+                totalCoFounderTransactions: allCoFounderTransactions.length,
+                uniquePaymentMethods: paymentMethods,
+                manualTransactionsCount: manualTransactions.length,
+                transactionsWithProofCount: transactionsWithProof.length,
+                
+                // Sample data
+                sampleAllTransactions: allCoFounderTransactions.slice(0, 3).map(t => ({
+                    transactionId: t.transactionId,
+                    paymentMethod: t.paymentMethod,
+                    status: t.status,
+                    hasProofPath: !!t.paymentProofPath,
+                    user: t.userId ? t.userId.name : 'Unknown'
+                })),
+                
+                sampleManualTransactions: manualTransactions.slice(0, 3).map(t => ({
+                    transactionId: t.transactionId,
+                    paymentMethod: t.paymentMethod,
+                    status: t.status,
+                    paymentProofPath: t.paymentProofPath,
+                    user: t.userId ? t.userId.name : 'Unknown'
+                })),
+                
+                // File existence check results
+                fileCheckResults
             }
         });
         
