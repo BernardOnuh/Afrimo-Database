@@ -1969,6 +1969,171 @@ router.post('/manual/initiate', protect, coFounderController.initiateCoFounderMa
  */
 router.post('/manual/upload', protect, coFounderController.uploadCoFounderPaymentProof);
 
+/**
+ * @swagger
+ * /cofounder/admin/debug/manual:
+ *   get:
+ *     tags: [Co-Founder - Admin Debug]
+ *     summary: Debug manual payment transactions
+ *     description: Debug endpoint to check what manual payment transactions exist in the database (admin only)
+ *     security:
+ *       - adminAuth: []
+ *     responses:
+ *       200:
+ *         description: Debug information retrieved successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 debug:
+ *                   type: object
+ *                   properties:
+ *                     totalCoFounderTransactions:
+ *                       type: integer
+ *                       example: 15
+ *                     uniquePaymentMethods:
+ *                       type: array
+ *                       items:
+ *                         type: string
+ *                       example: ["paystack", "manual_bank_transfer", "crypto"]
+ *                     transactionsWithProof:
+ *                       type: integer
+ *                       example: 5
+ *                     potentialManualTransactions:
+ *                       type: integer
+ *                       example: 5
+ *                     sampleTransactions:
+ *                       type: array
+ *                       items:
+ *                         type: object
+ *                     transactionsWithProofSample:
+ *                       type: array
+ *                       items:
+ *                         type: object
+ *                     potentialManualSample:
+ *                       type: array
+ *                       items:
+ *                         type: object
+ *       401:
+ *         $ref: '#/components/responses/UnauthorizedError'
+ *       403:
+ *         $ref: '#/components/responses/ForbiddenError'
+ *       500:
+ *         $ref: '#/components/responses/ServerError'
+ */
+router.get('/admin/debug/manual', protect, adminProtect, coFounderController.debugManualTransactions);
+
+// Alternative: Simple query endpoint to check what transactions exist
+/**
+ * @swagger
+ * /cofounder/admin/debug/all-transactions:
+ *   get:
+ *     tags: [Co-Founder - Admin Debug]
+ *     summary: Get all co-founder transactions for debugging
+ *     description: Get all co-founder transactions with minimal filtering for debugging purposes (admin only)
+ *     security:
+ *       - adminAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *           minimum: 1
+ *           maximum: 50
+ *           default: 20
+ *     responses:
+ *       200:
+ *         description: All transactions retrieved successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 transactions:
+ *                   type: array
+ *                   items:
+ *                     type: object
+ *                     properties:
+ *                       _id:
+ *                         type: string
+ *                       transactionId:
+ *                         type: string
+ *                       paymentMethod:
+ *                         type: string
+ *                       status:
+ *                         type: string
+ *                       paymentProofPath:
+ *                         type: string
+ *                       createdAt:
+ *                         type: string
+ *                 summary:
+ *                   type: object
+ *                   properties:
+ *                     total:
+ *                       type: integer
+ *                     paymentMethods:
+ *                       type: array
+ *                       items:
+ *                         type: string
+ *       401:
+ *         $ref: '#/components/responses/UnauthorizedError'
+ *       403:
+ *         $ref: '#/components/responses/ForbiddenError'
+ *       500:
+ *         $ref: '#/components/responses/ServerError'
+ */
+router.get('/admin/debug/all-transactions', protect, adminProtect, async (req, res) => {
+    try {
+        const adminId = req.user.id;
+        const { limit = 20 } = req.query;
+        
+        // Verify admin
+        const admin = await User.findById(adminId);
+        if (!admin || !admin.isAdmin) {
+            return res.status(403).json({
+                success: false,
+                message: 'Unauthorized: Admin access required'
+            });
+        }
+        
+        // Get all co-founder transactions
+        const transactions = await PaymentTransaction.find({ 
+            type: 'co-founder' 
+        })
+        .select('_id transactionId paymentMethod status paymentProofPath createdAt userId shares amount currency')
+        .populate('userId', 'name email')
+        .sort({ createdAt: -1 })
+        .limit(Number(limit));
+        
+        // Get payment method summary
+        const paymentMethods = await PaymentTransaction.distinct('paymentMethod', { type: 'co-founder' });
+        
+        res.status(200).json({
+            success: true,
+            transactions: transactions,
+            summary: {
+                total: transactions.length,
+                paymentMethods: paymentMethods
+            }
+        });
+        
+    } catch (error) {
+        console.error('Error in debug all-transactions:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Debug failed',
+            error: error.message
+        });
+    }
+});
+
 // ===========================================
 // EXPORT ROUTER
 // ===========================================
