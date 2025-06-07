@@ -440,7 +440,7 @@ const verifyCoFounderPaystackPayment = async (req, res) => {
     }
 };
 
-// FIXED: submitCoFounderManualPayment function in coFounderController.js
+// EMERGENCY FIX: Replace the submitCoFounderManualPayment function in your coFounderController.js
 
 const submitCoFounderManualPayment = async (req, res) => {
     try {
@@ -449,6 +449,7 @@ const submitCoFounderManualPayment = async (req, res) => {
         const paymentProofImage = req.file;
         
         console.log('[submitCoFounderManualPayment] Request body:', req.body);
+        console.log('[submitCoFounderManualPayment] User ID:', userId);
         console.log('[submitCoFounderManualPayment] File info:', paymentProofImage ? {
             fieldname: paymentProofImage.fieldname,
             originalname: paymentProofImage.originalname,
@@ -499,10 +500,10 @@ const submitCoFounderManualPayment = async (req, res) => {
         const transactionId = generateTransactionId();
         const paymentProofPath = paymentProofImage.path;
         
-        // FIXED: Ensure payment method is stored with 'manual_' prefix consistently
+        // CRITICAL FIX: Format payment method correctly
         const formattedPaymentMethod = `manual_${paymentMethod}`;
         
-        console.log(`[submitCoFounderManualPayment] Creating transaction with:`, {
+        console.log(`[submitCoFounderManualPayment] About to create transaction with:`, {
             userId,
             type: 'co-founder',
             amount: totalPrice,
@@ -511,40 +512,48 @@ const submitCoFounderManualPayment = async (req, res) => {
             status: 'pending',
             transactionId,
             paymentMethod: formattedPaymentMethod,
-            paymentProofPath,
-            manualPaymentDetails: {
-                bankName: bankName || null,
-                accountName: accountName || null,
-                reference: reference || null
-            }
+            paymentProofPath: paymentProofPath
         });
         
-        // FIXED: Record the transaction with proper field mapping
-        const transaction = await PaymentTransaction.create({
-            userId,
+        // Create transaction with all required fields
+        const transactionData = {
+            userId: userId,
             type: 'co-founder',
             amount: totalPrice,
             currency: currency.toLowerCase(),
             shares: parseInt(quantity),
             status: 'pending',
-            transactionId,
-            paymentMethod: formattedPaymentMethod, // FIXED: Store with proper format
-            paymentProofPath: paymentProofPath,     // FIXED: Ensure this is stored
+            transactionId: transactionId,
+            paymentMethod: formattedPaymentMethod,
+            paymentProofPath: paymentProofPath,
             manualPaymentDetails: {
                 bankName: bankName || null,
                 accountName: accountName || null,
                 reference: reference || null
-            },
-            // FIXED: Add reference field to match model if needed
-            reference: transactionId
-        });
+            }
+        };
         
-        console.log(`[submitCoFounderManualPayment] Transaction created successfully:`, {
+        console.log('[submitCoFounderManualPayment] Transaction data to be saved:', JSON.stringify(transactionData, null, 2));
+        
+        // Create the transaction
+        const transaction = await PaymentTransaction.create(transactionData);
+        
+        console.log('[submitCoFounderManualPayment] Transaction created:', {
             id: transaction._id,
             transactionId: transaction.transactionId,
             paymentMethod: transaction.paymentMethod,
             paymentProofPath: transaction.paymentProofPath,
             status: transaction.status
+        });
+        
+        // Verify the transaction was saved correctly
+        const savedTransaction = await PaymentTransaction.findById(transaction._id);
+        console.log('[submitCoFounderManualPayment] Verification - Transaction from DB:', {
+            id: savedTransaction._id,
+            transactionId: savedTransaction.transactionId,
+            paymentMethod: savedTransaction.paymentMethod,
+            paymentProofPath: savedTransaction.paymentProofPath,
+            status: savedTransaction.status
         });
         
         // Get user details and send admin notification
@@ -967,7 +976,7 @@ const adminGetWeb3Transactions = async (req, res) => {
     }
 };
 
-// FIXED: adminGetCoFounderManualTransactions function in coFounderController.js
+// EMERGENCY FIX: Replace the adminGetCoFounderManualTransactions function
 
 const adminGetCoFounderManualTransactions = async (req, res) => {
     try {
@@ -983,38 +992,26 @@ const adminGetCoFounderManualTransactions = async (req, res) => {
             });
         }
         
-        console.log('=== DEBUG: Admin Manual Transactions Query ===');
+        console.log('=== EMERGENCY DEBUG: Admin Manual Transactions Query ===');
         console.log('Request params:', { status, page, limit });
         
-        // SIMPLIFIED AND FIXED QUERY - Let's be more straightforward
-        // Since we know the paymentMethod field has null values, let's query differently
+        // EMERGENCY FIX: Since ALL transactions have paymentMethod: null, 
+        // let's query based on other characteristics that indicate manual payments
         const query = {
             type: 'co-founder',
             $or: [
-                // Look for transactions with manual payment methods
+                // Look for transactions with proper manual payment methods
                 { paymentMethod: { $regex: /^manual_/i } },
-                { paymentMethod: { $in: ['manual_bank_transfer', 'manual_cash', 'manual_other'] } },
-                // Look for transactions with payment proof (indicates manual payment)
-                { 
-                    $and: [
-                        { paymentProofPath: { $exists: true, $ne: null } },
-                        { paymentMethod: { $ne: 'paystack' } },
-                        { paymentMethod: { $ne: 'crypto' } }
-                    ]
-                },
-                // ADDED: Look for recent transactions where paymentMethod is null but has proof
+                // Look for transactions with payment proof path (indicates manual)
+                { paymentProofPath: { $exists: true, $ne: null } },
+                // Look for transactions where paymentMethod is null AND transactionId follows our pattern
                 {
                     $and: [
                         { paymentMethod: null },
-                        { paymentProofPath: { $exists: true, $ne: null } }
-                    ]
-                },
-                // ADDED: Look for recent transactions created via manual submission
-                {
-                    $and: [
-                        { paymentMethod: null },
-                        { createdAt: { $gte: new Date(Date.now() - 24 * 60 * 60 * 1000) } }, // Last 24 hours
-                        { transactionId: { $regex: /^CFD-/ } } // Our transaction ID format
+                        { transactionId: { $exists: true, $regex: /^CFD-/ } },
+                        // Exclude obvious non-manual transactions
+                        { transactionHash: { $exists: false } }, // not crypto
+                        { reference: { $exists: false } } // not paystack (paystack uses reference field)
                     ]
                 }
             ]
@@ -1025,32 +1022,28 @@ const adminGetCoFounderManualTransactions = async (req, res) => {
             query.status = status;
         }
         
-        console.log('Query being used:', JSON.stringify(query, null, 2));
+        console.log('Emergency query being used:', JSON.stringify(query, null, 2));
         
-        // Get transactions with the query
+        // Get transactions
         const transactions = await PaymentTransaction.find(query)
             .skip((page - 1) * limit)
             .limit(Number(limit))
             .populate('userId', 'name email phone')
             .sort({ createdAt: -1 });
         
-        console.log(`Found ${transactions.length} transactions matching query`);
+        console.log(`Emergency query found ${transactions.length} transactions`);
         
-        // Enhanced formatting function
+        // Format transactions
         const formattedTransactions = transactions.map(transaction => {
             let paymentProofUrl = null;
-            if (transaction.paymentProofPath && transaction.transactionId) {
+            if (transaction.transactionId) {
                 paymentProofUrl = `/api/cofounder/payment-proof/${transaction.transactionId}`;
             }
             
-            // Safe handling of paymentMethod - handle null values
-            let cleanPaymentMethod = 'manual'; // Default for manual payments
-            if (transaction.paymentMethod) {
-                if (typeof transaction.paymentMethod === 'string') {
-                    cleanPaymentMethod = transaction.paymentMethod.replace('manual_', '');
-                } else {
-                    cleanPaymentMethod = String(transaction.paymentMethod).replace('manual_', '');
-                }
+            // Safe handling of paymentMethod - since they're all null, default to 'manual'
+            let cleanPaymentMethod = 'manual';
+            if (transaction.paymentMethod && typeof transaction.paymentMethod === 'string') {
+                cleanPaymentMethod = transaction.paymentMethod.replace('manual_', '');
             }
             
             // Safe handling of user data
@@ -1067,7 +1060,7 @@ const adminGetCoFounderManualTransactions = async (req, res) => {
             };
             
             return {
-                id: transaction._id, // Include MongoDB _id for admin actions
+                id: transaction._id,
                 transactionId: transaction.transactionId || 'No ID',
                 user: userData,
                 shares: transaction.shares || 0,
@@ -1082,7 +1075,9 @@ const adminGetCoFounderManualTransactions = async (req, res) => {
                 adminNotes: transaction.adminNotes || '',
                 // Debug info
                 originalPaymentMethod: transaction.paymentMethod,
-                hasPaymentProof: !!transaction.paymentProofPath
+                hasPaymentProof: !!transaction.paymentProofPath,
+                hasTransactionHash: !!transaction.transactionHash,
+                hasReference: !!transaction.reference
             };
         });
         
@@ -1099,11 +1094,12 @@ const adminGetCoFounderManualTransactions = async (req, res) => {
                 totalPages: Math.ceil(totalCount / limit),
                 totalCount
             },
-            debug: process.env.NODE_ENV === 'development' ? {
-                queryUsed: 'enhanced',
+            debug: {
+                queryUsed: 'emergency',
                 foundTransactions: transactions.length,
-                totalCount: totalCount
-            } : undefined
+                totalCount: totalCount,
+                note: 'Using emergency query due to null paymentMethod values'
+            }
         });
         
     } catch (error) {

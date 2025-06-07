@@ -2190,6 +2190,286 @@ router.get('/admin/debug/all-transactions', protect, adminProtect, async (req, r
   }
 });
 
+/**
+ * @swagger
+ * /cofounder/admin/emergency/fix-payment-methods:
+ *   post:
+ *     tags: [Co-Founder - Admin Emergency]
+ *     summary: Emergency fix for null payment methods
+ *     description: |
+ *       **EMERGENCY ROUTE** - One-time fix for transactions with null paymentMethod values.
+ *       
+ *       This endpoint will:
+ *       - Find all co-founder transactions with null paymentMethod
+ *       - Analyze each transaction to determine the correct payment method
+ *       - Update transactions based on available data:
+ *         - If has transactionHash → set to 'crypto'
+ *         - If has reference (no hash) → set to 'paystack' 
+ *         - If has paymentProofPath or CFD- pattern → set to 'manual_bank_transfer'
+ *         - Default fallback → set to 'manual_bank_transfer'
+ *       
+ *       **⚠️ WARNING**: This is a one-time data migration. Only run this once to fix existing data.
+ *       
+ *       **🔧 PURPOSE**: Fixes the issue where manual payment transactions are not visible in admin dashboard due to null paymentMethod values.
+ *     security:
+ *       - adminAuth: []
+ *     requestBody:
+ *       required: false
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               dryRun:
+ *                 type: boolean
+ *                 default: false
+ *                 description: If true, only shows what would be fixed without making changes
+ *               force:
+ *                 type: boolean
+ *                 default: false
+ *                 description: Set to true to confirm you want to run the fix
+ *     responses:
+ *       200:
+ *         description: Emergency fix completed successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *                   example: "Emergency fix completed. Updated 6 transactions."
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     totalTransactionsFixed:
+ *                       type: integer
+ *                       example: 6
+ *                       description: Number of transactions that were updated
+ *                     manualTransactionsNow:
+ *                       type: integer
+ *                       example: 6
+ *                       description: Total manual transactions after fix
+ *                     sampleFixed:
+ *                       type: array
+ *                       items:
+ *                         type: object
+ *                         properties:
+ *                           _id:
+ *                             type: string
+ *                             example: "6844092e6fcb7ae39de138bd"
+ *                           transactionId:
+ *                             type: string
+ *                             example: "CFD-D0326B6C-262046"
+ *                           paymentMethod:
+ *                             type: string
+ *                             example: "manual_bank_transfer"
+ *                       description: Sample of fixed transactions
+ *                     analysisBreakdown:
+ *                       type: object
+ *                       properties:
+ *                         totalFound:
+ *                           type: integer
+ *                           example: 6
+ *                         setCrypto:
+ *                           type: integer
+ *                           example: 0
+ *                         setPaystack:
+ *                           type: integer
+ *                           example: 0
+ *                         setManual:
+ *                           type: integer
+ *                           example: 6
+ *                         errors:
+ *                           type: integer
+ *                           example: 0
+ *       400:
+ *         description: Bad Request - Fix not confirmed
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: false
+ *                 message:
+ *                   type: string
+ *                   example: "This is an emergency data migration. Set 'force: true' to confirm."
+ *                 preview:
+ *                   type: object
+ *                   properties:
+ *                     transactionsToFix:
+ *                       type: integer
+ *                       example: 6
+ *                     sampleTransactions:
+ *                       type: array
+ *                       items:
+ *                         type: object
+ *       401:
+ *         $ref: '#/components/responses/UnauthorizedError'
+ *       403:
+ *         $ref: '#/components/responses/ForbiddenError'
+ *       500:
+ *         $ref: '#/components/responses/ServerError'
+ *     examples:
+ *       dryRun:
+ *         summary: Preview what will be fixed
+ *         value:
+ *           dryRun: true
+ *       actualFix:
+ *         summary: Run the actual fix
+ *         value:
+ *           force: true
+ */
+
+// EMERGENCY SCRIPT: Add this as a new route to fix existing transactions
+// Add this to your coFounderRoutes.js temporarily
+router.post('/admin/emergency/fix-payment-methods', protect, adminProtect, async (req, res) => {
+  try {
+      const adminId = req.user.id;
+      const { dryRun = false, force = false } = req.body;
+      
+      // Verify admin
+      const admin = await User.findById(adminId);
+      if (!admin || !admin.isAdmin) {
+          return res.status(403).json({
+              success: false,
+              message: 'Unauthorized: Admin access required'
+          });
+      }
+      
+      console.log('[EMERGENCY FIX] Starting to fix null paymentMethod values...');
+      console.log(`[EMERGENCY FIX] Mode: ${dryRun ? 'DRY RUN' : force ? 'ACTUAL FIX' : 'PREVIEW'}`);
+      
+      // Find all co-founder transactions with null paymentMethod
+      const transactionsToFix = await PaymentTransaction.find({
+          type: 'co-founder',
+          paymentMethod: null
+      });
+      
+      console.log(`[EMERGENCY FIX] Found ${transactionsToFix.length} transactions with null paymentMethod`);
+      
+      // If not force and not dryRun, show preview only
+      if (!force && !dryRun) {
+          return res.status(400).json({
+              success: false,
+              message: "This is an emergency data migration. Set 'force: true' to confirm or 'dryRun: true' to preview.",
+              preview: {
+                  transactionsToFix: transactionsToFix.length,
+                  sampleTransactions: transactionsToFix.slice(0, 3).map(t => ({
+                      id: t._id,
+                      transactionId: t.transactionId,
+                      currentPaymentMethod: t.paymentMethod,
+                      hasTransactionHash: !!t.transactionHash,
+                      hasReference: !!t.reference,
+                      hasPaymentProof: !!t.paymentProofPath,
+                      createdAt: t.createdAt
+                  }))
+              }
+          });
+      }
+      
+      let fixedCount = 0;
+      let errorCount = 0;
+      let analysisBreakdown = {
+          totalFound: transactionsToFix.length,
+          setCrypto: 0,
+          setPaystack: 0,
+          setManual: 0,
+          errors: 0
+      };
+      
+      for (const transaction of transactionsToFix) {
+          try {
+              // Determine the likely payment method based on available data
+              let newPaymentMethod = 'manual_bank_transfer'; // Default assumption
+              
+              // If it has a transactionHash, it's probably crypto
+              if (transaction.transactionHash) {
+                  newPaymentMethod = 'crypto';
+                  analysisBreakdown.setCrypto++;
+              }
+              // If it has a reference field and no transactionHash, probably paystack
+              else if (transaction.reference && !transaction.transactionHash) {
+                  newPaymentMethod = 'paystack';
+                  analysisBreakdown.setPaystack++;
+              }
+              // If it has paymentProofPath or follows our manual transaction pattern
+              else if (transaction.paymentProofPath || 
+                       (transaction.transactionId && transaction.transactionId.startsWith('CFD-'))) {
+                  newPaymentMethod = 'manual_bank_transfer';
+                  analysisBreakdown.setManual++;
+              } else {
+                  // Default fallback
+                  analysisBreakdown.setManual++;
+              }
+              
+              console.log(`[EMERGENCY FIX] Transaction ${transaction._id}: ${transaction.transactionId} -> ${newPaymentMethod}`);
+              
+              // Only actually update if not a dry run
+              if (!dryRun) {
+                  await PaymentTransaction.findByIdAndUpdate(transaction._id, {
+                      paymentMethod: newPaymentMethod
+                  });
+              }
+              
+              fixedCount++;
+              
+          } catch (updateError) {
+              console.error(`[EMERGENCY FIX] Error updating transaction ${transaction._id}:`, updateError);
+              errorCount++;
+              analysisBreakdown.errors++;
+          }
+      }
+      
+      console.log(`[EMERGENCY FIX] ${dryRun ? 'Would have fixed' : 'Successfully fixed'} ${fixedCount} transactions`);
+      
+      // Verify the fix worked (only if not dry run)
+      let verificationQuery = [];
+      if (!dryRun) {
+          verificationQuery = await PaymentTransaction.find({
+              type: 'co-founder',
+              paymentMethod: { $regex: /^manual_/i }
+          }).select('_id transactionId paymentMethod');
+      }
+      
+      res.status(200).json({
+          success: true,
+          message: `Emergency fix ${dryRun ? 'preview' : 'completed'}. ${dryRun ? 'Would update' : 'Updated'} ${fixedCount} transactions.`,
+          data: {
+              mode: dryRun ? 'DRY RUN' : 'ACTUAL FIX',
+              totalTransactionsFixed: fixedCount,
+              totalErrors: errorCount,
+              manualTransactionsNow: verificationQuery.length,
+              sampleFixed: verificationQuery.slice(0, 5),
+              analysisBreakdown
+          },
+          warning: dryRun ? 'This was a preview. Set force: true to actually apply changes.' : null,
+          nextSteps: dryRun ? [
+              'Review the analysis breakdown',
+              'If results look correct, run again with force: true',
+              'Test manual transaction visibility after fix'
+          ] : [
+              'Test manual transaction visibility in admin dashboard',
+              'Verify admin can approve/reject manual payments',
+              'Remove this emergency route after confirming fix worked'
+          ]
+      });
+      
+  } catch (error) {
+      console.error('[EMERGENCY FIX] Error:', error);
+      res.status(500).json({
+          success: false,
+          message: 'Emergency fix failed',
+          error: error.message
+      });
+  }
+});
+
 // ===========================================
 // EXPORT ROUTER
 // ===========================================
