@@ -949,15 +949,23 @@ const adminGetCoFounderManualTransactions = async (req, res) => {
             });
         }
         
-        // Build query for manual payment methods
+        // FIXED: Build query for manual payment methods with more specific matching
         const query = {
             type: 'co-founder',
-            paymentMethod: { $regex: '^manual_' }
+            $or: [
+                { paymentMethod: { $regex: /^manual_/i } },  // Case insensitive
+                { paymentMethod: 'manual_bank_transfer' },
+                { paymentMethod: 'manual_cash' },
+                { paymentMethod: 'manual_other' }
+            ]
         };
         
+        // Add status filter if provided
         if (status && ['pending', 'completed', 'failed'].includes(status)) {
             query.status = status;
         }
+        
+        console.log('Admin manual transactions query:', JSON.stringify(query));
         
         // Get transactions
         const transactions = await PaymentTransaction.find(query)
@@ -965,6 +973,8 @@ const adminGetCoFounderManualTransactions = async (req, res) => {
             .limit(Number(limit))
             .populate('userId', 'name email phone')
             .sort({ createdAt: -1 });
+        
+        console.log(`Found ${transactions.length} manual transactions`);
         
         // Format response with safe paymentMethod handling
         const formattedTransactions = transactions.map(transaction => {
@@ -1029,7 +1039,6 @@ const adminGetCoFounderManualTransactions = async (req, res) => {
         });
     }
 };
-
 
 
 // NEW: Admin verify manual payment
