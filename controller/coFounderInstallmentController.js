@@ -77,8 +77,8 @@ const calculateCoFounderInstallmentPlan = async (req, res) => {
     
     const totalPrice = quantity * pricePerShare;
     
-    // Calculate minimum down payment (25% for co-founder shares)
-    const minimumDownPaymentAmount = totalPrice * 0.25;
+    // Calculate minimum down payment (20% for co-founder shares)
+    const minimumDownPaymentAmount = totalPrice * 0.20;
     const installmentAmount = totalPrice / installmentMonths;
     const installmentPercentage = 100 / installmentMonths;
     const lateFee = 0.5; // 0.5% late fee per month
@@ -113,13 +113,13 @@ const calculateCoFounderInstallmentPlan = async (req, res) => {
         currency,
         installmentMonths,
         minimumDownPaymentAmount,
-        minimumDownPaymentPercentage: 25,
+        minimumDownPaymentPercentage: 20,
         installmentAmount,
         installmentPercentage,
         lateFeePercentage: lateFee,
         monthlyPayments,
         pricePerShare,
-        note: "First payment must be at least 25% of total price. Subsequent payments can be flexible amounts using Paystack."
+        note: "First payment must be at least 20% of total price. Subsequent payments can be flexible amounts using Paystack."
       }
     });
     
@@ -194,7 +194,7 @@ const createCoFounderInstallmentPlan = async (req, res) => {
     
     // Generate plan ID
     const planId = generateTransactionId();
-    const minimumDownPaymentAmount = totalPrice * 0.25; // 25% for co-founder shares
+    const minimumDownPaymentAmount = totalPrice * 0.20; // 20% for co-founder shares
     const installmentAmount = totalPrice / installmentMonths;
     const installmentPercentage = 100 / installmentMonths;
     const lateFee = 0.5; // 0.5% late fee
@@ -237,7 +237,7 @@ const createCoFounderInstallmentPlan = async (req, res) => {
       currency,
       installmentMonths,
       minimumDownPaymentAmount,
-      minimumDownPaymentPercentage: 25,
+      minimumDownPaymentPercentage: 20,
       lateFeePercentage: lateFee,
       status: 'pending',
       createdAt: startDate,
@@ -262,11 +262,11 @@ const createCoFounderInstallmentPlan = async (req, res) => {
         currency,
         installmentMonths,
         minimumDownPaymentAmount,
-        minimumDownPaymentPercentage: 25,
+        minimumDownPaymentPercentage: 20,
         firstPaymentDue: installments[0].dueDate,
         installmentAmount,
         status: 'pending',
-        note: "First payment must be at least 25% of total price. Use Paystack to make payments."
+        note: "First payment must be at least 20% of total price. Use Paystack to make payments."
       }
     });
     
@@ -473,7 +473,7 @@ const payCoFounderInstallmentWithPaystack = async (req, res) => {
       session.endSession();
       return res.status(400).json({
         success: false,
-        message: `First payment must be at least ${plan.currency === 'naira' ? '₦' : '$'}${plan.minimumDownPaymentAmount.toFixed(2)} (25% of total price)`
+        message: `First payment must be at least ${plan.currency === 'naira' ? '₦' : '$'}${plan.minimumDownPaymentAmount.toFixed(2)} (20% of total price)`
       });
     }
     
@@ -845,7 +845,7 @@ const cancelCoFounderInstallmentPlan = async (req, res) => {
         session.endSession();
         return res.status(400).json({
           success: false,
-          message: `You cannot cancel the plan before completing the minimum down payment of ${plan.currency === 'naira' ? '₦' : '$'}${plan.minimumDownPaymentAmount.toFixed(2)} (25%)`
+          message: `You cannot cancel the plan before completing the minimum down payment of ${plan.currency === 'naira' ? '₦' : '$'}${plan.minimumDownPaymentAmount.toFixed(2)} (20%)`
         });
       }
       

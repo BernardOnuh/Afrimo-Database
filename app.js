@@ -40,8 +40,8 @@ const corsOptions = {
       'http://localhost:5000',
       'http://localhost:8080',
       'https://afrimo-database.onrender.com',
-      'https://your-frontend-domain.com', // Add your actual frontend domain
-      'https://your-frontend-domain.vercel.app', // If using Vercel
+      'https://www.afrimobil.com',  // ← ADD THIS LINE
+      'https://afrimobil.com',      // ← AND THIS (without www)
       'https://your-frontend-domain.netlify.app', // If using Netlify
       // Add more domains as needed
     ];
@@ -148,7 +148,7 @@ if (process.env.NODE_ENV === 'development') {
 }
 
 // ====================================
-// ENHANCED STATIC FILE SERVING FOR UPLOADS
+// ENHANCED STATIC FILE SERVING FOR ALL UPLOAD TYPES
 // ====================================
 
 // Enhanced static file serving for uploads with security, logging, and CORS
@@ -165,12 +165,16 @@ app.use('/uploads', (req, res, next) => {
   console.log(`[static-serve] Request method: ${req.method}`);
   console.log(`[static-serve] User agent: ${req.get('User-Agent')}`);
   
-  // Security: Only allow access to payment-proofs directory
-  if (!requestedPath.startsWith('/payment-proofs/')) {
+  // Security: Allow access to both payment-proofs and cofounder-payment-proofs directories
+  const allowedDirs = ['/payment-proofs/', '/cofounder-payment-proofs/'];
+  const isAllowed = allowedDirs.some(dir => requestedPath.startsWith(dir));
+  
+  if (!isAllowed) {
     console.log(`[static-serve] Access denied for path: ${requestedPath}`);
+    console.log(`[static-serve] Allowed directories: ${allowedDirs.join(', ')}`);
     return res.status(403).json({
       success: false,
-      message: 'Access denied - only payment-proofs directory accessible'
+      message: 'Access denied - only payment-proofs and cofounder-payment-proofs directories accessible'
     });
   }
   
@@ -186,21 +190,25 @@ app.use('/uploads', (req, res, next) => {
     // List available files for debugging
     const uploadsDir = path.join(process.cwd(), 'uploads');
     const paymentProofsDir = path.join(uploadsDir, 'payment-proofs');
+    const cofounderPaymentProofsDir = path.join(uploadsDir, 'cofounder-payment-proofs');
     
     console.log(`[static-serve] Debug info:`);
     console.log(`[static-serve] - Uploads dir exists: ${fs.existsSync(uploadsDir)}`);
     console.log(`[static-serve] - Payment-proofs dir exists: ${fs.existsSync(paymentProofsDir)}`);
+    console.log(`[static-serve] - Co-founder payment-proofs dir exists: ${fs.existsSync(cofounderPaymentProofsDir)}`);
     
-    if (fs.existsSync(paymentProofsDir)) {
-      try {
-        const files = fs.readdirSync(paymentProofsDir);
-        console.log(`[static-serve] Available files in payment-proofs: ${files.length > 0 ? files.join(', ') : 'No files'}`);
-      } catch (err) {
-        console.log(`[static-serve] Error reading directory: ${err.message}`);
+    // List files in both directories
+    [paymentProofsDir, cofounderPaymentProofsDir].forEach((dir, index) => {
+      const dirName = index === 0 ? 'payment-proofs' : 'cofounder-payment-proofs';
+      if (fs.existsSync(dir)) {
+        try {
+          const files = fs.readdirSync(dir);
+          console.log(`[static-serve] Available files in ${dirName}: ${files.length > 0 ? files.join(', ') : 'No files'}`);
+        } catch (err) {
+          console.log(`[static-serve] Error reading ${dirName} directory: ${err.message}`);
+        }
       }
-    } else {
-      console.log(`[static-serve] Payment-proofs directory does not exist`);
-    }
+    });
     
     return res.status(404).json({
       success: false,
@@ -233,6 +241,60 @@ app.use('/uploads', (req, res, next) => {
   }
 }));
 
+// ====================================
+// SEPARATE STATIC SERVING FOR CO-FOUNDER PAYMENT PROOFS (ALTERNATIVE ROUTE)
+// ====================================
+
+// Serve co-founder payment proofs from a separate route (for backward compatibility)
+app.use('/cofounder-payment-proofs', (req, res, next) => {
+  // Add CORS headers
+  res.header('Access-Control-Allow-Origin', '*');
+  res.header('Access-Control-Allow-Methods', 'GET, OPTIONS');
+  res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
+  
+  console.log(`[cofounder-static] Requested file: ${req.path}`);
+  console.log(`[cofounder-static] Full URL: ${req.originalUrl}`);
+  
+  // Construct path to co-founder payment proofs directory
+  const requestedFile = req.path.startsWith('/') ? req.path.substring(1) : req.path;
+  const fullPath = path.join(process.cwd(), 'uploads', 'cofounder-payment-proofs', requestedFile);
+  
+  console.log(`[cofounder-static] Looking for file: ${fullPath}`);
+  
+  // Check if file exists
+  if (!fs.existsSync(fullPath)) {
+    console.log(`[cofounder-static] File not found: ${fullPath}`);
+    
+    // Debug: List available files
+    const cofounderDir = path.join(process.cwd(), 'uploads', 'cofounder-payment-proofs');
+    if (fs.existsSync(cofounderDir)) {
+      try {
+        const files = fs.readdirSync(cofounderDir);
+        console.log(`[cofounder-static] Available files: ${files.join(', ')}`);
+      } catch (err) {
+        console.log(`[cofounder-static] Error reading directory: ${err.message}`);
+      }
+    }
+    
+    return res.status(404).json({
+      success: false,
+      message: 'Co-founder payment proof file not found'
+    });
+  }
+  
+  console.log(`[cofounder-static] Serving file: ${fullPath}`);
+  next();
+}, express.static(path.join(__dirname, 'uploads', 'cofounder-payment-proofs'), {
+  maxAge: '1d',
+  etag: true,
+  lastModified: true,
+  setHeaders: function (res, path, stat) {
+    res.set('Access-Control-Allow-Origin', '*');
+    res.set('Access-Control-Allow-Methods', 'GET, OPTIONS');
+    res.set('X-Served-By', 'AfriMobile-API-CoFounder');
+  }
+}));
+
 // Setup Swagger documentation
 setupSwagger(app);
 
@@ -257,36 +319,42 @@ app.use('/api', (req, res, next) => {
   if (req.path.includes('shares') && (req.method === 'POST' || req.path.includes('manual') || req.path.includes('upload'))) {
     const uploadsDir = path.join(process.cwd(), 'uploads');
     const paymentProofsDir = path.join(uploadsDir, 'payment-proofs');
+    const cofounderPaymentProofsDir = path.join(uploadsDir, 'cofounder-payment-proofs');
     
     console.log(`[file-monitor] Request: ${req.method} ${req.path}`);
     console.log(`[file-monitor] Timestamp: ${new Date().toISOString()}`);
     console.log(`[file-monitor] Working directory: ${process.cwd()}`);
     console.log(`[file-monitor] Uploads directory exists: ${fs.existsSync(uploadsDir)}`);
     console.log(`[file-monitor] Payment-proofs directory exists: ${fs.existsSync(paymentProofsDir)}`);
+    console.log(`[file-monitor] Co-founder payment-proofs directory exists: ${fs.existsSync(cofounderPaymentProofsDir)}`);
     
-    if (fs.existsSync(paymentProofsDir)) {
-      try {
-        const files = fs.readdirSync(paymentProofsDir);
-        console.log(`[file-monitor] Files in payment-proofs: ${files.length}`);
-        if (files.length > 0) {
-          console.log(`[file-monitor] Recent files: ${files.slice(-3).join(', ')}`);
-          
-          // Check file ages
-          files.forEach(file => {
-            try {
-              const filePath = path.join(paymentProofsDir, file);
-              const stats = fs.statSync(filePath);
-              const ageInMinutes = (Date.now() - stats.mtime.getTime()) / (1000 * 60);
-              console.log(`[file-monitor] File ${file}: ${Math.round(ageInMinutes)} minutes old`);
-            } catch (err) {
-              console.log(`[file-monitor] Error checking file ${file}: ${err.message}`);
-            }
-          });
+    // Check both directories
+    [paymentProofsDir, cofounderPaymentProofsDir].forEach((dir, index) => {
+      const dirName = index === 0 ? 'payment-proofs' : 'cofounder-payment-proofs';
+      if (fs.existsSync(dir)) {
+        try {
+          const files = fs.readdirSync(dir);
+          console.log(`[file-monitor] Files in ${dirName}: ${files.length}`);
+          if (files.length > 0) {
+            console.log(`[file-monitor] Recent files in ${dirName}: ${files.slice(-3).join(', ')}`);
+            
+            // Check file ages
+            files.forEach(file => {
+              try {
+                const filePath = path.join(dir, file);
+                const stats = fs.statSync(filePath);
+                const ageInMinutes = (Date.now() - stats.mtime.getTime()) / (1000 * 60);
+                console.log(`[file-monitor] File ${file}: ${Math.round(ageInMinutes)} minutes old`);
+              } catch (err) {
+                console.log(`[file-monitor] Error checking file ${file}: ${err.message}`);
+              }
+            });
+          }
+        } catch (err) {
+          console.log(`[file-monitor] Error reading ${dirName} directory: ${err.message}`);
         }
-      } catch (err) {
-        console.log(`[file-monitor] Error reading directory: ${err.message}`);
       }
-    }
+    });
   }
   next();
 });
@@ -298,7 +366,7 @@ app.use('/api', (req, res, next) => {
 // Routes
 app.use('/api/users', require('./routes/userRoutes'));
 app.use('/api/shares', require('./routes/shareRoutes'));
-app.use('/api/shares', require('./routes/coFounderShareRoutes')); // Fixed to use same base path
+app.use('/api/cofounder', require('./routes/coFounderShareRoutes')); // Fixed to use same base path
 
 // New routes for project stats, leaderboard, and referrals
 app.use('/api/project', require('./routes/projectRoutes'));
@@ -338,29 +406,41 @@ app.get('/api/cors-test', (req, res) => {
 // Add an endpoint to test file serving
 app.get('/api/test-file-access', (req, res) => {
   const testUrl = `${req.protocol}://${req.get('host')}/uploads/payment-proofs/test.jpg`;
+  const cofounderTestUrl = `${req.protocol}://${req.get('host')}/uploads/cofounder-payment-proofs/test.jpg`;
   
   res.json({
     success: true,
     message: 'File access test endpoint',
-    testFileUrl: testUrl,
-    uploadsPath: '/uploads/payment-proofs/',
+    testFileUrls: {
+      regular: testUrl,
+      cofounder: cofounderTestUrl,
+      cofounderAlternative: `${req.protocol}://${req.get('host')}/cofounder-payment-proofs/test.jpg`
+    },
+    uploadsPaths: {
+      regular: '/uploads/payment-proofs/',
+      cofounder: '/uploads/cofounder-payment-proofs/',
+      cofounderAlternative: '/cofounder-payment-proofs/'
+    },
     corsHeaders: {
       'Access-Control-Allow-Origin': res.get('Access-Control-Allow-Origin'),
       'Access-Control-Allow-Methods': res.get('Access-Control-Allow-Methods')
     },
     suggestions: [
       'Try accessing a file directly: GET /uploads/payment-proofs/filename.jpg',
+      'Try accessing co-founder file: GET /uploads/cofounder-payment-proofs/filename.jpg',
+      'Alternative co-founder route: GET /cofounder-payment-proofs/filename.jpg',
       'Check browser console for detailed CORS errors',
       'Verify your frontend origin is in the allowedOrigins list'
     ]
   });
 });
 
-// Add file system debugging endpoint
+// Enhanced file system debugging endpoint
 app.get('/api/debug/files', (req, res) => {
   try {
     const uploadsDir = path.join(process.cwd(), 'uploads');
     const paymentProofsDir = path.join(uploadsDir, 'payment-proofs');
+    const cofounderPaymentProofsDir = path.join(uploadsDir, 'cofounder-payment-proofs');
     
     const result = {
       success: true,
@@ -370,13 +450,18 @@ app.get('/api/debug/files', (req, res) => {
         cwd: process.cwd(),
         uploadsDir,
         paymentProofsDir,
+        cofounderPaymentProofsDir,
         __dirname: __dirname
       },
       exists: {
         uploads: fs.existsSync(uploadsDir),
-        paymentProofs: fs.existsSync(paymentProofsDir)
+        paymentProofs: fs.existsSync(paymentProofsDir),
+        cofounderPaymentProofs: fs.existsSync(cofounderPaymentProofsDir)
       },
-      files: [],
+      files: {
+        paymentProofs: [],
+        cofounderPaymentProofs: []
+      },
       diskSpace: null
     };
     
@@ -394,35 +479,44 @@ app.get('/api/debug/files', (req, res) => {
       };
     }
     
-    if (fs.existsSync(paymentProofsDir)) {
-      try {
-        const files = fs.readdirSync(paymentProofsDir);
-        result.files = files.map(file => {
-          const filePath = path.join(paymentProofsDir, file);
-          try {
-            const stats = fs.statSync(filePath);
-            return {
-              name: file,
-              size: stats.size,
-              created: stats.birthtime,
-              modified: stats.mtime,
-              url: `/uploads/payment-proofs/${file}`,
-              ageMinutes: Math.round((Date.now() - stats.mtime.getTime()) / (1000 * 60))
-            };
-          } catch (err) {
-            return {
-              name: file,
-              error: err.message
-            };
-          }
-        });
-        
-        // Sort by modification time (newest first)
-        result.files.sort((a, b) => new Date(b.modified) - new Date(a.modified));
-      } catch (err) {
-        result.error = `Error reading directory: ${err.message}`;
+    // Check both directories
+    const directories = [
+      { path: paymentProofsDir, key: 'paymentProofs', name: 'payment-proofs' },
+      { path: cofounderPaymentProofsDir, key: 'cofounderPaymentProofs', name: 'cofounder-payment-proofs' }
+    ];
+    
+    directories.forEach(({ path: dirPath, key, name }) => {
+      if (fs.existsSync(dirPath)) {
+        try {
+          const files = fs.readdirSync(dirPath);
+          result.files[key] = files.map(file => {
+            const filePath = path.join(dirPath, file);
+            try {
+              const stats = fs.statSync(filePath);
+              return {
+                name: file,
+                size: stats.size,
+                created: stats.birthtime,
+                modified: stats.mtime,
+                url: `/uploads/${name}/${file}`,
+                alternativeUrl: key === 'cofounderPaymentProofs' ? `/cofounder-payment-proofs/${file}` : null,
+                ageMinutes: Math.round((Date.now() - stats.mtime.getTime()) / (1000 * 60))
+              };
+            } catch (err) {
+              return {
+                name: file,
+                error: err.message
+              };
+            }
+          });
+          
+          // Sort by modification time (newest first)
+          result.files[key].sort((a, b) => new Date(b.modified) - new Date(a.modified));
+        } catch (err) {
+          result[`${key}Error`] = `Error reading directory: ${err.message}`;
+        }
       }
-    }
+    });
     
     res.json(result);
   } catch (error) {
@@ -639,7 +733,7 @@ app.get('/api/cofounder/installment/stats', async (req, res) => {
       stats: {
         ...stats,
         ...financialStats,
-        completionRate: stats.total > 0 ? ((stats.completed / stats.total) * 100).toFixed(2) : 0
+        completionRate: stats.total > 0 ? ((stats.completed / stats.total) * 100).toFixed(2): 0
       },
       timestamp: new Date().toISOString()
     });
@@ -879,7 +973,8 @@ app.get('/', (req, res) => {
     documentation: '/api-docs',
     fileSystem: {
       uploadsExists: fs.existsSync(path.join(process.cwd(), 'uploads')),
-      paymentProofsExists: fs.existsSync(path.join(process.cwd(), 'uploads', 'payment-proofs'))
+      paymentProofsExists: fs.existsSync(path.join(process.cwd(), 'uploads', 'payment-proofs')),
+      cofounderPaymentProofsExists: fs.existsSync(path.join(process.cwd(), 'uploads', 'cofounder-payment-proofs'))
     },
     cors: {
       enabled: true,
@@ -900,6 +995,13 @@ app.get('/', (req, res) => {
       debugEndpoints: [
         '/api/cofounder/installment/stats',
         '/api/cofounder/installment/manual-penalty-check'
+      ]
+    },
+    fileServingEndpoints: {
+      regularPayments: '/uploads/payment-proofs/',
+      cofounderPayments: [
+        '/uploads/cofounder-payment-proofs/',
+        '/cofounder-payment-proofs/' // Alternative route
       ]
     }
   });
@@ -977,9 +1079,10 @@ app.use((req, res) => {
     path: req.url,
     method: req.method,
     timestamp: new Date().toISOString(),
-    suggestions: req.url.includes('uploads') ? [
+    suggestions: req.url.includes('uploads') || req.url.includes('cofounder-payment-proofs') ? [
       'Check if the file exists: GET /api/debug/files',
-      'Verify the file URL format: /uploads/payment-proofs/filename.jpg',
+      'Verify the file URL format: /uploads/payment-proofs/filename.jpg or /uploads/cofounder-payment-proofs/filename.jpg',
+      'Try alternative co-founder route: /cofounder-payment-proofs/filename.jpg',
       'Ensure the file was uploaded successfully'
     ] : [
       'Check the API documentation: /api-docs',
@@ -1015,39 +1118,49 @@ const server = app.listen(PORT, () => {
   console.log(`   Pay: http://localhost:${PORT}/api/shares/cofounder/installment/paystack/pay`);
   console.log(`   Verify: http://localhost:${PORT}/api/shares/cofounder/installment/paystack/verify`);
   
+  // Add file serving info
+  console.log('\n📁 File Serving Routes:');
+  console.log(`   Regular Payments: http://localhost:${PORT}/uploads/payment-proofs/`);
+  console.log(`   Co-founder Payments: http://localhost:${PORT}/uploads/cofounder-payment-proofs/`);
+  console.log(`   Co-founder Alt Route: http://localhost:${PORT}/cofounder-payment-proofs/`);
+  
   console.log('**********************************************\n');
   
   // Log initial file system state
   const uploadsDir = path.join(process.cwd(), 'uploads');
   const paymentProofsDir = path.join(uploadsDir, 'payment-proofs');
+  const cofounderPaymentProofsDir = path.join(uploadsDir, 'cofounder-payment-proofs');
   
   console.log('File System Check on Startup:');
   console.log(`- Uploads directory exists: ${fs.existsSync(uploadsDir)}`);
   console.log(`- Payment-proofs directory exists: ${fs.existsSync(paymentProofsDir)}`);
+  console.log(`- Co-founder payment-proofs directory exists: ${fs.existsSync(cofounderPaymentProofsDir)}`);
   
-  if (!fs.existsSync(uploadsDir)) {
-    console.log('Creating uploads directory...');
-    try {
-      fs.mkdirSync(uploadsDir, { recursive: true });
-      console.log('✅ Uploads directory created successfully');
-    } catch (err) {
-      console.error('❌ Failed to create uploads directory:', err.message);
-    }
-  }
+  // Create directories if they don't exist
+  const directoriesToCreate = [
+    { path: uploadsDir, name: 'uploads' },
+    { path: paymentProofsDir, name: 'payment-proofs' },
+    { path: cofounderPaymentProofsDir, name: 'cofounder-payment-proofs' }
+  ];
   
-  if (!fs.existsSync(paymentProofsDir)) {
-    console.log('Creating payment-proofs directory...');
-    try {
-      fs.mkdirSync(paymentProofsDir, { recursive: true });
-      console.log('✅ Payment-proofs directory created successfully');
-    } catch (err) {
-      console.error('❌ Failed to create payment-proofs directory:', err.message);
+  directoriesToCreate.forEach(({ path: dirPath, name }) => {
+    if (!fs.existsSync(dirPath)) {
+      console.log(`Creating ${name} directory...`);
+      try {
+        fs.mkdirSync(dirPath, { recursive: true });
+        console.log(`✅ ${name} directory created successfully`);
+      } catch (err) {
+        console.error(`❌ Failed to create ${name} directory:`, err.message);
+      }
     }
-  }
+  });
   
   console.log('✅ File system setup complete.');
   console.log('🔐 CORS configuration active');
-  console.log('📡 Static file serving enabled: /uploads/payment-proofs/');
+  console.log('📡 Static file serving enabled:');
+  console.log('   - /uploads/payment-proofs/');
+  console.log('   - /uploads/cofounder-payment-proofs/');
+  console.log('   - /cofounder-payment-proofs/ (alternative)');
   console.log('⏰ Installment schedulers active (regular + co-founder)');
   console.log('\n🎯 Quick Test URLs:');
   console.log(`   Health: https://afrimo-database.onrender.com/`);
@@ -1056,6 +1169,7 @@ const server = app.listen(PORT, () => {
   console.log(`   Docs: https://afrimo-database.onrender.com/api-docs`);
   console.log(`   CoFounder Stats: https://afrimo-database.onrender.com/api/cofounder/installment/stats`);
   console.log(`   Manual Check: https://afrimo-database.onrender.com/api/cofounder/installment/manual-penalty-check`);
+  console.log(`   File Test: https://afrimo-database.onrender.com/api/test-file-access`);
   console.log('');
 });
 

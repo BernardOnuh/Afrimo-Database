@@ -557,7 +557,7 @@ router.get('/paystack/verify',
 
 /**
  * @swagger
- * /installment/admin/plans:
+ * /shares/installment/admin/plans:
  *   get:
  *     tags: [Installment - Admin]
  *     summary: Get all installment plans
