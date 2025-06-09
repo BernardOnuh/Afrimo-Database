@@ -905,7 +905,6 @@ exports.verifyInstallmentPaystack = async (req, res) => {
   
   try {
     const { reference } = req.query;
-    const userId = req.user.id;
     
     if (!reference) {
       await session.abortTransaction();
@@ -915,8 +914,10 @@ exports.verifyInstallmentPaystack = async (req, res) => {
         message: 'Please provide payment reference'
       });
     }
+
+    console.log(`🔍 Verifying payment with reference: ${reference}`);
     
-    // Verify payment with Paystack
+    // Verify payment with Paystack first
     const verificationResponse = await axios.get(
       `https://api.paystack.co/transaction/verify/${reference}`,
       {
@@ -927,6 +928,7 @@ exports.verifyInstallmentPaystack = async (req, res) => {
     );
     
     const paymentData = verificationResponse.data.data;
+    console.log(`💳 Paystack verification response:`, paymentData);
     
     // Check if payment was successful
     if (paymentData.status !== 'success') {
@@ -940,9 +942,40 @@ exports.verifyInstallmentPaystack = async (req, res) => {
     }
     
     // Get metadata
-    const { planId, installmentNumber, transactionId } = paymentData.metadata;
+    const { planId, installmentNumber, userId, transactionId } = paymentData.metadata;
     
-    // Find the installment plan
+    if (!planId || !installmentNumber || !userId || !transactionId) {
+      await session.abortTransaction();
+      session.endSession();
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid payment metadata. Missing required fields.',
+        receivedMetadata: paymentData.metadata
+      });
+    }
+
+    // Verify user from metadata instead of req.user
+    const user = await User.findById(userId);
+    if (!user) {
+      await session.abortTransaction();
+      session.endSession();
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
+    }
+
+    // If req.user exists, verify it matches the payment user
+    if (req.user && req.user.id !== userId) {
+      await session.abortTransaction();
+      session.endSession();
+      return res.status(403).json({
+        success: false,
+        message: 'Payment verification failed: User mismatch'
+      });
+    }
+    
+    // Find the installment plan using userId from metadata
     const plan = await InstallmentPlan.findOne({
       planId,
       user: userId
@@ -953,7 +986,7 @@ exports.verifyInstallmentPaystack = async (req, res) => {
       session.endSession();
       return res.status(404).json({
         success: false,
-        message: 'Installment plan not found'
+        message: `Installment plan not found for planId: ${planId} and userId: ${userId}`
       });
     }
     
@@ -964,7 +997,7 @@ exports.verifyInstallmentPaystack = async (req, res) => {
       session.endSession();
       return res.status(400).json({
         success: false,
-        message: 'Invalid installment number'
+        message: `Invalid installment number: ${installmentNumber}. Plan has ${plan.installments.length} installments.`
       });
     }
     
@@ -976,12 +1009,31 @@ exports.verifyInstallmentPaystack = async (req, res) => {
       session.endSession();
       return res.status(400).json({
         success: false,
-        message: 'Transaction ID mismatch'
+        message: `Transaction ID mismatch. Expected: ${installment.transactionId}, Received: ${transactionId}`
+      });
+    }
+
+    // Check if installment is already completed
+    if (installment.status === 'completed') {
+      await session.abortTransaction();
+      session.endSession();
+      return res.status(400).json({
+        success: false,
+        message: 'This payment has already been processed',
+        data: {
+          planId: plan.planId,
+          installmentNumber,
+          status: 'already_completed',
+          paidAmount: installment.paidAmount,
+          paidDate: installment.paidDate
+        }
       });
     }
     
     // Convert amount from kobo to currency unit
     const amount = paymentData.amount / 100;
+    
+    console.log(`💰 Processing payment: ${amount} ${plan.currency}`);
     
     // Update installment payment
     installment.status = 'completed';
@@ -989,22 +1041,29 @@ exports.verifyInstallmentPaystack = async (req, res) => {
     installment.paidDate = new Date(paymentData.paid_at);
     
     // Update plan totals
-    plan.totalPaidAmount += amount;
+    plan.totalPaidAmount = (plan.totalPaidAmount || 0) + amount;
     
     // Update plan status if first payment
     if (plan.status === 'pending' && installment.isFirstPayment) {
       plan.status = 'active';
+      console.log(`📈 Plan status updated to active`);
     }
     
     // Calculate shares to release
     const paymentPercentage = (amount / plan.totalPrice) * 100;
     const sharesToRelease = Math.floor(plan.totalShares * (paymentPercentage / 100));
-    plan.sharesReleased += sharesToRelease;
+    plan.sharesReleased = (plan.sharesReleased || 0) + sharesToRelease;
+    
+    console.log(`🎯 Releasing ${sharesToRelease} shares (${paymentPercentage.toFixed(2)}% of total)`);
     
     // Check if plan is completed
     if (plan.totalPaidAmount >= plan.totalPrice) {
       plan.status = 'completed';
+      console.log(`✅ Plan completed! Total paid: ${plan.totalPaidAmount} of ${plan.totalPrice}`);
     }
+    
+    // Update plan timestamp
+    plan.updatedAt = new Date();
     
     // Save plan updates
     await plan.save({ session });
@@ -1020,9 +1079,9 @@ exports.verifyInstallmentPaystack = async (req, res) => {
         paymentMethod: 'paystack',
         status: 'completed',
         tierBreakdown: {
-          tier1: Math.floor(plan.tierBreakdown.tier1 * (paymentPercentage / 100)),
-          tier2: Math.floor(plan.tierBreakdown.tier2 * (paymentPercentage / 100)),
-          tier3: Math.floor(plan.tierBreakdown.tier3 * (paymentPercentage / 100))
+          tier1: Math.floor((plan.tierBreakdown?.tier1 || 0) * (paymentPercentage / 100)),
+          tier2: Math.floor((plan.tierBreakdown?.tier2 || 0) * (paymentPercentage / 100)),
+          tier3: Math.floor((plan.tierBreakdown?.tier3 || 0) * (paymentPercentage / 100))
         },
         installmentPayment: true,
         installmentPlanId: plan.planId
@@ -1031,15 +1090,19 @@ exports.verifyInstallmentPaystack = async (req, res) => {
       // Update global share sales
       const Share = require('../models/Share');
       const shareConfig = await Share.getCurrentConfig();
-      shareConfig.sharesSold += sharesToRelease;
+      shareConfig.sharesSold = (shareConfig.sharesSold || 0) + sharesToRelease;
       
-      const tier1Shares = Math.floor(plan.tierBreakdown.tier1 * (paymentPercentage / 100));
-      const tier2Shares = Math.floor(plan.tierBreakdown.tier2 * (paymentPercentage / 100));
-      const tier3Shares = Math.floor(plan.tierBreakdown.tier3 * (paymentPercentage / 100));
+      const tier1Shares = Math.floor((plan.tierBreakdown?.tier1 || 0) * (paymentPercentage / 100));
+      const tier2Shares = Math.floor((plan.tierBreakdown?.tier2 || 0) * (paymentPercentage / 100));
+      const tier3Shares = Math.floor((plan.tierBreakdown?.tier3 || 0) * (paymentPercentage / 100));
       
-      shareConfig.tierSales.tier1Sold += tier1Shares;
-      shareConfig.tierSales.tier2Sold += tier2Shares;
-      shareConfig.tierSales.tier3Sold += tier3Shares;
+      if (!shareConfig.tierSales) {
+        shareConfig.tierSales = { tier1Sold: 0, tier2Sold: 0, tier3Sold: 0 };
+      }
+      
+      shareConfig.tierSales.tier1Sold = (shareConfig.tierSales.tier1Sold || 0) + tier1Shares;
+      shareConfig.tierSales.tier2Sold = (shareConfig.tierSales.tier2Sold || 0) + tier2Shares;
+      shareConfig.tierSales.tier3Sold = (shareConfig.tierSales.tier3Sold || 0) + tier3Shares;
       
       await shareConfig.save({ session });
       
@@ -1053,15 +1116,15 @@ exports.verifyInstallmentPaystack = async (req, res) => {
           { session }
         );
       } catch (referralError) {
-        console.error('Error processing referral commissions:', referralError);
+        console.error('💥 Error processing referral commissions:', referralError);
+        // Don't fail the whole transaction for referral errors
       }
     }
     
     await session.commitTransaction();
     session.endSession();
     
-    // Get user details for notification
-    const user = await User.findById(userId);
+    console.log(`🎉 Payment verification completed successfully`);
     
     // Send confirmation email
     if (user?.email) {
@@ -1084,7 +1147,7 @@ exports.verifyInstallmentPaystack = async (req, res) => {
           `
         });
       } catch (emailError) {
-        console.error('Failed to send confirmation email:', emailError);
+        console.error('📧 Failed to send confirmation email:', emailError);
       }
     }
     
@@ -1098,7 +1161,9 @@ exports.verifyInstallmentPaystack = async (req, res) => {
         planStatus: plan.status,
         totalPaidAmount: plan.totalPaidAmount,
         remainingBalance: plan.totalPrice - plan.totalPaidAmount,
-        sharesReleased: sharesToRelease
+        sharesReleased: sharesToRelease,
+        totalSharesReleased: plan.sharesReleased,
+        transactionId
       }
     });
     
@@ -1106,17 +1171,30 @@ exports.verifyInstallmentPaystack = async (req, res) => {
     await session.abortTransaction();
     session.endSession();
     
-    console.error('Error verifying Paystack payment:', error);
+    console.error('💥 Error verifying Paystack payment:', error);
     
     let errorMessage = 'Failed to verify payment';
-    if (error.response?.data?.message) {
+    let statusCode = 500;
+    
+    if (error.response?.status === 404) {
+      errorMessage = 'Payment reference not found with Paystack';
+      statusCode = 404;
+    } else if (error.response?.status === 400) {
+      errorMessage = 'Invalid payment reference';
+      statusCode = 400;
+    } else if (error.response?.data?.message) {
       errorMessage = error.response.data.message;
+      statusCode = error.response.status || 500;
     }
     
-    res.status(500).json({
+    res.status(statusCode).json({
       success: false,
       message: errorMessage,
-      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+      error: process.env.NODE_ENV === 'development' ? {
+        message: error.message,
+        stack: error.stack,
+        response: error.response?.data
+      } : undefined
     });
   }
 };
