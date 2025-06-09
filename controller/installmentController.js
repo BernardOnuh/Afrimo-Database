@@ -708,11 +708,10 @@ exports.adminGetAllInstallmentPlans = async (req, res) => {
 };
 
 /**
- * @desc    Pay installment with Paystack
+ * @desc    Pay installment with Paystack (FIXED VERSION)
  * @route   POST /api/shares/installment/paystack/pay
  * @access  Private (User)
  */
-
 exports.payInstallmentWithPaystack = async (req, res) => {
   const session = await InstallmentPlan.startSession();
   session.startTransaction();
@@ -820,8 +819,8 @@ exports.payInstallmentWithPaystack = async (req, res) => {
       });
     }
     
-    // Generate transaction ID
-    const transactionId = generateTransactionId();
+    // Generate unique transaction reference for Paystack
+    const paystackReference = generateTransactionId();
     
     // Initialize Paystack payment
     const paystackResponse = await axios.post(
@@ -830,13 +829,13 @@ exports.payInstallmentWithPaystack = async (req, res) => {
         email,
         amount: parsedAmount * 100, // Convert to kobo
         currency: plan.currency === 'naira' ? 'NGN' : 'USD',
-        reference: transactionId,
+        reference: paystackReference, // Use generated reference
         callback_url: `${process.env.FRONTEND_URL}/installment/verify?planId=${planId}`,
         metadata: {
           planId,
           installmentNumber,
           userId,
-          transactionId
+          // Don't include transactionId in metadata - use the reference itself
         }
       },
       {
@@ -847,12 +846,9 @@ exports.payInstallmentWithPaystack = async (req, res) => {
       }
     );
     
-    // Update installment with pending payment - USE VALID ENUM VALUE
-    installment.transactionId = transactionId;
-    // Change from 'pending_payment' to 'pending' which should be a valid enum value
-    installment.status = 'pending';
-    
-    // You can also add a separate field to track payment initialization if needed
+    // FIXED: Store the Paystack reference directly as transactionId
+    installment.transactionId = paystackReference;
+    installment.status = 'pending'; // Valid enum value
     installment.paymentInitialized = true;
     installment.paymentInitializedAt = new Date();
     
@@ -895,7 +891,7 @@ exports.payInstallmentWithPaystack = async (req, res) => {
   }
 };
 /**
- * @desc    Verify Paystack installment payment
+ * @desc    Verify Paystack installment payment (FIXED VERSION)
  * @route   GET /api/shares/installment/paystack/verify
  * @access  Private (User)
  */
@@ -942,9 +938,9 @@ exports.verifyInstallmentPaystack = async (req, res) => {
     }
     
     // Get metadata
-    const { planId, installmentNumber, userId, transactionId } = paymentData.metadata;
+    const { planId, installmentNumber, userId } = paymentData.metadata;
     
-    if (!planId || !installmentNumber || !userId || !transactionId) {
+    if (!planId || !installmentNumber || !userId) {
       await session.abortTransaction();
       session.endSession();
       return res.status(400).json({
@@ -1003,29 +999,72 @@ exports.verifyInstallmentPaystack = async (req, res) => {
     
     const installment = plan.installments[installmentIndex];
     
-    // Check if this transaction matches
-    if (installment.transactionId !== transactionId) {
+    // FIXED: More flexible transaction matching logic
+    // Check if this installment can accept this payment
+    const canAcceptPayment = (
+      // Case 1: Exact transaction ID match
+      installment.transactionId === reference ||
+      
+      // Case 2: Installment is pending and has no completed payment
+      (installment.status === 'pending' && !installment.paidAmount) ||
+      
+      // Case 3: Installment status is upcoming and no transaction recorded yet
+      (installment.status === 'upcoming' && !installment.transactionId) ||
+      
+      // Case 4: Payment was initialized but not completed (has transactionId but status not completed)
+      (installment.transactionId && installment.status !== 'completed')
+    );
+
+    if (!canAcceptPayment) {
       await session.abortTransaction();
       session.endSession();
       return res.status(400).json({
         success: false,
-        message: `Transaction ID mismatch. Expected: ${installment.transactionId}, Received: ${transactionId}`
+        message: 'This installment cannot accept this payment',
+        details: {
+          installmentStatus: installment.status,
+          installmentTransactionId: installment.transactionId,
+          paymentReference: reference,
+          alreadyPaid: installment.paidAmount > 0
+        }
       });
     }
 
-    // Check if installment is already completed
-    if (installment.status === 'completed') {
+    // Check if installment is already completed with a different transaction
+    if (installment.status === 'completed' && installment.transactionId !== reference) {
       await session.abortTransaction();
       session.endSession();
       return res.status(400).json({
         success: false,
-        message: 'This payment has already been processed',
+        message: 'This installment has already been completed with a different transaction',
         data: {
           planId: plan.planId,
           installmentNumber,
           status: 'already_completed',
           paidAmount: installment.paidAmount,
-          paidDate: installment.paidDate
+          paidDate: installment.paidDate,
+          existingTransactionId: installment.transactionId,
+          currentReference: reference
+        }
+      });
+    }
+
+    // Check for duplicate payment across all installments in the plan
+    const existingPayment = plan.installments.find(inst => 
+      inst.transactionId === reference && inst.status === 'completed'
+    );
+    
+    if (existingPayment && existingPayment !== installment) {
+      await session.abortTransaction();
+      session.endSession();
+      return res.status(400).json({
+        success: false,
+        message: 'This payment reference has already been used for another installment',
+        data: {
+          planId: plan.planId,
+          existingInstallmentNumber: existingPayment.installmentNumber,
+          currentInstallmentNumber: installmentNumber,
+          reference: reference
         }
       });
     }
@@ -1033,12 +1072,38 @@ exports.verifyInstallmentPaystack = async (req, res) => {
     // Convert amount from kobo to currency unit
     const amount = paymentData.amount / 100;
     
-    console.log(`💰 Processing payment: ${amount} ${plan.currency}`);
+    console.log(`💰 Processing payment: ${amount} ${plan.currency} for installment ${installmentNumber}`);
     
-    // Update installment payment
+    // Validate payment amount for first payment
+    if (installment.isFirstPayment && amount < plan.minimumDownPaymentAmount) {
+      await session.abortTransaction();
+      session.endSession();
+      return res.status(400).json({
+        success: false,
+        message: `First payment amount is below minimum requirement of ${plan.currency === 'naira' ? '₦' : '$'}${plan.minimumDownPaymentAmount.toFixed(2)}`,
+        provided: amount,
+        required: plan.minimumDownPaymentAmount
+      });
+    }
+    
+    // Check if payment exceeds remaining balance
+    const remainingBalance = plan.totalPrice - (plan.totalPaidAmount || 0);
+    if (amount > remainingBalance) {
+      await session.abortTransaction();
+      session.endSession();
+      return res.status(400).json({
+        success: false,
+        message: `Payment amount cannot exceed remaining balance of ${plan.currency === 'naira' ? '₦' : '$'}${remainingBalance.toFixed(2)}`,
+        providedAmount: amount,
+        remainingBalance: remainingBalance
+      });
+    }
+    
+    // Update installment payment - FIXED: Use the payment reference as transaction ID
     installment.status = 'completed';
     installment.paidAmount = amount;
     installment.paidDate = new Date(paymentData.paid_at);
+    installment.transactionId = reference; // Use Paystack reference as transaction ID
     
     // Update plan totals
     plan.totalPaidAmount = (plan.totalPaidAmount || 0) + amount;
@@ -1071,7 +1136,7 @@ exports.verifyInstallmentPaystack = async (req, res) => {
     // Add released shares to user's account if applicable
     if (sharesToRelease > 0) {
       await UserShare.addShares(plan.user, sharesToRelease, {
-        transactionId,
+        transactionId: reference, // Use Paystack reference
         shares: sharesToRelease,
         pricePerShare: amount / sharesToRelease,
         currency: plan.currency,
@@ -1112,7 +1177,7 @@ exports.verifyInstallmentPaystack = async (req, res) => {
           plan.user,
           amount,
           'share',
-          transactionId,
+          reference, // Use Paystack reference
           { session }
         );
       } catch (referralError) {
@@ -1136,7 +1201,7 @@ exports.verifyInstallmentPaystack = async (req, res) => {
             <h2>Payment Successful</h2>
             <p>Dear ${user.name},</p>
             <p>Your installment payment for plan ${plan.planId} has been successfully processed.</p>
-            <p>Transaction ID: ${transactionId}</p>
+            <p>Transaction Reference: ${reference}</p>
             <p>Amount Paid: ${plan.currency === 'naira' ? '₦' : '$'}${amount.toFixed(2)}</p>
             <p>Shares Released: ${sharesToRelease}</p>
             <p>Total Shares Released: ${plan.sharesReleased} of ${plan.totalShares}</p>
@@ -1163,7 +1228,7 @@ exports.verifyInstallmentPaystack = async (req, res) => {
         remainingBalance: plan.totalPrice - plan.totalPaidAmount,
         sharesReleased: sharesToRelease,
         totalSharesReleased: plan.sharesReleased,
-        transactionId
+        transactionId: reference
       }
     });
     
