@@ -4,7 +4,60 @@ const Referral = require('../models/Referral');
 const ReferralTransaction = require('../models/ReferralTransaction');
 const Withdrawal = require('../models/Withdrawal');
 
-// Main leaderboard aggregation function
+// Optional dependencies - will be loaded if they exist
+let LeaderboardSnapshot, LocationAnalytics, AdminAuditLog, CacheService, adminValidation;
+
+try {
+  LeaderboardSnapshot = require('../models/LeaderboardSnapshot');
+} catch (e) {
+  console.log('LeaderboardSnapshot model not found - admin features will be limited');
+}
+
+try {
+  LocationAnalytics = require('../models/LocationAnalytics');
+} catch (e) {
+  console.log('LocationAnalytics model not found - location analytics disabled');
+}
+
+try {
+  AdminAuditLog = require('../models/AdminAuditLog');
+} catch (e) {
+  console.log('AdminAuditLog model not found - audit logging disabled');
+}
+
+try {
+  CacheService = require('../services/cacheService');
+} catch (e) {
+  console.log('CacheService not found - caching disabled');
+  // Create a fallback cache service
+  CacheService = {
+    getLeaderboard: async () => null,
+    setLeaderboard: async () => false,
+    get: async () => null,
+    set: async () => false,
+    invalidateUserCache: async () => false
+  };
+}
+
+try {
+  adminValidation = require('../validation/adminValidation');
+} catch (e) {
+  console.log('Admin validation not found - using basic validation');
+  // Create fallback validation
+  adminValidation = {
+    leaderboardQuerySchema: { validate: (data) => ({ error: null, value: data }) },
+    visibilityUpdateSchema: { validate: (data) => ({ error: null, value: data }) },
+    bulkUpdateSchema: { validate: (data) => ({ error: null, value: data }) }
+  };
+}
+
+const { leaderboardQuerySchema, visibilityUpdateSchema, bulkUpdateSchema } = adminValidation;
+
+// ====================
+// EXISTING PUBLIC LEADERBOARD METHODS (PRESERVED)
+// ====================
+
+// Main leaderboard aggregation function (existing - preserved)
 const getTimeFilteredLeaderboard = async (timeFrame, categoryFilter = 'registration', limit = 10) => {
   // Calculate the date threshold based on the time frame
   const now = new Date();
@@ -325,12 +378,514 @@ const getTimeFilteredLeaderboard = async (timeFrame, categoryFilter = 'registrat
   return await User.aggregate(aggregatePipeline.filter(Boolean));
 };
 
-// Wrapper function for non-time-filtered leaderboards
+// Wrapper function for non-time-filtered leaderboards (existing - preserved)
 const getFilteredLeaderboard = async (categoryFilter = 'registration', limit = 10) => {
   return getTimeFilteredLeaderboard(null, categoryFilter, limit);
 };
 
-// Time-based leaderboards
+// ====================
+// NEW ADMIN LEADERBOARD METHODS
+// ====================
+
+// Admin leaderboard aggregation with enhanced filtering and visibility controls
+const getAdminLeaderboard = async (filters) => {
+  const {
+    type = 'earners',
+    period = 'all_time',
+    limit = 50,
+    offset = 0,
+    state,
+    city,
+    search,
+    show_earnings = true,
+    show_balance = true
+  } = filters;
+
+  // Build date filter
+  let dateFilter = {};
+  if (period !== 'all_time') {
+    const now = new Date();
+    let startDate = new Date();
+    
+    switch (period) {
+      case 'daily':
+        startDate.setHours(0, 0, 0, 0);
+        break;
+      case 'weekly':
+        startDate.setDate(now.getDate() - now.getDay());
+        startDate.setHours(0, 0, 0, 0);
+        break;
+      case 'monthly':
+        startDate.setDate(1);
+        startDate.setHours(0, 0, 0, 0);
+        break;
+    }
+    dateFilter.createdAt = { $gte: startDate };
+  }
+
+  // Build match criteria
+  const matchCriteria = {
+    'status.isActive': true,
+    isBanned: { $ne: true },
+    ...dateFilter
+  };
+
+  if (state) matchCriteria['location.state'] = state;
+  if (city) matchCriteria['location.city'] = city;
+  if (search) {
+    matchCriteria.$or = [
+      { name: { $regex: search, $options: 'i' } },
+      { userName: { $regex: search, $options: 'i' } }
+    ];
+  }
+
+  // Determine sort field based on type
+  let sortField = {};
+  switch (type) {
+    case 'earners':
+      sortField = { 'earnings.total': -1 };
+      break;
+    case 'shares':
+      sortField = { 'stats.totalShares': -1 };
+      break;
+    case 'referrals':
+      sortField = { 'stats.totalReferrals': -1 };
+      break;
+    case 'cofounders':
+      sortField = { 'stats.totalCofounders': -1 };
+      break;
+    default:
+      sortField = { 'earnings.total': -1 };
+  }
+
+  const pipeline = [
+    { $match: matchCriteria },
+    {
+      $lookup: {
+        from: 'usershares',
+        localField: '_id',
+        foreignField: 'user',
+        as: 'shares'
+      }
+    },
+    {
+      $lookup: {
+        from: 'referrals',
+        localField: '_id',
+        foreignField: 'user',
+        as: 'referralData'
+      }
+    },
+    {
+      $addFields: {
+        rank: { $sum: 1 }, // Will be recalculated after sorting
+        totalShares: { $sum: '$shares.totalShares' },
+        totalReferrals: { $ifNull: [{ $arrayElemAt: ['$referralData.totalReferrals', 0] }, 0] },
+        totalCofounders: { $ifNull: ['$stats.totalCofounders', 0] }
+      }
+    },
+    { $sort: sortField },
+    {
+      $group: {
+        _id: null,
+        users: { $push: '$$ROOT' },
+        total: { $sum: 1 }
+      }
+    },
+    {
+      $project: {
+        users: {
+          $map: {
+            input: { $slice: ['$users', offset, limit] },
+            as: 'user',
+            in: {
+              $mergeObjects: [
+                '$$user',
+                {
+                  rank: { $add: [{ $indexOfArray: ['$users', '$$user'] }, 1] },
+                  // Conditionally include earnings based on visibility
+                  totalEarnings: {
+                    $cond: {
+                      if: { $and: [show_earnings, '$$user.earnings.visible'] },
+                      then: '$$user.earnings.total',
+                      else: null
+                    }
+                  },
+                  // Conditionally include balance based on visibility
+                  availableBalance: {
+                    $cond: {
+                      if: { $and: [show_balance, '$$user.availableBalance.visible'] },
+                      then: '$$user.availableBalance.amount',
+                      else: null
+                    }
+                  }
+                }
+              ]
+            }
+          }
+        },
+        total: 1,
+        totalPages: { $ceil: { $divide: ['$total', limit] } },
+        currentPage: { $add: [{ $divide: [offset, limit] }, 1] }
+      }
+    }
+  ];
+
+  const result = await User.aggregate(pipeline);
+  return result[0] || { users: [], total: 0, totalPages: 0, currentPage: 1 };
+};
+
+// Get location analytics
+const getLocationAnalytics = async (type = 'states', parentFilter = null, limit = 10) => {
+  const matchStage = { 'status.isActive': true };
+  let groupBy = '$location.state';
+  
+  if (type === 'cities') {
+    groupBy = { state: '$location.state', city: '$location.city' };
+    if (parentFilter) {
+      matchStage['location.state'] = parentFilter;
+    }
+  }
+
+  const pipeline = [
+    { $match: matchStage },
+    {
+      $group: {
+        _id: groupBy,
+        totalUsers: { $sum: 1 },
+        totalEarnings: { $sum: '$earnings.total' },
+        averageEarnings: { $avg: '$earnings.total' },
+        topEarner: { $max: '$earnings.total' }
+      }
+    },
+    { $sort: { totalEarnings: -1 } },
+    { $limit: limit },
+    {
+      $addFields: {
+        rank: { $add: [{ $indexOfArray: [{ $slice: [{ $sortArray: { input: '$$ROOT', sortBy: { totalEarnings: -1 } } }, limit] }, '$$ROOT'] }, 1] }
+      }
+    }
+  ];
+
+  return await User.aggregate(pipeline);
+};
+
+// ====================
+// ADMIN CONTROLLER METHODS
+// ====================
+
+// Main admin leaderboard endpoint
+exports.getAdminLeaderboard = async (req, res) => {
+  try {
+    if (!CacheService || !AdminAuditLog) {
+      return res.status(503).json({
+        success: false,
+        message: 'Admin features not available - missing dependencies'
+      });
+    }
+
+    // Validate query parameters
+    const { error, value } = leaderboardQuerySchema.validate(req.query);
+    if (error) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid query parameters',
+        errors: error.details.map(d => d.message)
+      });
+    }
+
+    // Check cache first
+    const cacheKey = `admin_leaderboard:${JSON.stringify(value)}`;
+    let cachedData = await CacheService.getLeaderboard(cacheKey);
+    
+    if (cachedData) {
+      return res.json({
+        success: true,
+        data: cachedData.users,
+        pagination: {
+          currentPage: cachedData.currentPage,
+          totalPages: cachedData.totalPages,
+          totalItems: cachedData.total,
+          hasNext: cachedData.currentPage < cachedData.totalPages,
+          hasPrev: cachedData.currentPage > 1,
+          limit: value.limit
+        },
+        filters: value,
+        fromCache: true
+      });
+    }
+
+    // Get fresh data
+    const result = await getAdminLeaderboard(value);
+    
+    // Cache the result
+    await CacheService.setLeaderboard(cacheKey, result, 900); // 15 minutes cache
+
+    // Log admin activity
+    if (AdminAuditLog) {
+      await AdminAuditLog.create({
+        adminId: req.user._id,
+        action: 'VIEW_ADMIN_LEADERBOARD',
+        details: { filters: value },
+        ipAddress: req.ip,
+        userAgent: req.get('User-Agent')
+      });
+    }
+
+    res.json({
+      success: true,
+      data: result.users,
+      pagination: {
+        currentPage: result.currentPage,
+        totalPages: result.totalPages,
+        totalItems: result.total,
+        hasNext: result.currentPage < result.totalPages,
+        hasPrev: result.currentPage > 1,
+        limit: value.limit
+      },
+      filters: value
+    });
+
+  } catch (error) {
+    console.error('Error fetching admin leaderboard:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch admin leaderboard',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+};
+
+// Get top states analytics
+exports.getTopStates = async (req, res) => {
+  try {
+    const { period = 'all_time', limit = 10 } = req.query;
+    
+    const cacheKey = `top_states:${period}:${limit}`;
+    let cachedData = await CacheService.get(cacheKey);
+    
+    if (cachedData) {
+      return res.json({ success: true, data: cachedData });
+    }
+
+    const states = await getLocationAnalytics('states', null, parseInt(limit));
+    
+    await CacheService.set(cacheKey, states, 1800); // 30 minutes cache
+
+    res.json({ success: true, data: states });
+
+  } catch (error) {
+    console.error('Error fetching top states:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch top states',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+};
+
+// Get top cities analytics
+exports.getTopCities = async (req, res) => {
+  try {
+    const { state, limit = 10 } = req.query;
+    
+    const cacheKey = `top_cities:${state || 'all'}:${limit}`;
+    let cachedData = await CacheService.get(cacheKey);
+    
+    if (cachedData) {
+      return res.json({ success: true, data: cachedData });
+    }
+
+    const cities = await getLocationAnalytics('cities', state, parseInt(limit));
+    
+    await CacheService.set(cacheKey, cities, 1800); // 30 minutes cache
+
+    res.json({ success: true, data: cities });
+
+  } catch (error) {
+    console.error('Error fetching top cities:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch top cities',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+};
+
+// Toggle user visibility
+exports.toggleUserVisibility = async (req, res) => {
+  try {
+    if (!AdminAuditLog) {
+      return res.status(503).json({
+        success: false,
+        message: 'Admin audit features not available'
+      });
+    }
+
+    const { userId } = req.params;
+    
+    // Validate request body
+    const { error, value } = visibilityUpdateSchema.validate(req.body);
+    if (error) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid request body',
+        errors: error.details.map(d => d.message)
+      });
+    }
+
+    const { field, visible } = value;
+    
+    // Build update object
+    const updateField = field === 'earnings' ? 'earnings.visible' : 'availableBalance.visible';
+    const updateData = { [updateField]: visible };
+
+    const user = await User.findByIdAndUpdate(
+      userId,
+      { $set: updateData },
+      { new: true, select: 'name userName earnings.visible availableBalance.visible' }
+    );
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
+    }
+
+    // Log admin action
+    await AdminAuditLog.create({
+      adminId: req.user._id,
+      action: 'TOGGLE_USER_VISIBILITY',
+      targetUserId: userId,
+      details: { field, visible, oldValue: !visible },
+      ipAddress: req.ip,
+      userAgent: req.get('User-Agent')
+    });
+
+    // Invalidate related caches
+    if (CacheService) {
+      await CacheService.invalidateUserCache(userId);
+    }
+
+    res.json({
+      success: true,
+      message: `User ${field} visibility updated successfully`,
+      data: user
+    });
+
+  } catch (error) {
+    console.error('Error toggling user visibility:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to update user visibility',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+};
+
+// Bulk update users
+exports.bulkUpdateUsers = async (req, res) => {
+  try {
+    // Validate request body
+    const { error, value } = bulkUpdateSchema.validate(req.body);
+    if (error) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid request body',
+        errors: error.details.map(d => d.message)
+      });
+    }
+
+    const { user_ids, updates } = value;
+
+    const result = await User.updateMany(
+      { _id: { $in: user_ids } },
+      { $set: updates }
+    );
+
+    // Log admin action
+    await AdminAuditLog.create({
+      adminId: req.user._id,
+      action: 'BULK_UPDATE_USERS',
+      details: { userIds: user_ids, updates, result },
+      ipAddress: req.ip,
+      userAgent: req.get('User-Agent')
+    });
+
+    // Invalidate caches for affected users
+    for (const userId of user_ids) {
+      await CacheService.invalidateUserCache(userId);
+    }
+
+    res.json({
+      success: true,
+      message: `Successfully updated ${result.modifiedCount} users`,
+      data: result
+    });
+
+  } catch (error) {
+    console.error('Error in bulk update:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to update users',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+};
+
+// Export leaderboard data
+exports.exportLeaderboard = async (req, res) => {
+  try {
+    const filters = { ...req.query, limit: 10000, offset: 0 }; // Export all data
+    const result = await getAdminLeaderboard(filters);
+
+    // Convert to CSV format
+    const csvData = result.users.map(user => ({
+      Rank: user.rank,
+      Name: user.name,
+      Username: user.userName,
+      'Total Earnings': user.totalEarnings || 'Hidden',
+      'Available Balance': user.availableBalance || 'Hidden',
+      'Total Shares': user.totalShares,
+      'Total Referrals': user.totalReferrals,
+      'Total Cofounders': user.totalCofounders,
+      State: user.location?.state || '',
+      City: user.location?.city || '',
+      'Join Date': user.createdAt
+    }));
+
+    // Log export action
+    await AdminAuditLog.create({
+      adminId: req.user._id,
+      action: 'EXPORT_LEADERBOARD',
+      details: { filters, recordCount: csvData.length },
+      ipAddress: req.ip,
+      userAgent: req.get('User-Agent')
+    });
+
+    res.json({
+      success: true,
+      data: csvData,
+      total_records: csvData.length,
+      exported_at: new Date().toISOString()
+    });
+
+  } catch (error) {
+    console.error('Error exporting leaderboard:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to export leaderboard',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+};
+
+// ====================
+// EXISTING PUBLIC METHODS (PRESERVED)
+// ====================
+
+// Time-based leaderboards (existing - preserved)
 exports.getDailyLeaderboard = async (req, res) => {
   try {
     const limit = req.query.limit ? parseInt(req.query.limit) : 10;
@@ -419,7 +974,7 @@ exports.getYearlyLeaderboard = async (req, res) => {
   }
 };
 
-// Category-based leaderboards
+// Category-based leaderboards (existing - preserved)
 exports.getLeaderboard = async (req, res) => {
   try {
     const filter = req.query.filter || 'registration';
