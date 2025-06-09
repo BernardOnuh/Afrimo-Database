@@ -1199,15 +1199,1065 @@ exports.verifyInstallmentPaystack = async (req, res) => {
   }
 };
 
-// Export all controller methods
+/**
+ * @desc    Admin: Unverify/Reverse a completed installment payment
+ * @route   POST /api/shares/installment/admin/unverify-transaction
+ * @access  Private (Admin only)
+ */
+exports.adminUnverifyTransaction = async (req, res) => {
+  const session = await InstallmentPlan.startSession();
+  session.startTransaction();
+  
+  try {
+    const { reference, planId, installmentNumber, adminNote, confirmUnverify = false } = req.body;
+    const adminId = req.user.id;
+    
+    // Check admin privileges
+    const admin = await User.findById(adminId);
+    if (!admin || !admin.isAdmin) {
+      await session.abortTransaction();
+      session.endSession();
+      return res.status(403).json({
+        success: false,
+        message: 'Unauthorized: Admin access required'
+      });
+    }
+    
+    if (!reference && !planId) {
+      await session.abortTransaction();
+      session.endSession();
+      return res.status(400).json({
+        success: false,
+        message: 'Please provide either payment reference or planId with installmentNumber'
+      });
+    }
+
+    console.log(`❌ Admin ${admin.name} unverifying transaction: ${reference || `${planId}-${installmentNumber}`}`);
+    
+    let plan;
+    let targetInstallment;
+    let targetInstallmentIndex;
+    
+    // Find the plan and installment
+    if (reference) {
+      // Find by transaction reference
+      plan = await InstallmentPlan.findOne({
+        'installments.transactionId': reference
+      }).session(session);
+      
+      if (plan) {
+        targetInstallmentIndex = plan.installments.findIndex(
+          inst => inst.transactionId === reference
+        );
+        if (targetInstallmentIndex !== -1) {
+          targetInstallment = plan.installments[targetInstallmentIndex];
+        }
+      }
+    } else if (planId && installmentNumber) {
+      // Find by planId and installment number
+      plan = await InstallmentPlan.findOne({
+        planId
+      }).session(session);
+      
+      if (plan) {
+        targetInstallmentIndex = parseInt(installmentNumber) - 1;
+        if (targetInstallmentIndex >= 0 && targetInstallmentIndex < plan.installments.length) {
+          targetInstallment = plan.installments[targetInstallmentIndex];
+        }
+      }
+    }
+    
+    if (!plan) {
+      await session.abortTransaction();
+      session.endSession();
+      return res.status(404).json({
+        success: false,
+        message: 'Installment plan not found'
+      });
+    }
+    
+    if (!targetInstallment) {
+      await session.abortTransaction();
+      session.endSession();
+      return res.status(404).json({
+        success: false,
+        message: 'Installment not found'
+      });
+    }
+    
+    // Check if installment is actually completed
+    if (targetInstallment.status !== 'completed') {
+      await session.abortTransaction();
+      session.endSession();
+      return res.status(400).json({
+        success: false,
+        message: `Installment is not completed. Current status: ${targetInstallment.status}`,
+        cannotUnverify: true
+      });
+    }
+    
+    // Check if user confirmation is needed for safety
+    if (!confirmUnverify) {
+      await session.abortTransaction();
+      session.endSession();
+      return res.status(200).json({
+        success: false,
+        message: 'Unverification requires confirmation. This action will reverse the payment and remove shares.',
+        requiresConfirmation: true,
+        data: {
+          planId: plan.planId,
+          installmentNumber: targetInstallmentIndex + 1,
+          amount: targetInstallment.paidAmount,
+          paidDate: targetInstallment.paidDate,
+          transactionId: targetInstallment.transactionId,
+          warning: 'This will remove shares from user account and reverse all related transactions'
+        },
+        instruction: 'Set confirmUnverify=true to proceed'
+      });
+    }
+    
+    // Get user details
+    const user = await User.findById(plan.user);
+    if (!user) {
+      await session.abortTransaction();
+      session.endSession();
+      return res.status(404).json({
+        success: false,
+        message: 'User not found for this plan'
+      });
+    }
+    
+    const amount = targetInstallment.paidAmount;
+    const paymentPercentage = (amount / plan.totalPrice) * 100;
+    const sharesToRemove = Math.floor(plan.totalShares * (paymentPercentage / 100));
+    
+    console.log(`🔄 Reversing payment: ${amount} ${plan.currency}, removing ${sharesToRemove} shares`);
+    
+    // Store current values for audit
+    const unverifyRecord = {
+      originalStatus: targetInstallment.status,
+      originalAmount: targetInstallment.paidAmount,
+      originalPaidDate: targetInstallment.paidDate,
+      originalTransactionId: targetInstallment.transactionId,
+      sharesToRemove,
+      unverifiedBy: adminId,
+      unverifiedAt: new Date(),
+      adminNote: adminNote || 'Payment unverified by admin'
+    };
+    
+    // Restore original values if available, otherwise set to pending
+    if (targetInstallment.originalValues) {
+      targetInstallment.status = targetInstallment.originalValues.status;
+      targetInstallment.paidAmount = targetInstallment.originalValues.paidAmount;
+      targetInstallment.paidDate = targetInstallment.originalValues.paidDate;
+      targetInstallment.transactionId = targetInstallment.originalValues.transactionId;
+    } else {
+      targetInstallment.status = 'pending';
+      targetInstallment.paidAmount = 0;
+      targetInstallment.paidDate = null;
+      // Keep transactionId for tracking
+    }
+    
+    // Add unverify record for audit trail
+    if (!targetInstallment.unverifyHistory) {
+      targetInstallment.unverifyHistory = [];
+    }
+    targetInstallment.unverifyHistory.push(unverifyRecord);
+    
+    // Clear verification fields
+    delete targetInstallment.verifiedBy;
+    delete targetInstallment.verifiedAt;
+    delete targetInstallment.forceApproved;
+    delete targetInstallment.originalValues;
+    
+    // Update plan totals
+    plan.totalPaidAmount = (plan.totalPaidAmount || 0) - amount;
+    plan.sharesReleased = (plan.sharesReleased || 0) - sharesToRemove;
+    
+    // Update plan status if needed
+    if (plan.totalPaidAmount <= 0) {
+      plan.status = 'pending';
+    } else if (plan.totalPaidAmount < plan.totalPrice && plan.status === 'completed') {
+      plan.status = 'active';
+    }
+    
+    // Update plan timestamp and admin action
+    plan.updatedAt = new Date();
+    plan.lastAdminAction = {
+      adminId,
+      adminName: admin.name,
+      action: 'unverify_payment',
+      timestamp: new Date(),
+      note: adminNote,
+      transactionId: targetInstallment.transactionId,
+      amount: amount,
+      sharesRemoved: sharesToRemove
+    };
+    
+    // Save plan updates
+    await plan.save({ session });
+    
+    // Remove shares from user's account
+    if (sharesToRemove > 0) {
+      try {
+        // Find and remove the user share record
+        const userShareRecord = await UserShare.findOne({
+          user: plan.user,
+          transactionId: targetInstallment.transactionId
+        }).session(session);
+        
+        if (userShareRecord) {
+          // Remove the specific share record
+          await UserShare.deleteOne({
+            _id: userShareRecord._id
+          }).session(session);
+        } else {
+          // If specific record not found, subtract from total
+          const userShares = await UserShare.findOne({
+            user: plan.user
+          }).session(session);
+          
+          if (userShares && userShares.totalShares >= sharesToRemove) {
+            userShares.totalShares -= sharesToRemove;
+            userShares.updatedAt = new Date();
+            await userShares.save({ session });
+          }
+        }
+        
+        // Update global share sales
+        const Share = require('../models/Share');
+        const shareConfig = await Share.getCurrentConfig();
+        shareConfig.sharesSold = Math.max(0, (shareConfig.sharesSold || 0) - sharesToRemove);
+        
+        const tier1Shares = Math.floor((plan.tierBreakdown?.tier1 || 0) * (paymentPercentage / 100));
+        const tier2Shares = Math.floor((plan.tierBreakdown?.tier2 || 0) * (paymentPercentage / 100));
+        const tier3Shares = Math.floor((plan.tierBreakdown?.tier3 || 0) * (paymentPercentage / 100));
+        
+        if (shareConfig.tierSales) {
+          shareConfig.tierSales.tier1Sold = Math.max(0, (shareConfig.tierSales.tier1Sold || 0) - tier1Shares);
+          shareConfig.tierSales.tier2Sold = Math.max(0, (shareConfig.tierSales.tier2Sold || 0) - tier2Shares);
+          shareConfig.tierSales.tier3Sold = Math.max(0, (shareConfig.tierSales.tier3Sold || 0) - tier3Shares);
+        }
+        
+        await shareConfig.save({ session });
+        
+      } catch (shareError) {
+        console.error('💥 Error removing shares:', shareError);
+        // Continue anyway - we can manually fix shares later
+      }
+    }
+    
+    await session.commitTransaction();
+    session.endSession();
+    
+    console.log(`❌ Admin unverification completed successfully`);
+    
+    // Send notification email to user
+    if (user?.email) {
+      try {
+        await sendEmail({
+          email: user.email,
+          subject: 'Installment Payment Unverified',
+          html: `
+            <h2>Payment Verification Reversed</h2>
+            <p>Dear ${user.name},</p>
+            <p>Your installment payment for plan ${plan.planId} has been unverified by our admin team.</p>
+            <p>Transaction Reference: ${targetInstallment.transactionId}</p>
+            <p>Amount Unverified: ${plan.currency === 'naira' ? '₦' : '$'}${amount.toFixed(2)}</p>
+            <p>Shares Removed: ${sharesToRemove}</p>
+            <p>Updated Total Shares: ${plan.sharesReleased} of ${plan.totalShares}</p>
+            <p>Updated Balance Paid: ${plan.currency === 'naira' ? '₦' : '$'}${plan.totalPaidAmount.toFixed(2)}</p>
+            <p>Remaining Balance: ${plan.currency === 'naira' ? '₦' : '$'}${(plan.totalPrice - plan.totalPaidAmount).toFixed(2)}</p>
+            ${adminNote ? `<p><em>Admin Note: ${adminNote}</em></p>` : ''}
+            <p>If you believe this is an error, please contact our support team.</p>
+          `
+        });
+      } catch (emailError) {
+        console.error('📧 Failed to send unverify notification email:', emailError);
+      }
+    }
+    
+    // Send notification to other admins
+    try {
+      const adminEmail = process.env.ADMIN_EMAIL || 'admin@afrimobile.com';
+      await sendEmail({
+        email: adminEmail,
+        subject: 'Installment Payment Unverified by Admin',
+        html: `
+          <h2>Admin Payment Unverification</h2>
+          <p>Admin <strong>${admin.name}</strong> has unverified an installment payment:</p>
+          <ul>
+            <li>User: ${user.name} (${user.email})</li>
+            <li>Plan ID: ${plan.planId}</li>
+            <li>Transaction Reference: ${targetInstallment.transactionId}</li>
+            <li>Amount Unverified: ${plan.currency === 'naira' ? '₦' : '$'}${amount.toFixed(2)}</li>
+            <li>Installment: ${targetInstallmentIndex + 1} of ${plan.installmentMonths}</li>
+            <li>Shares Removed: ${sharesToRemove}</li>
+            <li>New Plan Status: ${plan.status}</li>
+            ${adminNote ? `<li>Admin Note: ${adminNote}</li>` : ''}
+          </ul>
+          <p><strong>Warning:</strong> This action reversed a completed payment and removed shares from the user's account.</p>
+        `
+      });
+    } catch (emailError) {
+      console.error('📧 Failed to send admin notification:', emailError);
+    }
+    
+    res.status(200).json({
+      success: true,
+      message: 'Payment unverified successfully',
+      data: {
+        planId: plan.planId,
+        reference: targetInstallment.transactionId,
+        amount,
+        installmentNumber: targetInstallmentIndex + 1,
+        status: targetInstallment.status,
+        planStatus: plan.status,
+        totalPaidAmount: plan.totalPaidAmount,
+        remainingBalance: plan.totalPrice - plan.totalPaidAmount,
+        sharesRemoved: sharesToRemove,
+        totalSharesReleased: plan.sharesReleased,
+        unverifiedBy: admin.name,
+        adminNote: adminNote || null,
+        user: {
+          name: user.name,
+          email: user.email
+        }
+      }
+    });
+    
+  } catch (error) {
+    await session.abortTransaction();
+    session.endSession();
+    
+    console.error('💥 Admin unverification error:', error);
+    
+    res.status(500).json({
+      success: false,
+      message: 'Failed to unverify payment',
+      error: process.env.NODE_ENV === 'development' ? {
+        message: error.message,
+        stack: error.stack,
+        response: error.response?.data
+      } : undefined
+    });
+  }
+};
+
+/**
+ * @desc    Admin: Get pending transactions for review
+ * @route   GET /api/shares/installment/admin/pending-transactions
+ * @access  Private (Admin only)
+ */
+exports.adminGetPendingTransactions = async (req, res) => {
+  try {
+    const adminId = req.user.id;
+    
+    // Check admin privileges
+    const admin = await User.findById(adminId);
+    if (!admin || !admin.isAdmin) {
+      return res.status(403).json({
+        success: false,
+        message: 'Unauthorized: Admin access required'
+      });
+    }
+    
+    const { page = 1, limit = 20, status = 'all' } = req.query;
+    const skip = (parseInt(page) - 1) * parseInt(limit);
+    
+    let query = {};
+    
+    // Build query based on status filter
+    if (status === 'pending') {
+      query = {
+        'installments': {
+          $elemMatch: {
+            status: { $in: ['pending', 'upcoming'] },
+            transactionId: { $exists: true, $ne: null }
+          }
+        }
+      };
+    } else if (status === 'completed') {
+      query = {
+        'installments': {
+          $elemMatch: {
+            status: 'completed',
+            verifiedBy: { $exists: true }
+          }
+        }
+      };
+    } else {
+      // All transactions with transaction IDs
+      query = {
+        'installments': {
+          $elemMatch: {
+            transactionId: { $exists: true, $ne: null }
+          }
+        }
+      };
+    }
+    
+    // Find plans matching the query
+    const plans = await InstallmentPlan.find(query)
+      .skip(skip)
+      .limit(parseInt(limit))
+      .sort({ updatedAt: -1 })
+      .populate('user', 'name email phone');
+    
+    const transactions = [];
+    
+    for (const plan of plans) {
+      let installmentsToShow = [];
+      
+      if (status === 'pending') {
+        installmentsToShow = plan.installments.filter(
+          inst => ['pending', 'upcoming'].includes(inst.status) && inst.transactionId
+        );
+      } else if (status === 'completed') {
+        installmentsToShow = plan.installments.filter(
+          inst => inst.status === 'completed' && inst.verifiedBy
+        );
+      } else {
+        installmentsToShow = plan.installments.filter(
+          inst => inst.transactionId
+        );
+      }
+      
+      for (const installment of installmentsToShow) {
+        transactions.push({
+          planId: plan.planId,
+          user: {
+            id: plan.user._id,
+            name: plan.user.name,
+            email: plan.user.email,
+            phone: plan.user.phone
+          },
+          installmentNumber: installment.installmentNumber,
+          amount: installment.amount,
+          paidAmount: installment.paidAmount || 0,
+          dueDate: installment.dueDate,
+          paidDate: installment.paidDate,
+          transactionId: installment.transactionId,
+          status: installment.status,
+          currency: plan.currency,
+          isFirstPayment: installment.isFirstPayment,
+          minimumAmount: installment.isFirstPayment ? plan.minimumDownPaymentAmount : 0,
+          planStatus: plan.status,
+          verifiedBy: installment.verifiedBy,
+          verifiedAt: installment.verifiedAt,
+          adminNote: installment.adminNote,
+          forceApproved: installment.forceApproved || false,
+          unverifyHistory: installment.unverifyHistory || [],
+          canVerify: installment.status !== 'completed',
+          canUnverify: installment.status === 'completed' && installment.verifiedBy,
+          createdAt: plan.createdAt,
+          updatedAt: plan.updatedAt
+        });
+      }
+    }
+    
+    // Sort by most recent first
+    transactions.sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt));
+    
+    res.status(200).json({
+      success: true,
+      transactions,
+      count: transactions.length,
+      filters: {
+        status,
+        availableStatuses: ['all', 'pending', 'completed']
+      },
+      pagination: {
+        currentPage: parseInt(page),
+        totalPages: Math.ceil(transactions.length / parseInt(limit)),
+        totalCount: transactions.length
+      }
+    });
+    
+  } catch (error) {
+    console.error('Error fetching pending transactions:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch transactions',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+};
+
+/**
+ * @desc    Admin: Get transaction details for verification
+ * @route   GET /api/shares/installment/admin/transaction-details/:reference
+ * @access  Private (Admin only)
+ */
+exports.adminGetTransactionDetails = async (req, res) => {
+  try {
+    const adminId = req.user.id;
+    const { reference } = req.params;
+    
+    // Check admin privileges
+    const admin = await User.findById(adminId);
+    if (!admin || !admin.isAdmin) {
+      return res.status(403).json({
+        success: false,
+        message: 'Unauthorized: Admin access required'
+      });
+    }
+    
+    if (!reference) {
+      return res.status(400).json({
+        success: false,
+        message: 'Please provide transaction reference'
+      });
+    }
+    
+    // Get Paystack transaction details
+    let paystackData = null;
+    try {
+      const verificationResponse = await axios.get(
+        `https://api.paystack.co/transaction/verify/${reference}`,
+        {
+          headers: {
+            Authorization: `Bearer ${process.env.PAYSTACK_SECRET_KEY}`
+          }
+        }
+      );
+      paystackData = verificationResponse.data.data;
+    } catch (paystackError) {
+      console.error('Failed to fetch Paystack data:', paystackError);
+      paystackData = {
+        error: 'Failed to fetch from Paystack',
+        message: paystackError.response?.data?.message || paystackError.message
+      };
+    }
+    
+    // Find the installment plan
+    const plan = await InstallmentPlan.findOne({
+      'installments.transactionId': reference
+    }).populate('user', 'name email phone');
+    
+    if (!plan) {
+      return res.status(404).json({
+        success: false,
+        message: 'Installment plan not found for this transaction',
+        paystackData
+      });
+    }
+    
+    // Find the specific installment
+    const installmentIndex = plan.installments.findIndex(
+      inst => inst.transactionId === reference
+    );
+    
+    if (installmentIndex === -1) {
+      return res.status(404).json({
+        success: false,
+        message: 'Installment not found in plan',
+        paystackData
+      });
+    }
+    
+    const installment = plan.installments[installmentIndex];
+    
+    res.status(200).json({
+      success: true,
+      data: {
+        plan: {
+          planId: plan.planId,
+          status: plan.status,
+          totalShares: plan.totalShares,
+          totalPrice: plan.totalPrice,
+          currency: plan.currency,
+          totalPaidAmount: plan.totalPaidAmount || 0,
+          remainingBalance: plan.totalPrice - (plan.totalPaidAmount || 0),
+          sharesReleased: plan.sharesReleased || 0,
+          minimumDownPaymentAmount: plan.minimumDownPaymentAmount
+        },
+        user: {
+          id: plan.user._id,
+          name: plan.user.name,
+          email: plan.user.email,
+          phone: plan.user.phone
+        },
+        installment: {
+          number: installment.installmentNumber,
+          amount: installment.amount,
+          paidAmount: installment.paidAmount || 0,
+          dueDate: installment.dueDate,
+          paidDate: installment.paidDate,
+          status: installment.status,
+          transactionId: installment.transactionId,
+          isFirstPayment: installment.isFirstPayment,
+          verifiedBy: installment.verifiedBy,
+          verifiedAt: installment.verifiedAt,
+          adminNote: installment.adminNote,
+          forceApproved: installment.forceApproved || false,
+          unverifyHistory: installment.unverifyHistory || []
+        },
+        paystack: paystackData,
+        actions: {
+          canVerify: installment.status !== 'completed',
+          canUnverify: installment.status === 'completed' && installment.verifiedBy,
+          requiresForceApprove: paystackData?.status !== 'success'
+        }
+      }
+    });
+    
+  } catch (error) {
+    console.error('Error fetching transaction details:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch transaction details',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+};
+
+/**
+ * @desc    Admin: Verify and approve pending Paystack transaction
+ * @route   POST /api/shares/installment/admin/verify-transaction
+ * @access  Private (Admin only)
+ */
+exports.adminVerifyTransaction = async (req, res) => {
+  const session = await InstallmentPlan.startSession();
+  session.startTransaction();
+  
+  try {
+    const { reference, planId, forceApprove = false, adminNote } = req.body;
+    const adminId = req.user.id;
+    
+    // Check admin privileges
+    const admin = await User.findById(adminId);
+    if (!admin || !admin.isAdmin) {
+      await session.abortTransaction();
+      session.endSession();
+      return res.status(403).json({
+        success: false,
+        message: 'Unauthorized: Admin access required'
+      });
+    }
+    
+    if (!reference) {
+      await session.abortTransaction();
+      session.endSession();
+      return res.status(400).json({
+        success: false,
+        message: 'Please provide payment reference'
+      });
+    }
+
+    console.log(`✅ Admin ${admin.name} verifying transaction: ${reference}`);
+    
+    // First, get transaction details from Paystack
+    let paymentData;
+    try {
+      const verificationResponse = await axios.get(
+        `https://api.paystack.co/transaction/verify/${reference}`,
+        {
+          headers: {
+            Authorization: `Bearer ${process.env.PAYSTACK_SECRET_KEY}`
+          }
+        }
+      );
+      paymentData = verificationResponse.data.data;
+    } catch (paystackError) {
+      await session.abortTransaction();
+      session.endSession();
+      return res.status(400).json({
+        success: false,
+        message: 'Failed to verify transaction with Paystack',
+        error: paystackError.response?.data || paystackError.message
+      });
+    }
+    
+    console.log(`💳 Paystack status: ${paymentData.status}`);
+    
+    // If payment failed and not forcing approval, return the status
+    if (paymentData.status !== 'success' && !forceApprove) {
+      await session.abortTransaction();
+      session.endSession();
+      return res.status(200).json({
+        success: false,
+        message: `Payment status: ${paymentData.status}. Use forceApprove=true to override.`,
+        paymentStatus: paymentData.status,
+        canForceApprove: true,
+        data: {
+          reference: paymentData.reference,
+          amount: paymentData.amount / 100,
+          currency: paymentData.currency,
+          status: paymentData.status,
+          gateway_response: paymentData.gateway_response,
+          paid_at: paymentData.paid_at,
+          metadata: paymentData.metadata
+        }
+      });
+    }
+    
+    // Get metadata from payment or use provided planId
+    const metadata = paymentData.metadata || {};
+    let targetPlanId = planId || metadata.planId;
+    let targetUserId = metadata.userId;
+    let installmentNumber = metadata.installmentNumber;
+    let transactionId = metadata.transactionId || reference;
+    
+    // If no planId, search for plan by reference in installments
+    if (!targetPlanId) {
+      const planWithReference = await InstallmentPlan.findOne({
+        'installments.transactionId': reference
+      }).session(session);
+      
+      if (planWithReference) {
+        targetPlanId = planWithReference.planId;
+        targetUserId = planWithReference.user.toString();
+        
+        // Find which installment has this reference
+        const installmentIndex = planWithReference.installments.findIndex(
+          inst => inst.transactionId === reference
+        );
+        if (installmentIndex !== -1) {
+          installmentNumber = installmentIndex + 1;
+        }
+      }
+    }
+    
+    if (!targetPlanId) {
+      await session.abortTransaction();
+      session.endSession();
+      return res.status(400).json({
+        success: false,
+        message: 'Cannot determine installment plan. Please provide planId.',
+        availableData: {
+          reference,
+          paystackMetadata: metadata,
+          suggestion: 'Search for the plan manually and provide planId'
+        }
+      });
+    }
+    
+    // Find the installment plan
+    const plan = await InstallmentPlan.findOne({
+      planId: targetPlanId
+    }).session(session);
+    
+    if (!plan) {
+      await session.abortTransaction();
+      session.endSession();
+      return res.status(404).json({
+        success: false,
+        message: `Installment plan not found: ${targetPlanId}`
+      });
+    }
+    
+    // Get user details
+    const user = await User.findById(plan.user);
+    if (!user) {
+      await session.abortTransaction();
+      session.endSession();
+      return res.status(404).json({
+        success: false,
+        message: 'User not found for this plan'
+      });
+    }
+    
+    // If installmentNumber not found, try to determine it
+    if (!installmentNumber) {
+      // Find installment with matching transaction ID
+      const installmentIndex = plan.installments.findIndex(
+        inst => inst.transactionId === reference || inst.transactionId === transactionId
+      );
+      
+      if (installmentIndex !== -1) {
+        installmentNumber = installmentIndex + 1;
+      } else {
+        // Find first pending/upcoming installment
+        const nextInstallmentIndex = plan.installments.findIndex(
+          inst => inst.status === 'pending' || inst.status === 'upcoming'
+        );
+        
+        if (nextInstallmentIndex !== -1) {
+          installmentNumber = nextInstallmentIndex + 1;
+        } else {
+          await session.abortTransaction();
+          session.endSession();
+          return res.status(400).json({
+            success: false,
+            message: 'Cannot determine which installment this payment is for',
+            suggestion: 'All installments appear to be completed or plan status unclear'
+          });
+        }
+      }
+    }
+    
+    // Validate installment number
+    const installmentIndex = parseInt(installmentNumber) - 1;
+    if (installmentIndex < 0 || installmentIndex >= plan.installments.length) {
+      await session.abortTransaction();
+      session.endSession();
+      return res.status(400).json({
+        success: false,
+        message: `Invalid installment number: ${installmentNumber}. Plan has ${plan.installments.length} installments.`
+      });
+    }
+    
+    const installment = plan.installments[installmentIndex];
+    
+    // Check if installment is already completed
+    if (installment.status === 'completed') {
+      await session.abortTransaction();
+      session.endSession();
+      return res.status(400).json({
+        success: false,
+        message: 'This installment has already been completed',
+        data: {
+          planId: plan.planId,
+          installmentNumber,
+          status: 'already_completed',
+          paidAmount: installment.paidAmount,
+          paidDate: installment.paidDate,
+          previousTransactionId: installment.transactionId,
+          canUnverify: true
+        }
+      });
+    }
+    
+    // Convert amount from kobo to currency unit
+    const amount = paymentData.amount / 100;
+    
+    // Validate payment amount for first payment
+    if (installment.isFirstPayment && amount < plan.minimumDownPaymentAmount && !forceApprove) {
+      await session.abortTransaction();
+      session.endSession();
+      return res.status(400).json({
+        success: false,
+        message: `First payment amount (${plan.currency === 'naira' ? '₦' : '$'}${amount}) is below minimum requirement (${plan.currency === 'naira' ? '₦' : '$'}${plan.minimumDownPaymentAmount}). Use forceApprove=true to override.`,
+        canForceApprove: true,
+        minimumRequired: plan.minimumDownPaymentAmount,
+        providedAmount: amount
+      });
+    }
+    
+    // Check if payment exceeds remaining balance
+    const remainingBalance = plan.totalPrice - (plan.totalPaidAmount || 0);
+    if (amount > remainingBalance && !forceApprove) {
+      await session.abortTransaction();
+      session.endSession();
+      return res.status(400).json({
+        success: false,
+        message: `Payment amount (${plan.currency === 'naira' ? '₦' : '$'}${amount}) exceeds remaining balance (${plan.currency === 'naira' ? '₦' : '$'}${remainingBalance}). Use forceApprove=true to override.`,
+        canForceApprove: true,
+        remainingBalance,
+        providedAmount: amount
+      });
+    }
+    
+    console.log(`💰 Admin approving payment: ${amount} ${plan.currency} for installment ${installmentNumber}`);
+    
+    // Store original values for potential rollback
+    const originalInstallment = {
+      status: installment.status,
+      paidAmount: installment.paidAmount,
+      paidDate: installment.paidDate,
+      transactionId: installment.transactionId
+    };
+    
+    // Update installment payment
+    installment.status = 'completed';
+    installment.paidAmount = amount;
+    installment.paidDate = new Date(paymentData.paid_at || new Date());
+    installment.transactionId = transactionId;
+    installment.adminNote = adminNote || `Verified by admin ${admin.name}`;
+    installment.verifiedBy = adminId;
+    installment.verifiedAt = new Date();
+    installment.forceApproved = forceApprove;
+    installment.originalValues = originalInstallment; // Store for unverify
+    
+    // Update plan totals
+    plan.totalPaidAmount = (plan.totalPaidAmount || 0) + amount;
+    
+    // Update plan status if first payment
+    if (plan.status === 'pending' && installment.isFirstPayment) {
+      plan.status = 'active';
+      console.log(`📈 Plan status updated to active`);
+    }
+    
+    // Calculate shares to release
+    const paymentPercentage = (amount / plan.totalPrice) * 100;
+    const sharesToRelease = Math.floor(plan.totalShares * (paymentPercentage / 100));
+    plan.sharesReleased = (plan.sharesReleased || 0) + sharesToRelease;
+    
+    console.log(`🎯 Releasing ${sharesToRelease} shares (${paymentPercentage.toFixed(2)}% of total)`);
+    
+    // Check if plan is completed
+    if (plan.totalPaidAmount >= plan.totalPrice) {
+      plan.status = 'completed';
+      console.log(`✅ Plan completed! Total paid: ${plan.totalPaidAmount} of ${plan.totalPrice}`);
+    }
+    
+    // Update plan timestamp and admin verification info
+    plan.updatedAt = new Date();
+    plan.lastAdminAction = {
+      adminId,
+      adminName: admin.name,
+      action: 'verify_payment',
+      timestamp: new Date(),
+      note: adminNote,
+      transactionId,
+      amount
+    };
+    
+    // Save plan updates
+    await plan.save({ session });
+    
+    // Add released shares to user's account if applicable
+    if (sharesToRelease > 0) {
+      await UserShare.addShares(plan.user, sharesToRelease, {
+        transactionId,
+        shares: sharesToRelease,
+        pricePerShare: amount / sharesToRelease,
+        currency: plan.currency,
+        totalAmount: amount,
+        paymentMethod: 'paystack',
+        status: 'completed',
+        tierBreakdown: {
+          tier1: Math.floor((plan.tierBreakdown?.tier1 || 0) * (paymentPercentage / 100)),
+          tier2: Math.floor((plan.tierBreakdown?.tier2 || 0) * (paymentPercentage / 100)),
+          tier3: Math.floor((plan.tierBreakdown?.tier3 || 0) * (paymentPercentage / 100))
+        },
+        installmentPayment: true,
+        installmentPlanId: plan.planId,
+        adminVerified: true,
+        verifiedBy: adminId
+      }, { session });
+      
+      // Update global share sales
+      const Share = require('../models/Share');
+      const shareConfig = await Share.getCurrentConfig();
+      shareConfig.sharesSold = (shareConfig.sharesSold || 0) + sharesToRelease;
+      
+      const tier1Shares = Math.floor((plan.tierBreakdown?.tier1 || 0) * (paymentPercentage / 100));
+      const tier2Shares = Math.floor((plan.tierBreakdown?.tier2 || 0) * (paymentPercentage / 100));
+      const tier3Shares = Math.floor((plan.tierBreakdown?.tier3 || 0) * (paymentPercentage / 100));
+      
+      if (!shareConfig.tierSales) {
+        shareConfig.tierSales = { tier1Sold: 0, tier2Sold: 0, tier3Sold: 0 };
+      }
+      
+      shareConfig.tierSales.tier1Sold = (shareConfig.tierSales.tier1Sold || 0) + tier1Shares;
+      shareConfig.tierSales.tier2Sold = (shareConfig.tierSales.tier2Sold || 0) + tier2Shares;
+      shareConfig.tierSales.tier3Sold = (shareConfig.tierSales.tier3Sold || 0) + tier3Shares;
+      
+      await shareConfig.save({ session });
+      
+      // Process referral commissions
+      try {
+        await processReferralCommission(
+          plan.user,
+          amount,
+          'share',
+          transactionId,
+          { session }
+        );
+      } catch (referralError) {
+        console.error('💥 Error processing referral commissions:', referralError);
+        // Don't fail the whole transaction for referral errors
+      }
+    }
+    
+    await session.commitTransaction();
+    session.endSession();
+    
+    console.log(`🎉 Admin verification completed successfully`);
+    
+    // Send confirmation email to user
+    if (user?.email) {
+      try {
+        await sendEmail({
+          email: user.email,
+          subject: 'Installment Payment Approved',
+          html: `
+            <h2>Payment Approved by Admin</h2>
+            <p>Dear ${user.name},</p>
+            <p>Your installment payment for plan ${plan.planId} has been verified and approved by our admin team.</p>
+            <p>Transaction Reference: ${reference}</p>
+            <p>Amount Approved: ${plan.currency === 'naira' ? '₦' : '$'}${amount.toFixed(2)}</p>
+            <p>Shares Released: ${sharesToRelease}</p>
+            <p>Total Shares Released: ${plan.sharesReleased} of ${plan.totalShares}</p>
+            <p>Remaining Balance: ${plan.currency === 'naira' ? '₦' : '$'}${(plan.totalPrice - plan.totalPaidAmount).toFixed(2)}</p>
+            ${plan.status === 'completed' ? 
+              `<p>🎉 Congratulations! You have completed your installment plan.</p>` : 
+              `<p>You can make your next payment at any time using Paystack.</p>`}
+            ${adminNote ? `<p><em>Admin Note: ${adminNote}</em></p>` : ''}
+          `
+        });
+      } catch (emailError) {
+        console.error('📧 Failed to send confirmation email:', emailError);
+      }
+    }
+    
+    res.status(200).json({
+      success: true,
+      message: 'Payment verified and approved successfully',
+      data: {
+        planId: plan.planId,
+        reference,
+        amount,
+        installmentNumber,
+        status: 'completed',
+        planStatus: plan.status,
+        totalPaidAmount: plan.totalPaidAmount,
+        remainingBalance: plan.totalPrice - plan.totalPaidAmount,
+        sharesReleased: sharesToRelease,
+        totalSharesReleased: plan.sharesReleased,
+        transactionId,
+        verifiedBy: admin.name,
+        forceApproved: forceApprove,
+        adminNote: adminNote || null,
+        user: {
+          name: user.name,
+          email: user.email
+        }
+      }
+    });
+    
+  } catch (error) {
+    await session.abortTransaction();
+    session.endSession();
+    
+    console.error('💥 Admin verification error:', error);
+    
+    res.status(500).json({
+      success: false,
+      message: 'Failed to verify payment',
+      error: process.env.NODE_ENV === 'development' ? {
+        message: error.message,
+        stack: error.stack,
+        response: error.response?.data
+      } : undefined
+    });
+  }
+};
+
+// Complete module exports
 module.exports = {
+  // Validation middleware
+  validateInstallmentInput,
+  
+  // User functions
   calculateInstallmentPlan: exports.calculateInstallmentPlan,
   createInstallmentPlan: exports.createInstallmentPlan,
   getUserInstallmentPlans: exports.getUserInstallmentPlans,
+  cancelInstallmentPlan: exports.cancelInstallmentPlan,
+  
+  // Payment functions
   payInstallmentWithPaystack: exports.payInstallmentWithPaystack,
   verifyInstallmentPaystack: exports.verifyInstallmentPaystack,
+  
+  // Admin functions
   adminGetAllInstallmentPlans: exports.adminGetAllInstallmentPlans,
-  cancelInstallmentPlan: exports.cancelInstallmentPlan,
   checkLatePayments: exports.checkLatePayments,
-  validateInstallmentInput
+  
+  // Admin verification functions (complete implementations)
+  adminVerifyTransaction: exports.adminVerifyTransaction,
+  adminUnverifyTransaction: exports.adminUnverifyTransaction,
+  adminGetPendingTransactions: exports.adminGetPendingTransactions,
+  adminGetTransactionDetails: exports.adminGetTransactionDetails
 };
