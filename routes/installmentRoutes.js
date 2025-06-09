@@ -933,128 +933,130 @@ router.post('/admin/verify-transaction',
  *             $ref: '#/components/schemas/AdminUnverifyRequest'
  *           examples:
  *             check_before_unverify:
-               summary: "Step 1: Check what will happen (safety check)"
-               value:
-                 reference: "INST-495245B4-737394"
-                 confirmUnverify: false
-                 adminNote: "Checking impact before proceeding"
-             confirm_unverify:
-               summary: "Step 2: Actually reverse the payment"
-               value:
-                 reference: "INST-495245B4-737394"
-                 confirmUnverify: true
-                 adminNote: "Payment was processed twice - reversing duplicate"
-             fraud_reversal:
-               summary: "Fraud case reversal"
-               value:
-                 reference: "INST-495245B4-737394"
-                 confirmUnverify: true
-                 adminNote: "Fraudulent payment detected - reversing transaction"
-     responses:
-       200:
-         description: Response depends on confirmUnverify value
-         content:
-           application/json:
-             schema:
-               oneOf:
-                 - type: object
-                   title: Safety Check Response
-                   properties:
-                     success:
-                       type: boolean
-                       example: false
-                     message:
-                       type: string
-                       example: "Unverification requires confirmation"
-                     requiresConfirmation:
-                       type: boolean
-                       example: true
-                     data:
-                       type: object
-                       properties:
-                         planId:
-                           type: string
-                         customerName:
-                           type: string
-                         amount:
-                           type: number
-                         sharesWillBeRemoved:
-                           type: integer
-                         warning:
-                           type: string
-                           example: "This will remove 125 shares from John Doe's account"
-                     instruction:
-                       type: string
-                       example: "Set confirmUnverify=true to proceed"
-                 - type: object
-                   title: Unverification Complete
-                   properties:
-                     success:
-                       type: boolean
-                       example: true
-                     message:
-                       type: string
-                       example: "Payment unverified successfully"
-                     data:
-                       type: object
-                       properties:
-                         planId:
-                           type: string
-                         amount:
-                           type: number
-                         sharesRemoved:
-                           type: integer
-                         customerNotified:
-                           type: boolean
-                         unverifiedBy:
-                           type: string
-             examples:
-               safety_check:
-                 summary: Safety confirmation needed
-                 value:
-                   success: false
-                   message: "Unverification requires confirmation"
-                   requiresConfirmation: true
-                   data:
-                     planId: "INST-9D0D1D3D-226991"
-                     customerName: "John Doe"
-                     amount: 50000
-                     sharesWillBeRemoved: 125
-                     warning: "This will remove 125 shares from John Doe's account"
-                   instruction: "Set confirmUnverify=true to proceed"
-               unverify_complete:
-                 summary: Successfully unverified
-                 value:
-                   success: true
-                   message: "Payment unverified successfully"
-                   data:
-                     planId: "INST-9D0D1D3D-226991"
-                     amount: 50000
-                     sharesRemoved: 125
-                     customerNotified: true
-                     unverifiedBy: "Admin Name"
-       400:
-         description: Cannot unverify this transaction
-         content:
-           application/json:
-             schema:
-               type: object
-               properties:
-                 success:
-                   type: boolean
-                   example: false
-                 message:
-                   type: string
-                   example: "Installment is not completed. Current status: pending"
-                 cannotUnverify:
-                   type: boolean
-                   example: true
-       403:
-         description: Admin access required
-       404:
-         description: Transaction reference not found
-       500:
-         description: Server error
+ *               summary: "Step 1: Check what will happen (safety check)"
+ *               value:
+ *                 reference: "INST-495245B4-737394"
+ *                 confirmUnverify: false
+ *                 adminNote: "Checking impact before proceeding"
+ *             confirm_unverify:
+ *               summary: "Step 2: Actually reverse the payment"
+ *               value:
+ *                 reference: "INST-495245B4-737394"
+ *                 confirmUnverify: true
+ *                 adminNote: "Payment was processed twice - reversing duplicate"
+ *             fraud_reversal:
+ *               summary: "Fraud case reversal"
+ *               value:
+ *                 reference: "INST-495245B4-737394"
+ *                 confirmUnverify: true
+ *                 adminNote: "Fraudulent payment detected - reversing transaction"
+ *     responses:
+ *       200:
+ *         description: Response depends on confirmUnverify value
+ *         content:
+ *           application/json:
+ *             schema:
+ *               oneOf:
+ *                 - type: object
+ *                   title: Safety Check Response
+ *                   properties:
+ *                     success:
+ *                       type: boolean
+ *                       example: false
+ *                     message:
+ *                       type: string
+ *                       example: "Unverification requires confirmation"
+ *                     requiresConfirmation:
+ *                       type: boolean
+ *                       example: true
+ *                     data:
+ *                       type: object
+ *                       properties:
+ *                         planId:
+ *                           type: string
+ *                         customerName:
+ *                           type: string
+ *                         amount:
+ *                           type: number
+ *                         sharesWillBeRemoved:
+ *                           type: integer
+ *                         warning:
+ *                           type: string
+ *                           example: "This will remove 125 shares from John Doe's account"
+ *                     instruction:
+ *                       type: string
+ *                       example: "Set confirmUnverify=true to proceed"
+ *                 - type: object
+ *                   title: Unverification Complete
+ *                   properties:
+ *                     success:
+ *                       type: boolean
+ *                       example: true
+ *                     message:
+ *                       type: string
+ *                       example: "Payment unverified successfully"
+ *                     data:
+ *                       type: object
+ *                       properties:
+ *                         planId:
+ *                           type: string
+ *                         amount:
+ *                           type: number
+ *                         sharesRemoved:
+ *                           type: integer
+ *                         customerNotified:
+ *                           type: boolean
+ *                         unverifiedBy:
+ *                           type: string
+ *             examples:
+ *               safety_check:
+ *                 summary: Safety confirmation needed
+ *                 value:
+ *                   success: false
+ *                   message: "Unverification requires confirmation"
+ *                   requiresConfirmation: true
+ *                   data:
+ *                     planId: "INST-9D0D1D3D-226991"
+ *                     customerName: "John Doe"
+ *                     amount: 50000
+ *                     sharesWillBeRemoved: 125
+ *                     warning: "This will remove 125 shares from John Doe's account"
+ *                   instruction: "Set confirmUnverify=true to proceed"
+ *               unverify_complete:
+ *                 summary: Successfully unverified
+ *                 value:
+ *                   success: true
+ *                   message: "Payment unverified successfully"
+ *                   data:
+ *                     planId: "INST-9D0D1D3D-226991"
+ *                     amount: 50000
+ *                     sharesRemoved: 125
+ *                     customerNotified: true
+ *                     unverifiedBy: "Admin Name"
+ *       400:
+ *         description: Cannot unverify this transaction
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: false
+ *                 message:
+ *                   type: string
+ *                   example: "Installment is not completed. Current status: pending"
+ *                 cannotUnverify:
+ *                   type: boolean
+ *                   example: true
+ *       401:
+ *         $ref: '#/components/responses/UnauthorizedError'
+ *       403:
+ *         $ref: '#/components/responses/ForbiddenError'
+ *       404:
+ *         $ref: '#/components/responses/NotFoundError'
+ *       500:
+ *         $ref: '#/components/responses/ServerError'
  */
 router.post('/admin/unverify-transaction', 
   adminProtect, 
