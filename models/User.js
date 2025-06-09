@@ -163,6 +163,33 @@ const userSchema = new mongoose.Schema({
   updatedAt: {
     type: Date,
     default: Date.now
+  },
+  location: {
+    state: { type: String, trim: true },
+    city: { type: String, trim: true },
+    country: { type: String, default: 'Nigeria' }
+  },
+  
+  earnings: {
+    total: { type: Number, default: 0 },
+    visible: { type: Boolean, default: true }
+  },
+  
+  availableBalance: {
+    amount: { type: Number, default: 0 },
+    visible: { type: Boolean, default: true }
+  },
+  
+  stats: {
+    totalShares: { type: Number, default: 0 },
+    totalReferrals: { type: Number, default: 0 },
+    totalCofounders: { type: Number, default: 0 },
+    lastUpdated: { type: Date, default: Date.now }
+  },
+  
+  status: {
+    isActive: { type: Boolean, default: true },
+    isSuspended: { type: Boolean, default: false }
   }
 }, {
   // Enable automatic timestamps
@@ -176,6 +203,11 @@ userSchema.index({ walletAddress: 1 });
 userSchema.index({ isAdmin: 1 });
 userSchema.index({ isBanned: 1 });
 userSchema.index({ createdAt: -1 });
+
+userSchema.index({ 'earnings.total': -1 });
+userSchema.index({ 'availableBalance.amount': -1 });
+userSchema.index({ 'stats.totalShares': -1 });
+userSchema.index({ 'location.state': 1 });
 
 // Pre-save hook to hash password
 userSchema.pre('save', async function(next) {
