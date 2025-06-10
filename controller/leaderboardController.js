@@ -3,6 +3,8 @@ const User = require('../models/User');
 const Referral = require('../models/Referral');
 const ReferralTransaction = require('../models/ReferralTransaction');
 const Withdrawal = require('../models/Withdrawal');
+const AdminSettings = require('../models/AdminSettings');
+const { invalidateCache } = require('../middleware/visibilityMiddleware');
 
 // Optional dependencies - will be loaded if they exist
 let LeaderboardSnapshot, LocationAnalytics, AdminAuditLog, CacheService, adminValidation;
@@ -1117,6 +1119,1026 @@ exports.getSharesLeaderboard = async (req, res) => {
       success: false,
       message: 'Failed to fetch leaderboard',
       error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+};
+
+// Function to filter leaderboard based on Earnings
+
+exports.getLeaderboardByEarnings = async (filters) => {
+  const {
+    minEarnings = 0,
+    maxEarnings = null,
+    limit = 50,
+    offset = 0,
+    period = 'all_time',
+    sortOrder = 'desc'
+  } = filters;
+
+  // Build earnings filter
+  const earningsFilter = { $gte: minEarnings };
+  if (maxEarnings !== null) {
+    earningsFilter.$lte = maxEarnings;
+  }
+
+  // Build date filter
+  let dateFilter = {};
+  if (period !== 'all_time') {
+    const now = new Date();
+    let startDate = new Date();
+    
+    switch (period) {
+      case 'daily':
+        startDate.setHours(0, 0, 0, 0);
+        break;
+      case 'weekly':
+        startDate.setDate(now.getDate() - now.getDay());
+        startDate.setHours(0, 0, 0, 0);
+        break;
+      case 'monthly':
+        startDate.setDate(1);
+        startDate.setHours(0, 0, 0, 0);
+        break;
+      case 'yearly':
+        startDate.setMonth(0, 1);
+        startDate.setHours(0, 0, 0, 0);
+        break;
+    }
+    dateFilter.createdAt = { $gte: startDate };
+  }
+
+  const pipeline = [
+    {
+      $lookup: {
+        from: 'referrals',
+        localField: '_id',
+        foreignField: 'user',
+        as: 'referralData'
+      }
+    },
+    {
+      $lookup: {
+        from: 'withdrawals',
+        localField: '_id',
+        foreignField: 'user',
+        as: 'withdrawals'
+      }
+    },
+    {
+      $addFields: {
+        referralInfo: {
+          $cond: {
+            if: { $gt: [{ $size: "$referralData" }, 0] },
+            then: { $arrayElemAt: ["$referralData", 0] },
+            else: { totalEarnings: 0 }
+          }
+        }
+      }
+    },
+    {
+      $addFields: {
+        totalEarnings: { $ifNull: ["$referralInfo.totalEarnings", 0] }
+      }
+    },
+    {
+      $match: {
+        'status.isActive': true,
+        totalEarnings: earningsFilter,
+        ...dateFilter
+      }
+    },
+    {
+      $sort: { totalEarnings: sortOrder === 'desc' ? -1 : 1 }
+    },
+    {
+      $facet: {
+        data: [
+          { $skip: offset },
+          { $limit: limit },
+          {
+            $project: {
+              _id: 1,
+              name: 1,
+              userName: 1,
+              totalEarnings: 1,
+              'location.state': 1,
+              'location.city': 1,
+              'status.isActive': 1,
+              createdAt: 1
+            }
+          }
+        ],
+        totalCount: [{ $count: "count" }]
+      }
+    }
+  ];
+
+  const result = await User.aggregate(pipeline);
+  const users = result[0].data;
+  const totalCount = result[0].totalCount[0]?.count || 0;
+
+  return {
+    users: users.map((user, index) => ({
+      ...user,
+      rank: offset + index + 1
+    })),
+    total: totalCount,
+    totalPages: Math.ceil(totalCount / limit),
+    currentPage: Math.floor(offset / limit) + 1
+  };
+};
+
+// Function to filter leaderboard based on available balance
+
+exports.getLeaderboardByBalance = async (filters) => {
+  const {
+    minBalance = 0,
+    maxBalance = null,
+    limit = 50,
+    offset = 0,
+    period = 'all_time',
+    sortOrder = 'desc'
+  } = filters;
+
+  // Build balance filter
+  const balanceFilter = { $gte: minBalance };
+  if (maxBalance !== null) {
+    balanceFilter.$lte = maxBalance;
+  }
+
+  // Build date filter
+  let dateFilter = {};
+  if (period !== 'all_time') {
+    const now = new Date();
+    let startDate = new Date();
+    
+    switch (period) {
+      case 'daily':
+        startDate.setHours(0, 0, 0, 0);
+        break;
+      case 'weekly':
+        startDate.setDate(now.getDate() - now.getDay());
+        startDate.setHours(0, 0, 0, 0);
+        break;
+      case 'monthly':
+        startDate.setDate(1);
+        startDate.setHours(0, 0, 0, 0);
+        break;
+      case 'yearly':
+        startDate.setMonth(0, 1);
+        startDate.setHours(0, 0, 0, 0);
+        break;
+    }
+    dateFilter.createdAt = { $gte: startDate };
+  }
+
+  const pipeline = [
+    {
+      $lookup: {
+        from: 'referrals',
+        localField: '_id',
+        foreignField: 'user',
+        as: 'referralData'
+      }
+    },
+    {
+      $lookup: {
+        from: 'withdrawals',
+        localField: '_id',
+        foreignField: 'user',
+        as: 'withdrawals'
+      }
+    },
+    {
+      $addFields: {
+        referralInfo: {
+          $cond: {
+            if: { $gt: [{ $size: "$referralData" }, 0] },
+            then: { $arrayElemAt: ["$referralData", 0] },
+            else: {
+              totalEarnings: 0,
+              totalWithdrawn: 0,
+              pendingWithdrawals: 0,
+              processingWithdrawals: 0
+            }
+          }
+        }
+      }
+    },
+    {
+      $addFields: {
+        totalEarnings: { $ifNull: ["$referralInfo.totalEarnings", 0] },
+        totalWithdrawn: { $ifNull: ["$referralInfo.totalWithdrawn", 0] },
+        pendingWithdrawals: { $ifNull: ["$referralInfo.pendingWithdrawals", 0] },
+        processingWithdrawals: { $ifNull: ["$referralInfo.processingWithdrawals", 0] }
+      }
+    },
+    {
+      $addFields: {
+        availableBalance: {
+          $subtract: [
+            "$totalEarnings",
+            {
+              $add: [
+                "$totalWithdrawn",
+                "$pendingWithdrawals",
+                "$processingWithdrawals"
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      $match: {
+        'status.isActive': true,
+        availableBalance: balanceFilter,
+        ...dateFilter
+      }
+    },
+    {
+      $sort: { availableBalance: sortOrder === 'desc' ? -1 : 1 }
+    },
+    {
+      $facet: {
+        data: [
+          { $skip: offset },
+          { $limit: limit },
+          {
+            $project: {
+              _id: 1,
+              name: 1,
+              userName: 1,
+              totalEarnings: 1,
+              availableBalance: 1,
+              'location.state': 1,
+              'location.city': 1,
+              'status.isActive': 1,
+              createdAt: 1
+            }
+          }
+        ],
+        totalCount: [{ $count: "count" }]
+      }
+    }
+  ];
+
+  const result = await User.aggregate(pipeline);
+  const users = result[0].data;
+  const totalCount = result[0].totalCount[0]?.count || 0;
+
+  return {
+    users: users.map((user, index) => ({
+      ...user,
+      rank: offset + index + 1
+    })),
+    total: totalCount,
+    totalPages: Math.ceil(totalCount / limit),
+    currentPage: Math.floor(offset / limit) + 1
+  };
+};
+
+// Function to filter Leaderboard based on Location(State and/or City)
+
+exports.getLeaderboardByLocation = async (filters) => {
+  const {
+    state = null,
+    city = null,
+    limit = 50,
+    offset = 0,
+    sortBy = 'totalEarnings',
+    sortOrder = 'desc',
+    period = 'all_time'
+  } = filters;
+
+  // Build location filter
+  const locationFilter = {};
+  if (state) locationFilter['location.state'] = state;
+  if (city) locationFilter['location.city'] = city;
+
+  // Build date filter
+  let dateFilter = {};
+  if (period !== 'all_time') {
+    const now = new Date();
+    let startDate = new Date();
+    
+    switch (period) {
+      case 'daily':
+        startDate.setHours(0, 0, 0, 0);
+        break;
+      case 'weekly':
+        startDate.setDate(now.getDate() - now.getDay());
+        startDate.setHours(0, 0, 0, 0);
+        break;
+      case 'monthly':
+        startDate.setDate(1);
+        startDate.setHours(0, 0, 0, 0);
+        break;
+      case 'yearly':
+        startDate.setMonth(0, 1);
+        startDate.setHours(0, 0, 0, 0);
+        break;
+    }
+    dateFilter.createdAt = { $gte: startDate };
+  }
+
+  // Determine sort field
+  let sortField = {};
+  switch (sortBy) {
+    case 'totalEarnings':
+      sortField = { totalEarnings: sortOrder === 'desc' ? -1 : 1 };
+      break;
+    case 'availableBalance':
+      sortField = { availableBalance: sortOrder === 'desc' ? -1 : 1 };
+      break;
+    case 'totalShares':
+      sortField = { totalShares: sortOrder === 'desc' ? -1 : 1 };
+      break;
+    case 'createdAt':
+      sortField = { createdAt: sortOrder === 'desc' ? -1 : 1 };
+      break;
+    default:
+      sortField = { totalEarnings: -1 };
+  }
+
+  const pipeline = [
+    {
+      $match: {
+        'status.isActive': true,
+        ...locationFilter,
+        ...dateFilter
+      }
+    },
+    {
+      $lookup: {
+        from: 'referrals',
+        localField: '_id',
+        foreignField: 'user',
+        as: 'referralData'
+      }
+    },
+    {
+      $lookup: {
+        from: 'usershares',
+        localField: '_id',
+        foreignField: 'user',
+        as: 'shares'
+      }
+    },
+    {
+      $addFields: {
+        referralInfo: {
+          $cond: {
+            if: { $gt: [{ $size: "$referralData" }, 0] },
+            then: { $arrayElemAt: ["$referralData", 0] },
+            else: {
+              totalEarnings: 0,
+              totalWithdrawn: 0,
+              pendingWithdrawals: 0,
+              processingWithdrawals: 0
+            }
+          }
+        },
+        totalShares: { $sum: '$shares.totalShares' }
+      }
+    },
+    {
+      $addFields: {
+        totalEarnings: { $ifNull: ["$referralInfo.totalEarnings", 0] },
+        availableBalance: {
+          $subtract: [
+            { $ifNull: ["$referralInfo.totalEarnings", 0] },
+            {
+              $add: [
+                { $ifNull: ["$referralInfo.totalWithdrawn", 0] },
+                { $ifNull: ["$referralInfo.pendingWithdrawals", 0] },
+                { $ifNull: ["$referralInfo.processingWithdrawals", 0] }
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      $sort: sortField
+    },
+    {
+      $facet: {
+        data: [
+          { $skip: offset },
+          { $limit: limit },
+          {
+            $project: {
+              _id: 1,
+              name: 1,
+              userName: 1,
+              totalEarnings: 1,
+              availableBalance: 1,
+              totalShares: 1,
+              'location.state': 1,
+              'location.city': 1,
+              'status.isActive': 1,
+              createdAt: 1
+            }
+          }
+        ],
+        totalCount: [{ $count: "count" }],
+        locationStats: [
+          {
+            $group: {
+              _id: null,
+              totalUsers: { $sum: 1 },
+              totalEarnings: { $sum: "$totalEarnings" },
+              averageEarnings: { $avg: "$totalEarnings" },
+              totalBalance: { $sum: "$availableBalance" }
+            }
+          }
+        ]
+      }
+    }
+  ];
+
+  const result = await User.aggregate(pipeline);
+  const users = result[0].data;
+  const totalCount = result[0].totalCount[0]?.count || 0;
+  const locationStats = result[0].locationStats[0] || {};
+
+  return {
+    users: users.map((user, index) => ({
+      ...user,
+      rank: offset + index + 1
+    })),
+    total: totalCount,
+    totalPages: Math.ceil(totalCount / limit),
+    currentPage: Math.floor(offset / limit) + 1,
+    locationStats
+  };
+};
+
+// Function to filter leaderboard by user status
+
+exports.getLeaderboardByStatus = async (filters) => {
+  const {
+    status = 'active', // 'active', 'inactive', 'suspended'
+    limit = 50,
+    offset = 0,
+    sortBy = 'totalEarnings',
+    sortOrder = 'desc',
+    period = 'all_time'
+  } = filters;
+
+  // Build status filter
+  let statusFilter = {};
+  switch (status) {
+    case 'active':
+      statusFilter = {
+        'status.isActive': true,
+        isBanned: { $ne: true },
+        isSuspended: { $ne: true }
+      };
+      break;
+    case 'inactive':
+      statusFilter = {
+        'status.isActive': false,
+        isBanned: { $ne: true }
+      };
+      break;
+    case 'suspended':
+      statusFilter = {
+        $or: [
+          { isBanned: true },
+          { isSuspended: true }
+        ]
+      };
+      break;
+    default:
+      statusFilter = { 'status.isActive': true };
+  }
+
+  // Build date filter
+  let dateFilter = {};
+  if (period !== 'all_time') {
+    const now = new Date();
+    let startDate = new Date();
+    
+    switch (period) {
+      case 'daily':
+        startDate.setHours(0, 0, 0, 0);
+        break;
+      case 'weekly':
+        startDate.setDate(now.getDate() - now.getDay());
+        startDate.setHours(0, 0, 0, 0);
+        break;
+      case 'monthly':
+        startDate.setDate(1);
+        startDate.setHours(0, 0, 0, 0);
+        break;
+      case 'yearly':
+        startDate.setMonth(0, 1);
+        startDate.setHours(0, 0, 0, 0);
+        break;
+    }
+    dateFilter.createdAt = { $gte: startDate };
+  }
+
+  // Determine sort field
+  let sortField = {};
+  switch (sortBy) {
+    case 'totalEarnings':
+      sortField = { totalEarnings: sortOrder === 'desc' ? -1 : 1 };
+      break;
+    case 'availableBalance':
+      sortField = { availableBalance: sortOrder === 'desc' ? -1 : 1 };
+      break;
+    case 'totalShares':
+      sortField = { totalShares: sortOrder === 'desc' ? -1 : 1 };
+      break;
+    case 'createdAt':
+      sortField = { createdAt: sortOrder === 'desc' ? -1 : 1 };
+      break;
+    case 'lastActive':
+      sortField = { lastActiveAt: sortOrder === 'desc' ? -1 : 1 };
+      break;
+    default:
+      sortField = { totalEarnings: -1 };
+  }
+
+  const pipeline = [
+    {
+      $match: {
+        ...statusFilter,
+        ...dateFilter
+      }
+    },
+    {
+      $lookup: {
+        from: 'referrals',
+        localField: '_id',
+        foreignField: 'user',
+        as: 'referralData'
+      }
+    },
+    {
+      $lookup: {
+        from: 'usershares',
+        localField: '_id',
+        foreignField: 'user',
+        as: 'shares'
+      }
+    },
+    {
+      $addFields: {
+        referralInfo: {
+          $cond: {
+            if: { $gt: [{ $size: "$referralData" }, 0] },
+            then: { $arrayElemAt: ["$referralData", 0] },
+            else: {
+              totalEarnings: 0,
+              totalWithdrawn: 0,
+              pendingWithdrawals: 0,
+              processingWithdrawals: 0
+            }
+          }
+        },
+        totalShares: { $sum: '$shares.totalShares' }
+      }
+    },
+    {
+      $addFields: {
+        totalEarnings: { $ifNull: ["$referralInfo.totalEarnings", 0] },
+        availableBalance: {
+          $subtract: [
+            { $ifNull: ["$referralInfo.totalEarnings", 0] },
+            {
+              $add: [
+                { $ifNull: ["$referralInfo.totalWithdrawn", 0] },
+                { $ifNull: ["$referralInfo.pendingWithdrawals", 0] },
+                { $ifNull: ["$referralInfo.processingWithdrawals", 0] }
+              ]
+            }
+          ]
+        },
+        userStatus: {
+          $cond: {
+            if: { $or: [{ $eq: ["$isBanned", true] }, { $eq: ["$isSuspended", true] }] },
+            then: "suspended",
+            else: {
+              $cond: {
+                if: { $eq: ["$status.isActive", true] },
+                then: "active",
+                else: "inactive"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      $sort: sortField
+    },
+    {
+      $facet: {
+        data: [
+          { $skip: offset },
+          { $limit: limit },
+          {
+            $project: {
+              _id: 1,
+              name: 1,
+              userName: 1,
+              totalEarnings: 1,
+              availableBalance: 1,
+              totalShares: 1,
+              userStatus: 1,
+              'status.isActive': 1,
+              isBanned: 1,
+              isSuspended: 1,
+              'location.state': 1,
+              'location.city': 1,
+              createdAt: 1,
+              lastActiveAt: 1
+            }
+          }
+        ],
+        totalCount: [{ $count: "count" }],
+        statusStats: [
+          {
+            $group: {
+              _id: "$userStatus",
+              count: { $sum: 1 },
+              totalEarnings: { $sum: "$totalEarnings" },
+              averageEarnings: { $avg: "$totalEarnings" }
+            }
+          }
+        ]
+      }
+    }
+  ];
+
+  const result = await User.aggregate(pipeline);
+  const users = result[0].data;
+  const totalCount = result[0].totalCount[0]?.count || 0;
+  const statusStats = result[0].statusStats || [];
+
+  return {
+    users: users.map((user, index) => ({
+      ...user,
+      rank: offset + index + 1
+    })),
+    total: totalCount,
+    totalPages: Math.ceil(totalCount / limit),
+    currentPage: Math.floor(offset / limit) + 1,
+    statusStats
+  };
+};
+
+// Function to filter leaderboard by Number of Shares
+
+exports.getLeaderboardByShares = async (filters) => {
+  const {
+    minShares = 0,
+    maxShares = null,
+    limit = 50,
+    offset = 0,
+    period = 'all_time',
+    sortOrder = 'desc',
+    shareType = 'all' // 'all', 'regular', 'cofounder'
+  } = filters;
+
+  // Build shares filter
+  const sharesFilter = { $gte: minShares };
+  if (maxShares !== null) {
+    sharesFilter.$lte = maxShares;
+  }
+
+  // Build date filter
+  let dateFilter = {};
+  if (period !== 'all_time') {
+    const now = new Date();
+    let startDate = new Date();
+    
+    switch (period) {
+      case 'daily':
+        startDate.setHours(0, 0, 0, 0);
+        break;
+      case 'weekly':
+        startDate.setDate(now.getDate() - now.getDay());
+        startDate.setHours(0, 0, 0, 0);
+        break;
+      case 'monthly':
+        startDate.setDate(1);
+        startDate.setHours(0, 0, 0, 0);
+        break;
+      case 'yearly':
+        startDate.setMonth(0, 1);
+        startDate.setHours(0, 0, 0, 0);
+        break;
+    }
+    dateFilter.createdAt = { $gte: startDate };
+  }
+
+  const pipeline = [
+    {
+      $lookup: {
+        from: 'usershares',
+        localField: '_id',
+        foreignField: 'user',
+        as: 'shares'
+      }
+    },
+    {
+      $lookup: {
+        from: 'usercofounderShares',
+        localField: '_id',
+        foreignField: 'user',
+        as: 'cofounderShares'
+      }
+    },
+    {
+      $lookup: {
+        from: 'referrals',
+        localField: '_id',
+        foreignField: 'user',
+        as: 'referralData'
+      }
+    },
+    {
+      $addFields: {
+        // Calculate different types of shares
+        regularShares: { $sum: '$shares.totalShares' },
+        cofounderSharesTotal: { $sum: '$cofounderShares.totalShares' },
+        combinedShares: { 
+          $add: [
+            { $sum: '$shares.totalShares' }, 
+            { $sum: '$cofounderShares.totalShares' }
+          ]
+        },
+        
+        // Add referral info for additional context
+        referralInfo: {
+          $cond: {
+            if: { $gt: [{ $size: "$referralData" }, 0] },
+            then: { $arrayElemAt: ["$referralData", 0] },
+            else: { totalEarnings: 0 }
+          }
+        }
+      }
+    },
+    {
+      $addFields: {
+        // Determine which share count to use for filtering based on shareType
+        filterShareCount: {
+          $cond: {
+            if: { $eq: [shareType, 'regular'] },
+            then: '$regularShares',
+            else: {
+              $cond: {
+                if: { $eq: [shareType, 'cofounder'] },
+                then: '$cofounderSharesTotal',
+                else: '$combinedShares' // 'all' or default
+              }
+            }
+          }
+        },
+        
+        // Add total earnings for context
+        totalEarnings: { $ifNull: ["$referralInfo.totalEarnings", 0] }
+      }
+    },
+    {
+      $match: {
+        'status.isActive': true,
+        isBanned: { $ne: true },
+        filterShareCount: sharesFilter,
+        ...dateFilter
+      }
+    },
+    {
+      $sort: { 
+        filterShareCount: sortOrder === 'desc' ? -1 : 1,
+        totalEarnings: -1 // Secondary sort by earnings
+      }
+    },
+    {
+      $facet: {
+        data: [
+          { $skip: offset },
+          { $limit: limit },
+          {
+            $project: {
+              _id: 1,
+              name: 1,
+              userName: 1,
+              regularShares: 1,
+              cofounderSharesTotal: 1,
+              combinedShares: 1,
+              totalEarnings: 1,
+              'location.state': 1,
+              'location.city': 1,
+              'status.isActive': 1,
+              createdAt: 1,
+              
+              // Include share breakdown for display
+              shareBreakdown: {
+                regular: '$regularShares',
+                cofounder: '$cofounderSharesTotal',
+                total: '$combinedShares'
+              },
+              
+              // Include the filtered share count for ranking
+              filteredShares: '$filterShareCount'
+            }
+          }
+        ],
+        totalCount: [{ $count: "count" }],
+        
+        // Additional statistics
+        stats: [
+          {
+            $group: {
+              _id: null,
+              totalShares: { $sum: '$filterShareCount' },
+              averageShares: { $avg: '$filterShareCount' },
+              maxShares: { $max: '$filterShareCount' },
+              minShares: { $min: '$filterShareCount' },
+              totalUsers: { $sum: 1 },
+              totalEarnings: { $sum: '$totalEarnings' },
+              averageEarnings: { $avg: '$totalEarnings' }
+            }
+          }
+        ]
+      }
+    }
+  ];
+
+  const result = await User.aggregate(pipeline);
+  const users = result[0].data;
+  const totalCount = result[0].totalCount[0]?.count || 0;
+  const stats = result[0].stats[0] || {};
+
+  return {
+    users: users.map((user, index) => ({
+      ...user,
+      rank: offset + index + 1
+    })),
+    total: totalCount,
+    totalPages: Math.ceil(totalCount / limit),
+    currentPage: Math.floor(offset / limit) + 1,
+    shareType,
+    statistics: {
+      totalShares: stats.totalShares || 0,
+      averageShares: Math.round((stats.averageShares || 0) * 100) / 100,
+      maxShares: stats.maxShares || 0,
+      minShares: stats.minShares || 0,
+      totalUsers: stats.totalUsers || 0,
+      totalEarnings: Math.round((stats.totalEarnings || 0) * 100) / 100,
+      averageEarnings: Math.round((stats.averageEarnings || 0) * 100) / 100
+    }
+  };
+};
+
+
+
+exports.getVisibilitySettings = async (req, res) => {
+  try {
+    let settings = await AdminSettings.findOne();
+    
+    if (!settings) {
+      settings = await AdminSettings.create({
+        showEarnings: true,
+        showAvailableBalance: true,
+        updatedBy: req.user._id
+      });
+    }
+    
+    res.json({
+      success: true,
+      data: {
+        showEarnings: settings.showEarnings,
+        showAvailableBalance: settings.showAvailableBalance,
+        lastUpdated: settings.updatedAt,
+        updatedBy: settings.updatedBy
+      }
+    });
+  } catch (error) {
+    console.error('Error fetching visibility settings:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch visibility settings'
+    });
+  }
+};
+
+exports.toggleEarningsVisibility = async (req, res) => {
+  try {
+    const { visible } = req.body;
+    
+    if (typeof visible !== 'boolean') {
+      return res.status(400).json({
+        success: false,
+        message: 'Visible field must be a boolean'
+      });
+    }
+    
+    let settings = await AdminSettings.findOne();
+    
+    if (!settings) {
+      settings = new AdminSettings({
+        showEarnings: visible,
+        showAvailableBalance: true,
+        updatedBy: req.user._id
+      });
+    } else {
+      settings.showEarnings = visible;
+      settings.updatedBy = req.user._id;
+    }
+    
+    await settings.save();
+    
+    // Invalidate cache
+    invalidateCache();
+    
+    // Log admin action if AdminAuditLog exists
+    if (AdminAuditLog) {
+      await AdminAuditLog.create({
+        adminId: req.user._id,
+        action: 'TOGGLE_EARNINGS_VISIBILITY',
+        details: { visible, previousValue: !visible },
+        ipAddress: req.ip,
+        userAgent: req.get('User-Agent')
+      });
+    }
+    
+    res.json({
+      success: true,
+      message: `Earnings visibility ${visible ? 'enabled' : 'disabled'}`,
+      data: {
+        showEarnings: settings.showEarnings,
+        showAvailableBalance: settings.showAvailableBalance
+      }
+    });
+  } catch (error) {
+    console.error('Error toggling earnings visibility:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to toggle earnings visibility'
+    });
+  }
+};
+
+exports.toggleBalanceVisibility = async (req, res) => {
+  try {
+    const { visible } = req.body;
+    
+    if (typeof visible !== 'boolean') {
+      return res.status(400).json({
+        success: false,
+        message: 'Visible field must be a boolean'
+      });
+    }
+    
+    let settings = await AdminSettings.findOne();
+    
+    if (!settings) {
+      settings = new AdminSettings({
+        showEarnings: true,
+        showAvailableBalance: visible,
+        updatedBy: req.user._id
+      });
+    } else {
+      settings.showAvailableBalance = visible;
+      settings.updatedBy = req.user._id;
+    }
+    
+    await settings.save();
+    
+    // Invalidate cache
+    invalidateCache();
+    
+    // Log admin action if AdminAuditLog exists
+    if (AdminAuditLog) {
+      await AdminAuditLog.create({
+        adminId: req.user._id,
+        action: 'TOGGLE_BALANCE_VISIBILITY',
+        details: { visible, previousValue: !visible },
+        ipAddress: req.ip,
+        userAgent: req.get('User-Agent')
+      });
+    }
+    
+    res.json({
+      success: true,
+      message: `Balance visibility ${visible ? 'enabled' : 'disabled'}`,
+      data: {
+        showEarnings: settings.showEarnings,
+        showAvailableBalance: settings.showAvailableBalance
+      }
+    });
+  } catch (error) {
+    console.error('Error toggling balance visibility:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to toggle balance visibility'
     });
   }
 };
