@@ -1619,7 +1619,7 @@ exports.adminUnverifyTransaction = async (req, res) => {
 };
 
 /**
- * @desc    Admin: Get pending transactions for review
+ * @desc    Admin: Get pending transactions for review (FIXED)
  * @route   GET /api/shares/installment/admin/pending-transactions
  * @access  Private (Admin only)
  */
@@ -1646,7 +1646,7 @@ exports.adminGetPendingTransactions = async (req, res) => {
       query = {
         'installments': {
           $elemMatch: {
-            status: { $in: ['pending', 'upcoming'] },
+            status: { $in: ['pending', 'upcoming', 'pending_verification'] },
             transactionId: { $exists: true, $ne: null }
           }
         }
@@ -1655,8 +1655,8 @@ exports.adminGetPendingTransactions = async (req, res) => {
       query = {
         'installments': {
           $elemMatch: {
-            status: 'completed',
-            verifiedBy: { $exists: true }
+            status: 'paid',
+            // Don't filter by verifiedBy since we want to see all paid installments
           }
         }
       };
@@ -1685,11 +1685,11 @@ exports.adminGetPendingTransactions = async (req, res) => {
       
       if (status === 'pending') {
         installmentsToShow = plan.installments.filter(
-          inst => ['pending', 'upcoming'].includes(inst.status) && inst.transactionId
+          inst => ['pending', 'upcoming', 'pending_verification'].includes(inst.status) && inst.transactionId
         );
       } else if (status === 'completed') {
         installmentsToShow = plan.installments.filter(
-          inst => inst.status === 'completed' && inst.verifiedBy
+          inst => inst.status === 'paid'
         );
       } else {
         installmentsToShow = plan.installments.filter(
@@ -1698,6 +1698,11 @@ exports.adminGetPendingTransactions = async (req, res) => {
       }
       
       for (const installment of installmentsToShow) {
+        // FIXED: Correct verification logic
+        const isVerified = installment.verifiedBy && installment.verifiedAt;
+        const isPaid = installment.status === 'paid';
+        const hasPaymentAmount = installment.paidAmount > 0;
+        
         transactions.push({
           planId: plan.planId,
           user: {
@@ -1722,8 +1727,17 @@ exports.adminGetPendingTransactions = async (req, res) => {
           adminNote: installment.adminNote,
           forceApproved: installment.forceApproved || false,
           unverifyHistory: installment.unverifyHistory || [],
-          canVerify: installment.status !== 'completed',
-          canUnverify: installment.status === 'completed' && installment.verifiedBy,
+          
+          // FIXED: Proper verification status logic
+          canVerify: !isPaid || (!isVerified && isPaid), // Can verify if not paid, or paid but not admin-verified
+          canUnverify: isPaid && isVerified, // Can only unverify if paid AND admin-verified
+          
+          // Additional status info for debugging
+          isVerified: isVerified,
+          isPaid: isPaid,
+          hasPaymentAmount: hasPaymentAmount,
+          needsAttention: isPaid && plan.status === 'pending', // Paid but plan still pending
+          
           createdAt: plan.createdAt,
           updatedAt: plan.updatedAt
         });
@@ -1745,6 +1759,11 @@ exports.adminGetPendingTransactions = async (req, res) => {
         currentPage: parseInt(page),
         totalPages: Math.ceil(transactions.length / parseInt(limit)),
         totalCount: transactions.length
+      },
+      summary: {
+        needingAttention: transactions.filter(t => t.needsAttention).length,
+        paidButNotVerified: transactions.filter(t => t.isPaid && !t.isVerified).length,
+        verified: transactions.filter(t => t.isVerified).length
       }
     });
     
