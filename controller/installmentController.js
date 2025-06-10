@@ -999,20 +999,19 @@ exports.verifyInstallmentPaystack = async (req, res) => {
     
     const installment = plan.installments[installmentIndex];
     
-    // FIXED: More flexible transaction matching logic
-    // Check if this installment can accept this payment
+    // More flexible transaction matching logic
     const canAcceptPayment = (
       // Case 1: Exact transaction ID match
       installment.transactionId === reference ||
       
-      // Case 2: Installment is pending and has no completed payment
+      // Case 2: Installment is pending and has no paid amount
       (installment.status === 'pending' && !installment.paidAmount) ||
       
       // Case 3: Installment status is upcoming and no transaction recorded yet
       (installment.status === 'upcoming' && !installment.transactionId) ||
       
-      // Case 4: Payment was initialized but not completed (has transactionId but status not completed)
-      (installment.transactionId && installment.status !== 'completed')
+      // Case 4: Payment was initialized but not completed (has transactionId but status not paid)
+      (installment.transactionId && installment.status !== 'paid')
     );
 
     if (!canAcceptPayment) {
@@ -1030,17 +1029,17 @@ exports.verifyInstallmentPaystack = async (req, res) => {
       });
     }
 
-    // Check if installment is already completed with a different transaction
-    if (installment.status === 'completed' && installment.transactionId !== reference) {
+    // Check if installment is already paid with a different transaction
+    if (installment.status === 'paid' && installment.transactionId !== reference) {
       await session.abortTransaction();
       session.endSession();
       return res.status(400).json({
         success: false,
-        message: 'This installment has already been completed with a different transaction',
+        message: 'This installment has already been paid with a different transaction',
         data: {
           planId: plan.planId,
           installmentNumber,
-          status: 'already_completed',
+          status: 'already_paid',
           paidAmount: installment.paidAmount,
           paidDate: installment.paidDate,
           existingTransactionId: installment.transactionId,
@@ -1051,7 +1050,7 @@ exports.verifyInstallmentPaystack = async (req, res) => {
 
     // Check for duplicate payment across all installments in the plan
     const existingPayment = plan.installments.find(inst => 
-      inst.transactionId === reference && inst.status === 'completed'
+      inst.transactionId === reference && inst.status === 'paid'
     );
     
     if (existingPayment && existingPayment !== installment) {
@@ -1099,8 +1098,8 @@ exports.verifyInstallmentPaystack = async (req, res) => {
       });
     }
     
-    // Update installment payment - FIXED: Use the payment reference as transaction ID
-    installment.status = 'completed';
+    // Update installment payment - FIXED: Use correct enum value
+    installment.status = 'paid'; // Correct enum value from schema
     installment.paidAmount = amount;
     installment.paidDate = new Date(paymentData.paid_at);
     installment.transactionId = reference; // Use Paystack reference as transaction ID
@@ -1222,7 +1221,7 @@ exports.verifyInstallmentPaystack = async (req, res) => {
       data: {
         planId: plan.planId,
         amount,
-        status: 'completed',
+        status: 'paid', // Correct enum value
         planStatus: plan.status,
         totalPaidAmount: plan.totalPaidAmount,
         remainingBalance: plan.totalPrice - plan.totalPaidAmount,
@@ -1265,7 +1264,7 @@ exports.verifyInstallmentPaystack = async (req, res) => {
 };
 
 /**
- * @desc    Admin: Unverify/Reverse a completed installment payment
+ * @desc    Admin: Unverify/Reverse a paid installment payment (FIXED)
  * @route   POST /api/shares/installment/admin/unverify-transaction
  * @access  Private (Admin only)
  */
@@ -1350,13 +1349,13 @@ exports.adminUnverifyTransaction = async (req, res) => {
       });
     }
     
-    // Check if installment is actually completed
-    if (targetInstallment.status !== 'completed') {
+    // Check if installment is actually paid - FIXED: Use correct enum value
+    if (targetInstallment.status !== 'paid') {
       await session.abortTransaction();
       session.endSession();
       return res.status(400).json({
         success: false,
-        message: `Installment is not completed. Current status: ${targetInstallment.status}`,
+        message: `Installment is not paid. Current status: ${targetInstallment.status}`,
         cannotUnverify: true
       });
     }
@@ -1365,17 +1364,26 @@ exports.adminUnverifyTransaction = async (req, res) => {
     if (!confirmUnverify) {
       await session.abortTransaction();
       session.endSession();
+      
+      // Get user details for safety confirmation
+      const user = await User.findById(plan.user);
+      const amount = targetInstallment.paidAmount;
+      const paymentPercentage = (amount / plan.totalPrice) * 100;
+      const sharesToRemove = Math.floor(plan.totalShares * (paymentPercentage / 100));
+      
       return res.status(200).json({
         success: false,
-        message: 'Unverification requires confirmation. This action will reverse the payment and remove shares.',
+        message: 'Unverification requires confirmation',
         requiresConfirmation: true,
         data: {
           planId: plan.planId,
+          customerName: user?.name || 'Unknown',
           installmentNumber: targetInstallmentIndex + 1,
-          amount: targetInstallment.paidAmount,
+          amount: amount,
           paidDate: targetInstallment.paidDate,
           transactionId: targetInstallment.transactionId,
-          warning: 'This will remove shares from user account and reverse all related transactions'
+          sharesWillBeRemoved: sharesToRemove,
+          warning: `This will remove ${sharesToRemove} shares from ${user?.name || 'user'}'s account`
         },
         instruction: 'Set confirmUnverify=true to proceed'
       });
@@ -1417,7 +1425,7 @@ exports.adminUnverifyTransaction = async (req, res) => {
       targetInstallment.paidDate = targetInstallment.originalValues.paidDate;
       targetInstallment.transactionId = targetInstallment.originalValues.transactionId;
     } else {
-      targetInstallment.status = 'pending';
+      targetInstallment.status = 'pending'; // Valid enum value
       targetInstallment.paidAmount = 0;
       targetInstallment.paidDate = null;
       // Keep transactionId for tracking
@@ -1561,7 +1569,7 @@ exports.adminUnverifyTransaction = async (req, res) => {
             <li>New Plan Status: ${plan.status}</li>
             ${adminNote ? `<li>Admin Note: ${adminNote}</li>` : ''}
           </ul>
-          <p><strong>Warning:</strong> This action reversed a completed payment and removed shares from the user's account.</p>
+          <p><strong>Warning:</strong> This action reversed a paid installment and removed shares from the user's account.</p>
         `
       });
     } catch (emailError) {
@@ -1584,6 +1592,7 @@ exports.adminUnverifyTransaction = async (req, res) => {
         totalSharesReleased: plan.sharesReleased,
         unverifiedBy: admin.name,
         adminNote: adminNote || null,
+        customerNotified: true,
         user: {
           name: user.name,
           email: user.email
@@ -1878,7 +1887,7 @@ exports.adminGetTransactionDetails = async (req, res) => {
 };
 
 /**
- * @desc    Admin: Verify and approve pending Paystack transaction
+ * @desc    Admin: Verify and approve pending Paystack transaction (FIXED)
  * @route   POST /api/shares/installment/admin/verify-transaction
  * @access  Private (Admin only)
  */
@@ -2065,17 +2074,17 @@ exports.adminVerifyTransaction = async (req, res) => {
     
     const installment = plan.installments[installmentIndex];
     
-    // Check if installment is already completed
-    if (installment.status === 'completed') {
+    // Check if installment is already paid
+    if (installment.status === 'paid') {
       await session.abortTransaction();
       session.endSession();
       return res.status(400).json({
         success: false,
-        message: 'This installment has already been completed',
+        message: 'This installment has already been paid',
         data: {
           planId: plan.planId,
           installmentNumber,
-          status: 'already_completed',
+          status: 'already_paid',
           paidAmount: installment.paidAmount,
           paidDate: installment.paidDate,
           previousTransactionId: installment.transactionId,
@@ -2124,12 +2133,14 @@ exports.adminVerifyTransaction = async (req, res) => {
       transactionId: installment.transactionId
     };
     
-    // Update installment payment
-    installment.status = 'completed';
+    // FIXED: Use correct enum status value from schema
+    installment.status = 'paid'; // Valid enum value from schema
     installment.paidAmount = amount;
     installment.paidDate = new Date(paymentData.paid_at || new Date());
     installment.transactionId = transactionId;
     installment.adminNote = adminNote || `Verified by admin ${admin.name}`;
+    
+    // Add verification tracking fields (these aren't in schema but can be added dynamically)
     installment.verifiedBy = adminId;
     installment.verifiedAt = new Date();
     installment.forceApproved = forceApprove;
@@ -2266,7 +2277,7 @@ exports.adminVerifyTransaction = async (req, res) => {
         reference,
         amount,
         installmentNumber,
-        status: 'completed',
+        status: 'paid', // Correct enum value from schema
         planStatus: plan.status,
         totalPaidAmount: plan.totalPaidAmount,
         remainingBalance: plan.totalPrice - plan.totalPaidAmount,
