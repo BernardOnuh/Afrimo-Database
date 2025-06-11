@@ -99,6 +99,97 @@ const paymentSubmissionRateLimiter = createRateLimiter(10, 60 * 60 * 1000); // 1
  *         createdAt:
  *           type: string
  *           format: date-time
+ *     AdminVerifyRequest:
+ *       type: object
+ *       required:
+ *         - reference
+ *       properties:
+ *         reference:
+ *           type: string
+ *           description: The Paystack transaction reference to verify
+ *           example: "INST-495245B4-737394"
+ *         forceApprove:
+ *           type: boolean
+ *           description: Set to true to approve even if payment failed in Paystack
+ *           default: false
+ *           example: false
+ *         adminNote:
+ *           type: string
+ *           description: Optional note explaining why you're verifying this payment
+ *           example: "Customer provided bank transfer receipt"
+ *           maxLength: 500
+ *     AdminUnverifyRequest:
+ *       type: object
+ *       required:
+ *         - reference
+ *         - confirmUnverify
+ *       properties:
+ *         reference:
+ *           type: string
+ *           description: The transaction reference to reverse/unverify
+ *           example: "INST-495245B4-737394"
+ *         confirmUnverify:
+ *           type: boolean
+ *           description: MUST be true to proceed (safety confirmation)
+ *           example: true
+ *         adminNote:
+ *           type: string
+ *           description: Required explanation for why you're reversing this payment
+ *           example: "Payment was processed twice by mistake"
+ *           maxLength: 500
+ *   responses:
+ *     UnauthorizedError:
+ *       description: Authentication token is missing or invalid
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               success:
+ *                 type: boolean
+ *                 example: false
+ *               message:
+ *                 type: string
+ *                 example: "Unauthorized access"
+ *     ForbiddenError:
+ *       description: Access forbidden - admin privileges required
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               success:
+ *                 type: boolean
+ *                 example: false
+ *               message:
+ *                 type: string
+ *                 example: "Admin access required"
+ *     NotFoundError:
+ *       description: Resource not found
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               success:
+ *                 type: boolean
+ *                 example: false
+ *               message:
+ *                 type: string
+ *                 example: "Resource not found"
+ *     ServerError:
+ *       description: Internal server error
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               success:
+ *                 type: boolean
+ *                 example: false
+ *               message:
+ *                 type: string
+ *                 example: "Internal server error"
  */
 
 // User routes
@@ -193,9 +284,9 @@ const paymentSubmissionRateLimiter = createRateLimiter(10, 60 * 60 * 1000); // 1
  *       400:
  *         description: Bad Request - Invalid input parameters
  *       401:
- *         $ref: '#/components/responses/UnauthorizedError'
+ *         description: Unauthorized access
  *       500:
- *         $ref: '#/components/responses/ServerError'
+ *         description: Internal server error
  */
 router.post('/calculate', 
   protect, 
@@ -260,9 +351,9 @@ router.post('/calculate',
  *       400:
  *         description: Bad Request - User already has active plan or invalid input
  *       401:
- *         $ref: '#/components/responses/UnauthorizedError'
+ *         description: Unauthorized access
  *       500:
- *         $ref: '#/components/responses/ServerError'
+ *         description: Internal server error
  */
 router.post('/create', 
   protect, 
@@ -321,9 +412,9 @@ router.post('/create',
  *                     totalCount:
  *                       type: integer
  *       401:
- *         $ref: '#/components/responses/UnauthorizedError'
+ *         description: Unauthorized access
  *       500:
- *         $ref: '#/components/responses/ServerError'
+ *         description: Internal server error
  */
 router.get('/plans', 
   protect, 
@@ -385,11 +476,11 @@ router.get('/plans',
  *       400:
  *         description: Bad Request - Cannot cancel plan or plan not found
  *       401:
- *         $ref: '#/components/responses/UnauthorizedError'
+ *         description: Unauthorized access
  *       404:
- *         $ref: '#/components/responses/NotFoundError'
+ *         description: Plan not found
  *       500:
- *         $ref: '#/components/responses/ServerError'
+ *         description: Internal server error
  */
 router.post('/cancel', 
   protect, 
@@ -477,11 +568,11 @@ router.post('/cancel',
  *       400:
  *         description: Bad Request - Invalid parameters or plan status
  *       401:
- *         $ref: '#/components/responses/UnauthorizedError'
+ *         description: Unauthorized access
  *       404:
- *         $ref: '#/components/responses/NotFoundError'
+ *         description: Plan not found
  *       500:
- *         $ref: '#/components/responses/ServerError'
+ *         description: Internal server error
  */
 router.post('/paystack/pay', 
   protect, 
@@ -542,11 +633,11 @@ router.post('/paystack/pay',
  *       400:
  *         description: Bad Request - Payment verification failed
  *       401:
- *         $ref: '#/components/responses/UnauthorizedError'
+ *         description: Unauthorized access
  *       404:
- *         $ref: '#/components/responses/NotFoundError'
+ *         description: Transaction not found
  *       500:
- *         $ref: '#/components/responses/ServerError'
+ *         description: Internal server error
  */
 router.get('/paystack/verify', 
   protect, 
@@ -628,11 +719,11 @@ router.get('/paystack/verify',
  *                     totalCount:
  *                       type: integer
  *       401:
- *         $ref: '#/components/responses/UnauthorizedError'
+ *         description: Unauthorized access
  *       403:
- *         $ref: '#/components/responses/ForbiddenError'
+ *         description: Admin access required
  *       500:
- *         $ref: '#/components/responses/ServerError'
+ *         description: Internal server error
  */
 router.get('/admin/plans', 
   adminProtect, 
@@ -666,15 +757,385 @@ router.get('/admin/plans',
  *                   type: integer
  *                   example: 3
  *       401:
- *         $ref: '#/components/responses/UnauthorizedError'
+ *         description: Unauthorized access
  *       403:
- *         $ref: '#/components/responses/ForbiddenError'
+ *         description: Admin access required
  *       500:
- *         $ref: '#/components/responses/ServerError'
+ *         description: Internal server error
  */
 router.post('/admin/check-late-payments', 
   adminProtect, 
   installmentController.checkLatePayments
+);
+
+/**
+ * @swagger
+ * /shares/installment/admin/verify-transaction:
+ *   post:
+ *     summary: Verify a pending payment
+ *     description: |
+ *       **What this does:** Approves a Paystack payment and releases shares to the customer.
+ *       
+ *       **When to use:**
+ *       - Customer made payment but it shows as "failed" in Paystack
+ *       - Customer provided proof of bank transfer
+ *       - Payment needs manual approval for any reason
+ *       
+ *       **What happens:**
+ *       1. Checks payment status with Paystack
+ *       2. If failed but you set `forceApprove: true`, it approves anyway
+ *       3. Releases shares to customer's account
+ *       4. Updates installment plan status
+ *       5. Sends confirmation email to customer
+ *       
+ *       **⚠️ Important:** Only use `forceApprove: true` when you have verified the payment through other means.
+ *     tags: [Installment - Admin]
+ *     security:
+ *       - adminAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             $ref: '#/components/schemas/AdminVerifyRequest'
+ *           examples:
+ *             normal_verification:
+ *               summary: Normal verification (payment succeeded in Paystack)
+ *               value:
+ *                 reference: "INST-495245B4-737394"
+ *                 adminNote: "Payment verified successfully"
+ *             force_approve_failed:
+ *               summary: Force approve a failed payment
+ *               value:
+ *                 reference: "INST-495245B4-737394"
+ *                 forceApprove: true
+ *                 adminNote: "Customer showed bank transfer receipt"
+ *             bank_transfer:
+ *               summary: Manual bank transfer verification
+ *               value:
+ *                 reference: "INST-495245B4-737394"
+ *                 forceApprove: true
+ *                 adminNote: "Verified bank transfer of ₦50,000 on 2024-12-09"
+ *     responses:
+ *       200:
+ *         description: Payment processed successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *                   example: "Payment verified and approved successfully"
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     planId:
+ *                       type: string
+ *                       example: "INST-9D0D1D3D-226991"
+ *                     amount:
+ *                       type: number
+ *                       example: 50000
+ *                     sharesReleased:
+ *                       type: integer
+ *                       example: 125
+ *                     customerName:
+ *                       type: string
+ *                       example: "John Doe"
+ *                     customerEmail:
+ *                       type: string
+ *                       example: "john@example.com"
+ *       400:
+ *         description: Cannot verify this payment
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: false
+ *                 message:
+ *                   type: string
+ *                   example: "Payment status: failed. Use forceApprove=true to override."
+ *                 canForceApprove:
+ *                   type: boolean
+ *                   example: true
+ *                   description: Indicates you can retry with forceApprove=true
+ *                 paymentStatus:
+ *                   type: string
+ *                   example: "failed"
+ *             examples:
+ *               payment_failed:
+ *                 summary: Payment failed in Paystack
+ *                 value:
+ *                   success: false
+ *                   message: "Payment status: failed. Use forceApprove=true to override."
+ *                   canForceApprove: true
+ *                   paymentStatus: "failed"
+ *               already_verified:
+ *                 summary: Payment already verified
+ *                 value:
+ *                   success: false
+ *                   message: "This installment has already been completed"
+ *                   canUnverify: true
+ *       403:
+ *         description: Admin access required
+ *       404:
+ *         description: Transaction reference not found
+ *       500:
+ *         description: Server error
+ */
+router.post('/admin/verify-transaction', 
+  adminProtect, 
+  installmentController.adminVerifyTransaction
+);
+
+/**
+ * @swagger
+ * /shares/installment/admin/unverify-transaction:
+ *   post:
+ *     summary: Reverse/undo a verified payment
+ *     description: |
+ *       **⚠️ DANGER: This reverses a completed payment and removes shares from customer's account**
+ *       
+ *       **What this does:**
+ *       - Reverses a previously verified payment
+ *       - Removes shares from customer's account
+ *       - Updates installment plan balances
+ *       - Sends notification to customer
+ *       - Creates audit trail
+ *       
+ *       **When to use:**
+ *       - Payment was processed twice by mistake
+ *       - Fraudulent payment discovered
+ *       - Customer dispute needs resolution
+ *       - Payment was verified in error
+ *       
+ *       **Safety features:**
+ *       - Requires `confirmUnverify: true` to proceed
+ *       - First call without confirmation shows you what will happen
+ *       - Complete audit trail maintained
+ *       - Customer is automatically notified
+ *       
+ *       **⚠️ Warning:** This action cannot be easily undone. Use with extreme caution.
+ *     tags: [Installment - Admin]
+ *     security:
+ *       - adminAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             $ref: '#/components/schemas/AdminUnverifyRequest'
+ *           examples:
+ *             check_before_unverify:
+ *               summary: "Step 1: Check what will happen (safety check)"
+ *               value:
+ *                 reference: "INST-495245B4-737394"
+ *                 confirmUnverify: false
+ *                 adminNote: "Checking impact before proceeding"
+ *             confirm_unverify:
+ *               summary: "Step 2: Actually reverse the payment"
+ *               value:
+ *                 reference: "INST-495245B4-737394"
+ *                 confirmUnverify: true
+ *                 adminNote: "Payment was processed twice - reversing duplicate"
+ *             fraud_reversal:
+ *               summary: "Fraud case reversal"
+ *               value:
+ *                 reference: "INST-495245B4-737394"
+ *                 confirmUnverify: true
+ *                 adminNote: "Fraudulent payment detected - reversing transaction"
+ *     responses:
+ *       200:
+ *         description: Response depends on confirmUnverify value
+ *         content:
+ *           application/json:
+ *             schema:
+ *               oneOf:
+ *                 - type: object
+ *                   title: Safety Check Response
+ *                   properties:
+ *                     success:
+ *                       type: boolean
+ *                       example: false
+ *                     message:
+ *                       type: string
+ *                       example: "Unverification requires confirmation"
+ *                     requiresConfirmation:
+ *                       type: boolean
+ *                       example: true
+ *                     data:
+ *                       type: object
+ *                       properties:
+ *                         planId:
+ *                           type: string
+ *                         customerName:
+ *                           type: string
+ *                         amount:
+ *                           type: number
+ *                         sharesWillBeRemoved:
+ *                           type: integer
+ *                         warning:
+ *                           type: string
+ *                           example: "This will remove 125 shares from John Doe's account"
+ *                     instruction:
+ *                       type: string
+ *                       example: "Set confirmUnverify=true to proceed"
+ *                 - type: object
+ *                   title: Unverification Complete
+ *                   properties:
+ *                     success:
+ *                       type: boolean
+ *                       example: true
+ *                     message:
+ *                       type: string
+ *                       example: "Payment unverified successfully"
+ *                     data:
+ *                       type: object
+ *                       properties:
+ *                         planId:
+ *                           type: string
+ *                         amount:
+ *                           type: number
+ *                         sharesRemoved:
+ *                           type: integer
+ *                         customerNotified:
+ *                           type: boolean
+ *                         unverifiedBy:
+ *                           type: string
+ *             examples:
+ *               safety_check:
+ *                 summary: Safety confirmation needed
+ *                 value:
+ *                   success: false
+ *                   message: "Unverification requires confirmation"
+ *                   requiresConfirmation: true
+ *                   data:
+ *                     planId: "INST-9D0D1D3D-226991"
+ *                     customerName: "John Doe"
+ *                     amount: 50000
+ *                     sharesWillBeRemoved: 125
+ *                     warning: "This will remove 125 shares from John Doe's account"
+ *                   instruction: "Set confirmUnverify=true to proceed"
+ *               unverify_complete:
+ *                 summary: Successfully unverified
+ *                 value:
+ *                   success: true
+ *                   message: "Payment unverified successfully"
+ *                   data:
+ *                     planId: "INST-9D0D1D3D-226991"
+ *                     amount: 50000
+ *                     sharesRemoved: 125
+ *                     customerNotified: true
+ *                     unverifiedBy: "Admin Name"
+ *       400:
+ *         description: Cannot unverify this transaction
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: false
+ *                 message:
+ *                   type: string
+ *                   example: "Installment is not completed. Current status: pending"
+ *                 cannotUnverify:
+ *                   type: boolean
+ *                   example: true
+ *       401:
+ *         $ref: '#/components/responses/UnauthorizedError'
+ *       403:
+ *         $ref: '#/components/responses/ForbiddenError'
+ *       404:
+ *         $ref: '#/components/responses/NotFoundError'
+ *       500:
+ *         $ref: '#/components/responses/ServerError'
+ */
+router.post('/admin/unverify-transaction', 
+  adminProtect, 
+  installmentController.adminUnverifyTransaction
+);
+
+/**
+ * @swagger
+ * /shares/installment/admin/pending-transactions:
+ *   get:
+ *     summary: Get transactions for admin review
+ *     tags: [Installment - Admin]
+ *     security:
+ *       - adminAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: status
+ *         schema:
+ *           type: string
+ *           enum: [all, pending, completed]
+ *           default: all
+ *         description: Filter transactions by status
+ *       - in: query
+ *         name: page
+ *         schema:
+ *           type: integer
+ *           minimum: 1
+ *           default: 1
+ *         description: Page number for pagination
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *           minimum: 1
+ *           maximum: 100
+ *           default: 20
+ *         description: Number of transactions per page
+ *     responses:
+ *       200:
+ *         description: List of transactions retrieved successfully
+ *       403:
+ *         description: Unauthorized - Admin access required
+ *       500:
+ *         description: Server error
+ */
+router.get('/admin/pending-transactions', 
+  adminProtect, 
+  installmentController.adminGetPendingTransactions
+);
+
+/**
+ * @swagger
+ * /shares/installment/admin/transaction-details/{reference}:
+ *   get:
+ *     summary: Get detailed transaction information
+ *     tags: [Installment - Admin]
+ *     security:
+ *       - adminAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: reference
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Paystack transaction reference
+ *         example: "INST-495245B4-737394"
+ *     responses:
+ *       200:
+ *         description: Detailed transaction information retrieved successfully
+ *       403:
+ *         description: Unauthorized - Admin access required
+ *       404:
+ *         description: Transaction not found
+ *       500:
+ *         description: Server error
+ */
+router.get('/admin/transaction-details/:reference', 
+  adminProtect, 
+  installmentController.adminGetTransactionDetails
 );
 
 // Error handling middleware
@@ -688,3 +1149,4 @@ router.use((err, req, res, next) => {
 });
 
 module.exports = router;
+ 
