@@ -653,17 +653,24 @@ router.get('/filter/balance', async (req, res) => {
 });
 
 // Filter by location (state/city)
-router.get('/filter/location', async (req, res) => {
+// Filter by state
+router.get('/filter/state', async (req, res) => {
   try {
     const filters = {
-      state: req.query.state || null,
-      city: req.query.city || null,
+      state: req.query.state,
       limit: req.query.limit ? Number(req.query.limit) : 50,
       offset: req.query.offset ? Number(req.query.offset) : 0,
       sortBy: req.query.sortBy || 'totalEarnings',
       sortOrder: req.query.sortOrder || 'desc',
       period: req.query.period || 'all_time'
     };
+
+    if (!filters.state) {
+      return res.status(400).json({
+        success: false,
+        message: 'State parameter is required'
+      });
+    }
 
     const result = await leaderboardController.getLeaderboardByLocation(filters);
 
@@ -683,10 +690,57 @@ router.get('/filter/location', async (req, res) => {
     });
 
   } catch (error) {
-    console.error('Error fetching location leaderboard:', error);
+    console.error('Error fetching state leaderboard:', error);
     res.status(500).json({
       success: false,
-      message: 'Failed to fetch location leaderboard',
+      message: 'Failed to fetch state leaderboard',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+});
+
+// Filter by city
+router.get('/filter/city', async (req, res) => {
+  try {
+    const filters = {
+      city: req.query.city,
+      state: req.query.state, // Optional: can filter by city within a specific state
+      limit: req.query.limit ? Number(req.query.limit) : 50,
+      offset: req.query.offset ? Number(req.query.offset) : 0,
+      sortBy: req.query.sortBy || 'totalEarnings',
+      sortOrder: req.query.sortOrder || 'desc',
+      period: req.query.period || 'all_time'
+    };
+
+    if (!filters.city) {
+      return res.status(400).json({
+        success: false,
+        message: 'City parameter is required'
+      });
+    }
+
+    const result = await leaderboardController.getLeaderboardByLocation(filters);
+
+    res.json({
+      success: true,
+      data: result.users,
+      pagination: {
+        currentPage: result.currentPage,
+        totalPages: result.totalPages,
+        totalItems: result.total,
+        hasNext: result.currentPage < result.totalPages,
+        hasPrev: result.currentPage > 1,
+        limit: filters.limit
+      },
+      locationStats: result.locationStats,
+      filters
+    });
+
+  } catch (error) {
+    console.error('Error fetching city leaderboard:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch city leaderboard',
       error: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
@@ -1019,7 +1073,7 @@ router.get('/filter/shares', async (req, res) => {
  */
 
 
-router.get('/admin/visibility/settings',
+router.post('/admin/visibility/settings',
   protect,
   restrictTo('admin'),
   leaderboardController.getVisibilitySettings
