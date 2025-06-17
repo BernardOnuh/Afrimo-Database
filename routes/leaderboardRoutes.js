@@ -2,7 +2,35 @@ const express = require('express');
 const router = express.Router();
 const leaderboardController = require('../controller/leaderboardController');
 const { protect } = require('../middleware/auth');
+const { applyVisibilityRules } = require('../middleware/visibilityMiddleware');
 
+let restrictTo;
+try {
+  const auth = require('../middleware/auth');
+  restrictTo = auth.restrictTo || function(...roles) {
+    return (req, res, next) => {
+      // Simple fallback - check if user exists and has role
+      if (!req.user) {
+        return res.status(401).json({ success: false, message: 'Authentication required' });
+      }
+      if (roles.length > 0 && !roles.includes(req.user.role)) {
+        return res.status(403).json({ success: false, message: 'Insufficient permissions' });
+      }
+      next();
+    };
+  };
+} catch (e) {
+  console.log('Auth middleware not found, using fallback restrictTo');
+  restrictTo = function(...roles) {
+    return (req, res, next) => {
+      console.log('Fallback restrictTo middleware - skipping role check');
+      next();
+    };
+  };
+}
+
+
+router.use(applyVisibilityRules);
 /**
  * @swagger
  * tags:
@@ -210,8 +238,6 @@ router.get('/referrals', leaderboardController.getReferralLeaderboard);
  *               type: object
  *               properties:
  *                 success:
- *                   type: boolean
- *                   example: true
  *                 filter:
  *                   type: string
  *                   example: "spending"
@@ -546,6 +572,440 @@ router.get('/monthly', leaderboardController.getMonthlyLeaderboard);
  */
 router.get('/yearly', leaderboardController.getYearlyLeaderboard);
 
+// ====================
+// NEW FILTER ROUTES (FIXED)
+// ====================
+
+// Filter by earnings
+router.get('/filter/earnings', async (req, res) => {
+  try {
+    const filters = {
+      minEarnings: req.query.minEarnings ? Number(req.query.minEarnings) : 0,
+      maxEarnings: req.query.maxEarnings ? Number(req.query.maxEarnings) : null,
+      limit: req.query.limit ? Number(req.query.limit) : 50,
+      offset: req.query.offset ? Number(req.query.offset) : 0,
+      period: req.query.period || 'all_time',
+      sortOrder: req.query.sortOrder || 'desc'
+    };
+
+    const result = await leaderboardController.getLeaderboardByEarnings(filters);
+
+    res.json({
+      success: true,
+      data: result.users,
+      pagination: {
+        currentPage: result.currentPage,
+        totalPages: result.totalPages,
+        totalItems: result.total,
+        hasNext: result.currentPage < result.totalPages,
+        hasPrev: result.currentPage > 1,
+        limit: filters.limit
+      },
+      filters
+    });
+
+  } catch (error) {
+    console.error('Error fetching earnings leaderboard:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch earnings leaderboard',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+});
+
+// Filter by available balance
+router.get('/filter/balance', async (req, res) => {
+  try {
+    const filters = {
+      minBalance: req.query.minBalance ? Number(req.query.minBalance) : 0,
+      maxBalance: req.query.maxBalance ? Number(req.query.maxBalance) : null,
+      limit: req.query.limit ? Number(req.query.limit) : 50,
+      offset: req.query.offset ? Number(req.query.offset) : 0,
+      period: req.query.period || 'all_time',
+      sortOrder: req.query.sortOrder || 'desc'
+    };
+
+    const result = await leaderboardController.getLeaderboardByBalance(filters);
+
+    res.json({
+      success: true,
+      data: result.users,
+      pagination: {
+        currentPage: result.currentPage,
+        totalPages: result.totalPages,
+        totalItems: result.total,
+        hasNext: result.currentPage < result.totalPages,
+        hasPrev: result.currentPage > 1,
+        limit: filters.limit
+      },
+      filters
+    });
+
+  } catch (error) {
+    console.error('Error fetching balance leaderboard:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch balance leaderboard',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+});
+
+// Filter by location (state/city)
+// Filter by state
+router.get('/filter/state', async (req, res) => {
+  try {
+    const filters = {
+      state: req.query.state,
+      limit: req.query.limit ? Number(req.query.limit) : 50,
+      offset: req.query.offset ? Number(req.query.offset) : 0,
+      sortBy: req.query.sortBy || 'totalEarnings',
+      sortOrder: req.query.sortOrder || 'desc',
+      period: req.query.period || 'all_time'
+    };
+
+    if (!filters.state) {
+      return res.status(400).json({
+        success: false,
+        message: 'State parameter is required'
+      });
+    }
+
+    const result = await leaderboardController.getLeaderboardByLocation(filters);
+
+    res.json({
+      success: true,
+      data: result.users,
+      pagination: {
+        currentPage: result.currentPage,
+        totalPages: result.totalPages,
+        totalItems: result.total,
+        hasNext: result.currentPage < result.totalPages,
+        hasPrev: result.currentPage > 1,
+        limit: filters.limit
+      },
+      locationStats: result.locationStats,
+      filters
+    });
+
+  } catch (error) {
+    console.error('Error fetching state leaderboard:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch state leaderboard',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+});
+
+// Filter by city
+router.get('/filter/city', async (req, res) => {
+  try {
+    const filters = {
+      city: req.query.city,
+      state: req.query.state, // Optional: can filter by city within a specific state
+      limit: req.query.limit ? Number(req.query.limit) : 50,
+      offset: req.query.offset ? Number(req.query.offset) : 0,
+      sortBy: req.query.sortBy || 'totalEarnings',
+      sortOrder: req.query.sortOrder || 'desc',
+      period: req.query.period || 'all_time'
+    };
+
+    if (!filters.city) {
+      return res.status(400).json({
+        success: false,
+        message: 'City parameter is required'
+      });
+    }
+
+    const result = await leaderboardController.getLeaderboardByLocation(filters);
+
+    res.json({
+      success: true,
+      data: result.users,
+      pagination: {
+        currentPage: result.currentPage,
+        totalPages: result.totalPages,
+        totalItems: result.total,
+        hasNext: result.currentPage < result.totalPages,
+        hasPrev: result.currentPage > 1,
+        limit: filters.limit
+      },
+      locationStats: result.locationStats,
+      filters
+    });
+
+  } catch (error) {
+    console.error('Error fetching city leaderboard:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch city leaderboard',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+});
+
+// Filter by user status
+router.get('/filter/status', async (req, res) => {
+  try {
+    const filters = {
+      status: req.query.status || 'active',
+      limit: req.query.limit ? Number(req.query.limit) : 50,
+      offset: req.query.offset ? Number(req.query.offset) : 0,
+      sortBy: req.query.sortBy || 'totalEarnings',
+      sortOrder: req.query.sortOrder || 'desc',
+      period: req.query.period || 'all_time'
+    };
+
+    const result = await leaderboardController.getLeaderboardByStatus(filters);
+
+    res.json({
+      success: true,
+      data: result.users,
+      pagination: {
+        currentPage: result.currentPage,
+        totalPages: result.totalPages,
+        totalItems: result.total,
+        hasNext: result.currentPage < result.totalPages,
+        hasPrev: result.currentPage > 1,
+        limit: filters.limit
+      },
+      statusStats: result.statusStats,
+      filters
+    });
+
+  } catch (error) {
+    console.error('Error fetching status leaderboard:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch status leaderboard',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+});
+
+// Filter by number of shares
+router.get('/filter/shares', async (req, res) => {
+  try {
+    const filters = {
+      minShares: req.query.minShares ? Number(req.query.minShares) : 0,
+      maxShares: req.query.maxShares ? Number(req.query.maxShares) : null,
+      shareType: req.query.shareType || 'all',
+      limit: req.query.limit ? Number(req.query.limit) : 50,
+      offset: req.query.offset ? Number(req.query.offset) : 0,
+      period: req.query.period || 'all_time',
+      sortOrder: req.query.sortOrder || 'desc'
+    };
+
+    // Call the getLeaderboardByShares function directly since it's not exported
+    const User = require('../models/User');
+    
+    // Build shares filter
+    const sharesFilter = { $gte: filters.minShares };
+    if (filters.maxShares !== null) {
+      sharesFilter.$lte = filters.maxShares;
+    }
+
+    // Build date filter
+    let dateFilter = {};
+    if (filters.period !== 'all_time') {
+      const now = new Date();
+      let startDate = new Date();
+      
+      switch (filters.period) {
+        case 'daily':
+          startDate.setHours(0, 0, 0, 0);
+          break;
+        case 'weekly':
+          startDate.setDate(now.getDate() - now.getDay());
+          startDate.setHours(0, 0, 0, 0);
+          break;
+        case 'monthly':
+          startDate.setDate(1);
+          startDate.setHours(0, 0, 0, 0);
+          break;
+        case 'yearly':
+          startDate.setMonth(0, 1);
+          startDate.setHours(0, 0, 0, 0);
+          break;
+      }
+      dateFilter.createdAt = { $gte: startDate };
+    }
+
+    const pipeline = [
+      {
+        $lookup: {
+          from: 'usershares',
+          localField: '_id',
+          foreignField: 'user',
+          as: 'shares'
+        }
+      },
+      {
+        $lookup: {
+          from: 'usercofounderShares',
+          localField: '_id',
+          foreignField: 'user',
+          as: 'cofounderShares'
+        }
+      },
+      {
+        $lookup: {
+          from: 'referrals',
+          localField: '_id',
+          foreignField: 'user',
+          as: 'referralData'
+        }
+      },
+      {
+        $addFields: {
+          regularShares: { $sum: '$shares.totalShares' },
+          cofounderSharesTotal: { $sum: '$cofounderShares.totalShares' },
+          combinedShares: { 
+            $add: [
+              { $sum: '$shares.totalShares' }, 
+              { $sum: '$cofounderShares.totalShares' }
+            ]
+          },
+          referralInfo: {
+            $cond: {
+              if: { $gt: [{ $size: "$referralData" }, 0] },
+              then: { $arrayElemAt: ["$referralData", 0] },
+              else: { totalEarnings: 0 }
+            }
+          }
+        }
+      },
+      {
+        $addFields: {
+          filterShareCount: {
+            $cond: {
+              if: { $eq: [filters.shareType, 'regular'] },
+              then: '$regularShares',
+              else: {
+                $cond: {
+                  if: { $eq: [filters.shareType, 'cofounder'] },
+                  then: '$cofounderSharesTotal',
+                  else: '$combinedShares'
+                }
+              }
+            }
+          },
+          totalEarnings: { $ifNull: ["$referralInfo.totalEarnings", 0] }
+        }
+      },
+      {
+        $match: {
+          'status.isActive': true,
+          isBanned: { $ne: true },
+          filterShareCount: sharesFilter,
+          ...dateFilter
+        }
+      },
+      {
+        $sort: { 
+          filterShareCount: filters.sortOrder === 'desc' ? -1 : 1,
+          totalEarnings: -1
+        }
+      },
+      {
+        $facet: {
+          data: [
+            { $skip: filters.offset },
+            { $limit: filters.limit },
+            {
+              $project: {
+                _id: 1,
+                name: 1,
+                userName: 1,
+                regularShares: 1,
+                cofounderSharesTotal: 1,
+                combinedShares: 1,
+                totalEarnings: 1,
+                'location.state': 1,
+                'location.city': 1,
+                'status.isActive': 1,
+                createdAt: 1,
+                shareBreakdown: {
+                  regular: '$regularShares',
+                  cofounder: '$cofounderSharesTotal',
+                  total: '$combinedShares'
+                },
+                filteredShares: '$filterShareCount'
+              }
+            }
+          ],
+          totalCount: [{ $count: "count" }],
+          stats: [
+            {
+              $group: {
+                _id: null,
+                totalShares: { $sum: '$filterShareCount' },
+                averageShares: { $avg: '$filterShareCount' },
+                maxShares: { $max: '$filterShareCount' },
+                minShares: { $min: '$filterShareCount' },
+                totalUsers: { $sum: 1 },
+                totalEarnings: { $sum: '$totalEarnings' },
+                averageEarnings: { $avg: '$totalEarnings' }
+              }
+            }
+          ]
+        }
+      }
+    ];
+
+    const result = await User.aggregate(pipeline);
+    const users = result[0].data;
+    const totalCount = result[0].totalCount[0]?.count || 0;
+    const stats = result[0].stats[0] || {};
+
+    const finalResult = {
+      users: users.map((user, index) => ({
+        ...user,
+        rank: filters.offset + index + 1
+      })),
+      total: totalCount,
+      totalPages: Math.ceil(totalCount / filters.limit),
+      currentPage: Math.floor(filters.offset / filters.limit) + 1,
+      shareType: filters.shareType,
+      statistics: {
+        totalShares: stats.totalShares || 0,
+        averageShares: Math.round((stats.averageShares || 0) * 100) / 100,
+        maxShares: stats.maxShares || 0,
+        minShares: stats.minShares || 0,
+        totalUsers: stats.totalUsers || 0,
+        totalEarnings: Math.round((stats.totalEarnings || 0) * 100) / 100,
+        averageEarnings: Math.round((stats.averageEarnings || 0) * 100) / 100
+      }
+    };
+
+    res.json({
+      success: true,
+      data: finalResult.users,
+      pagination: {
+        currentPage: finalResult.currentPage,
+        totalPages: finalResult.totalPages,
+        totalItems: finalResult.total,
+        hasNext: finalResult.currentPage < finalResult.totalPages,
+        hasPrev: finalResult.currentPage > 1,
+        limit: filters.limit
+      },
+      statistics: finalResult.statistics,
+      shareType: finalResult.shareType,
+      filters
+    });
+
+  } catch (error) {
+    console.error('Error fetching shares leaderboard:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch shares leaderboard',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+});
+
 /**
  * @swagger
  * components:
@@ -611,5 +1071,27 @@ router.get('/yearly', leaderboardController.getYearlyLeaderboard);
  *           description: Account creation date
  *           example: "2024-01-15T10:30:00Z"
  */
+
+
+router.post('/admin/visibility/settings',
+  protect,
+  restrictTo('admin'),
+  leaderboardController.getVisibilitySettings
+);
+
+// Toggle earnings visibility
+router.patch('/admin/visibility/earnings',
+  protect,
+  restrictTo('admin'),
+  leaderboardController.toggleEarningsVisibility
+);
+
+// Toggle balance visibility
+router.patch('/admin/visibility/balance',
+  protect,
+  restrictTo('admin'),
+  leaderboardController.toggleBalanceVisibility
+);
+
 
 module.exports = router;
