@@ -3,39 +3,34 @@ const router = express.Router();
 const leaderboardController = require('../controller/leaderboardController');
 const { protect } = require('../middleware/auth');
 const { applyVisibilityRules } = require('../middleware/visibilityMiddleware');
-const { restrictTo } = require('../middleware/auth'); 
 
+let restrictTo;
+try {
+  const auth = require('../middleware/auth');
+  restrictTo = auth.restrictTo || function(...roles) {
+    return (req, res, next) => {
+      // Simple fallback - check if user exists and has role
+      if (!req.user) {
+        return res.status(401).json({ success: false, message: 'Authentication required' });
+      }
+      if (roles.length > 0 && !roles.includes(req.user.role)) {
+        return res.status(403).json({ success: false, message: 'Insufficient permissions' });
+      }
+      next();
+    };
+  };
+} catch (e) {
+  console.log('Auth middleware not found, using fallback restrictTo');
+  restrictTo = function(...roles) {
+    return (req, res, next) => {
+      console.log('Fallback restrictTo middleware - skipping role check');
+      next();
+    };
+  };
+}
 
 
 router.use(applyVisibilityRules);
-
-// // GET current settings
-// router.get('/admin/visibility/settings',
-//   protect,
-//   restrictTo('admin'),
-//   leaderboardController.getVisibilitySettings
-// );
-
-// POST/UPDATE settings
-router.post('/admin/visibility/settings',
-  protect,
-  restrictTo('admin'),
-  leaderboardController.updateVisibilitySettings
-);
-
-router.post('/admin/visibility/earnings',
-  protect,
-  restrictTo('admin'),
-  leaderboardController.toggleEarningsVisibility
-);
-
-router.post('/admin/visibility/balance',
-  protect,
-  restrictTo('admin'),
-  leaderboardController.toggleBalanceVisibility
-);
-
-
 /**
  * @swagger
  * tags:
@@ -581,19 +576,109 @@ router.get('/yearly', leaderboardController.getYearlyLeaderboard);
 // NEW FILTER ROUTES (FIXED)
 // ====================
 
-// Filter by earnings
-router.get('/filter/earnings', async (req, res) => {
+/**
+ * @swagger
+ * /api/leaderboard/filter/country:
+ *   get:
+ *     summary: Get leaderboard filtered by country
+ *     tags: [Location Leaderboard]
+ *     parameters:
+ *       - in: query
+ *         name: country
+ *         required: true
+ *         schema:
+ *           type: string
+ *           example: "Nigeria"
+ *         description: Country name to filter by
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *           minimum: 1
+ *           maximum: 1000
+ *           default: 50
+ *         description: Number of results to return
+ *       - in: query
+ *         name: offset
+ *         schema:
+ *           type: integer
+ *           minimum: 0
+ *           default: 0
+ *         description: Number of records to skip for pagination
+ *       - in: query
+ *         name: sortBy
+ *         schema:
+ *           type: string
+ *           enum: [totalEarnings, availableBalance, totalShares, createdAt]
+ *           default: totalEarnings
+ *         description: Field to sort results by
+ *       - in: query
+ *         name: sortOrder
+ *         schema:
+ *           type: string
+ *           enum: [asc, desc]
+ *           default: desc
+ *         description: Sort order (ascending or descending)
+ *       - in: query
+ *         name: period
+ *         schema:
+ *           type: string
+ *           enum: [all_time, daily, weekly, monthly, yearly]
+ *           default: all_time
+ *         description: Time period filter
+ *     responses:
+ *       200:
+ *         description: Country leaderboard retrieved successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 data:
+ *                   type: array
+ *                   items:
+ *                     $ref: '#/components/schemas/LocationLeaderboardUser'
+ *                 pagination:
+ *                   $ref: '#/components/schemas/PaginationInfo'
+ *                 locationStats:
+ *                   $ref: '#/components/schemas/LocationStats'
+ *                 filters:
+ *                   $ref: '#/components/schemas/LocationFilters'
+ *       400:
+ *         description: Bad request - missing required country parameter
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ *       500:
+ *         description: Internal server error
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ */
+router.get('/filter/country', async (req, res) => {
   try {
     const filters = {
-      minEarnings: req.query.minEarnings ? Number(req.query.minEarnings) : 0,
-      maxEarnings: req.query.maxEarnings ? Number(req.query.maxEarnings) : null,
-      limit: req.query.limit ? Number(req.query.limit) : Number.MAX_SAFE_INTEGER,
+      country: req.query.country,
+      limit: req.query.limit ? Number(req.query.limit) : 50,
       offset: req.query.offset ? Number(req.query.offset) : 0,
-      period: req.query.period || 'all_time',
-      sortOrder: req.query.sortOrder || 'desc'
+      sortBy: req.query.sortBy || 'totalEarnings',
+      sortOrder: req.query.sortOrder || 'desc',
+      period: req.query.period || 'all_time'
     };
 
-    const result = await leaderboardController.getLeaderboardByEarnings(filters);
+    if (!filters.country) {
+      return res.status(400).json({
+        success: false,
+        message: 'Country parameter is required'
+      });
+    }
+
+    const result = await leaderboardController.getLeaderboardByLocation(filters);
 
     res.json({
       success: true,
@@ -606,64 +691,108 @@ router.get('/filter/earnings', async (req, res) => {
         hasPrev: result.currentPage > 1,
         limit: filters.limit
       },
+      locationStats: result.locationStats,
       filters
     });
 
   } catch (error) {
-    console.error('Error fetching earnings leaderboard:', error);
+    console.error('Error fetching country leaderboard:', error);
     res.status(500).json({
       success: false,
-      message: 'Failed to fetch earnings leaderboard',
+      message: 'Failed to fetch country leaderboard',
       error: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
 });
 
-// Filter by available balance
-router.get('/filter/balance', async (req, res) => {
-  try {
-    const filters = {
-      minBalance: req.query.minBalance ? Number(req.query.minBalance) : 0,
-      maxBalance: req.query.maxBalance ? Number(req.query.maxBalance) : null,
-      limit: req.query.limit ? Number(req.query.limit) : Number.MAX_SAFE_INTEGER,
-      offset: req.query.offset ? Number(req.query.offset) : 0,
-      period: req.query.period || 'all_time',
-      sortOrder: req.query.sortOrder || 'desc'
-    };
-
-    const result = await leaderboardController.getLeaderboardByBalance(filters);
-
-    res.json({
-      success: true,
-      data: result.users,
-      pagination: {
-        currentPage: result.currentPage,
-        totalPages: result.totalPages,
-        totalItems: result.total,
-        hasNext: result.currentPage < result.totalPages,
-        hasPrev: result.currentPage > 1,
-        limit: filters.limit
-      },
-      filters
-    });
-
-  } catch (error) {
-    console.error('Error fetching balance leaderboard:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Failed to fetch balance leaderboard',
-      error: process.env.NODE_ENV === 'development' ? error.message : undefined
-    });
-  }
-});
-
-// Filter by location (state/city)
-// Filter by state
+/**
+ * @swagger
+ * /api/leaderboard/filter/state:
+ *   get:
+ *     summary: Get leaderboard filtered by state (optionally within a country)
+ *     tags: [Location Leaderboard]
+ *     parameters:
+ *       - in: query
+ *         name: state
+ *         required: true
+ *         schema:
+ *           type: string
+ *           example: "Lagos"
+ *         description: State name to filter by
+ *       - in: query
+ *         name: country
+ *         schema:
+ *           type: string
+ *           example: "Nigeria"
+ *         description: Optional country name to further filter within
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *           minimum: 1
+ *           maximum: 1000
+ *           default: 50
+ *         description: Number of results to return
+ *       - in: query
+ *         name: offset
+ *         schema:
+ *           type: integer
+ *           minimum: 0
+ *           default: 0
+ *         description: Number of records to skip for pagination
+ *       - in: query
+ *         name: sortBy
+ *         schema:
+ *           type: string
+ *           enum: [totalEarnings, availableBalance, totalShares, createdAt]
+ *           default: totalEarnings
+ *         description: Field to sort results by
+ *       - in: query
+ *         name: sortOrder
+ *         schema:
+ *           type: string
+ *           enum: [asc, desc]
+ *           default: desc
+ *         description: Sort order (ascending or descending)
+ *       - in: query
+ *         name: period
+ *         schema:
+ *           type: string
+ *           enum: [all_time, daily, weekly, monthly, yearly]
+ *           default: all_time
+ *         description: Time period filter
+ *     responses:
+ *       200:
+ *         description: State leaderboard retrieved successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 data:
+ *                   type: array
+ *                   items:
+ *                     $ref: '#/components/schemas/LocationLeaderboardUser'
+ *                 pagination:
+ *                   $ref: '#/components/schemas/PaginationInfo'
+ *                 locationStats:
+ *                   $ref: '#/components/schemas/LocationStats'
+ *                 filters:
+ *                   $ref: '#/components/schemas/LocationFilters'
+ *       400:
+ *         description: Bad request - missing required state parameter
+ *       500:
+ *         description: Internal server error
+ */
 router.get('/filter/state', async (req, res) => {
   try {
     const filters = {
       state: req.query.state,
-      limit: req.query.limit ? Number(req.query.limit) : Number.MAX_SAFE_INTEGER,
+      country: req.query.country, // Optional: filter by state within a specific country
+      limit: req.query.limit ? Number(req.query.limit) : 50,
       offset: req.query.offset ? Number(req.query.offset) : 0,
       sortBy: req.query.sortBy || 'totalEarnings',
       sortOrder: req.query.sortOrder || 'desc',
@@ -704,13 +833,101 @@ router.get('/filter/state', async (req, res) => {
   }
 });
 
-// Filter by city
+/**
+ * @swagger
+ * /api/leaderboard/filter/city:
+ *   get:
+ *     summary: Get leaderboard filtered by city (optionally within state/country)
+ *     tags: [Location Leaderboard]
+ *     parameters:
+ *       - in: query
+ *         name: city
+ *         required: true
+ *         schema:
+ *           type: string
+ *           example: "Ikeja"
+ *         description: City name to filter by
+ *       - in: query
+ *         name: state
+ *         schema:
+ *           type: string
+ *           example: "Lagos"
+ *         description: Optional state name to further filter within
+ *       - in: query
+ *         name: country
+ *         schema:
+ *           type: string
+ *           example: "Nigeria"
+ *         description: Optional country name to further filter within
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *           minimum: 1
+ *           maximum: 1000
+ *           default: 50
+ *         description: Number of results to return
+ *       - in: query
+ *         name: offset
+ *         schema:
+ *           type: integer
+ *           minimum: 0
+ *           default: 0
+ *         description: Number of records to skip for pagination
+ *       - in: query
+ *         name: sortBy
+ *         schema:
+ *           type: string
+ *           enum: [totalEarnings, availableBalance, totalShares, createdAt]
+ *           default: totalEarnings
+ *         description: Field to sort results by
+ *       - in: query
+ *         name: sortOrder
+ *         schema:
+ *           type: string
+ *           enum: [asc, desc]
+ *           default: desc
+ *         description: Sort order (ascending or descending)
+ *       - in: query
+ *         name: period
+ *         schema:
+ *           type: string
+ *           enum: [all_time, daily, weekly, monthly, yearly]
+ *           default: all_time
+ *         description: Time period filter
+ *     responses:
+ *       200:
+ *         description: City leaderboard retrieved successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 data:
+ *                   type: array
+ *                   items:
+ *                     $ref: '#/components/schemas/LocationLeaderboardUser'
+ *                 pagination:
+ *                   $ref: '#/components/schemas/PaginationInfo'
+ *                 locationStats:
+ *                   $ref: '#/components/schemas/LocationStats'
+ *                 filters:
+ *                   $ref: '#/components/schemas/LocationFilters'
+ *       400:
+ *         description: Bad request - missing required city parameter
+ *       500:
+ *         description: Internal server error
+ */
 router.get('/filter/city', async (req, res) => {
   try {
     const filters = {
       city: req.query.city,
       state: req.query.state, // Optional: can filter by city within a specific state
-      limit: req.query.limit ? Number(req.query.limit) : Number.MAX_SAFE_INTEGER,
+      country: req.query.country, // Optional: can filter by city within a specific country
+      limit: req.query.limit ? Number(req.query.limit) : 50,
       offset: req.query.offset ? Number(req.query.offset) : 0,
       sortBy: req.query.sortBy || 'totalEarnings',
       sortOrder: req.query.sortOrder || 'desc',
@@ -751,12 +968,88 @@ router.get('/filter/city', async (req, res) => {
   }
 });
 
-// Filter by user status
+// Filter by available balance (updated)
+router.get('/filter/balance', async (req, res) => {
+  try {
+    const filters = {
+      minBalance: req.query.minBalance ? Number(req.query.minBalance) : 0,
+      maxBalance: req.query.maxBalance ? Number(req.query.maxBalance) : null,
+      limit: req.query.limit ? Number(req.query.limit) : 50,
+      offset: req.query.offset ? Number(req.query.offset) : 0,
+      period: req.query.period || 'all_time',
+      sortOrder: req.query.sortOrder || 'desc'
+    };
+
+    const result = await leaderboardController.getLeaderboardByBalance(filters);
+
+    res.json({
+      success: true,
+      data: result.users,
+      pagination: {
+        currentPage: result.currentPage,
+        totalPages: result.totalPages,
+        totalItems: result.total,
+        hasNext: result.currentPage < result.totalPages,
+        hasPrev: result.currentPage > 1,
+        limit: filters.limit
+      },
+      filters
+    });
+
+  } catch (error) {
+    console.error('Error fetching balance leaderboard:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch balance leaderboard',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+});
+
+// Filter by earnings (updated)
+router.get('/filter/earnings', async (req, res) => {
+  try {
+    const filters = {
+      minEarnings: req.query.minEarnings ? Number(req.query.minEarnings) : 0,
+      maxEarnings: req.query.maxEarnings ? Number(req.query.maxEarnings) : null,
+      limit: req.query.limit ? Number(req.query.limit) : 50,
+      offset: req.query.offset ? Number(req.query.offset) : 0,
+      period: req.query.period || 'all_time',
+      sortOrder: req.query.sortOrder || 'desc'
+    };
+
+    const result = await leaderboardController.getLeaderboardByEarnings(filters);
+
+    res.json({
+      success: true,
+      data: result.users,
+      pagination: {
+        currentPage: result.currentPage,
+        totalPages: result.totalPages,
+        totalItems: result.total,
+        hasNext: result.currentPage < result.totalPages,
+        hasPrev: result.currentPage > 1,
+        limit: filters.limit
+      },
+      filters
+    });
+
+  } catch (error) {
+    console.error('Error fetching earnings leaderboard:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch earnings leaderboard',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+});
+
+// Filter by user status (updated)
 router.get('/filter/status', async (req, res) => {
   try {
     const filters = {
       status: req.query.status || 'active',
-      limit: req.query.limit ? Number(req.query.limit) : Number.MAX_SAFE_INTEGER,
+      limit: req.query.limit ? Number(req.query.limit) : 50,
       offset: req.query.offset ? Number(req.query.offset) : 0,
       sortBy: req.query.sortBy || 'totalEarnings',
       sortOrder: req.query.sortOrder || 'desc',
@@ -790,6 +1083,217 @@ router.get('/filter/status', async (req, res) => {
   }
 });
 
+// Filter by number of shares (updated)
+router.get('/filter/shares', async (req, res) => {
+  try {
+    const filters = {
+      minShares: req.query.minShares ? Number(req.query.minShares) : 0,
+      maxShares: req.query.maxShares ? Number(req.query.maxShares) : null,
+      shareType: req.query.shareType || 'all',
+      limit: req.query.limit ? Number(req.query.limit) : 50,
+      offset: req.query.offset ? Number(req.query.offset) : 0,
+      period: req.query.period || 'all_time',
+      sortOrder: req.query.sortOrder || 'desc'
+    };
+
+    // Call the getLeaderboardByShares function
+    const result = await leaderboardController.getLeaderboardByShares(filters);
+
+    res.json({
+      success: true,
+      data: result.users,
+      pagination: {
+        currentPage: result.currentPage,
+        totalPages: result.totalPages,
+        totalItems: result.total,
+        hasNext: result.currentPage < result.totalPages,
+        hasPrev: result.currentPage > 1,
+        limit: filters.limit
+      },
+      statistics: result.statistics,
+      shareType: result.shareType,
+      filters
+    });
+
+  } catch (error) {
+    console.error('Error fetching shares leaderboard:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch shares leaderboard',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+});
+
+/**
+ * @swagger
+ * components:
+ *   schemas:
+ *     LocationLeaderboardUser:
+ *       type: object
+ *       properties:
+ *         _id:
+ *           type: string
+ *           description: User's unique identifier
+ *           example: "507f1f77bcf86cd799439011"
+ *         rank:
+ *           type: integer
+ *           description: User's rank in this leaderboard
+ *           example: 1
+ *         name:
+ *           type: string
+ *           description: User's full name
+ *           example: "John Doe"
+ *         userName:
+ *           type: string
+ *           description: User's username
+ *           example: "johndoe"
+ *         totalEarnings:
+ *           type: number
+ *           description: Total earnings from all sources
+ *           example: 5000.00
+ *         availableBalance:
+ *           type: number
+ *           description: Current available balance
+ *           example: 3500.00
+ *         totalShares:
+ *           type: number
+ *           description: Total number of shares owned
+ *           example: 150
+ *         location:
+ *           type: object
+ *           properties:
+ *             country:
+ *               type: string
+ *               example: "Nigeria"
+ *             state:
+ *               type: string
+ *               example: "Lagos"
+ *             city:
+ *               type: string
+ *               example: "Ikeja"
+ *         status:
+ *           type: object
+ *           properties:
+ *             isActive:
+ *               type: boolean
+ *               example: true
+ *         createdAt:
+ *           type: string
+ *           format: date-time
+ *           description: Account creation date
+ *           example: "2024-01-15T10:30:00Z"
+ *     
+ *     LocationStats:
+ *       type: object
+ *       properties:
+ *         totalUsers:
+ *           type: integer
+ *           description: Total number of users in this location
+ *           example: 100
+ *         totalEarnings:
+ *           type: number
+ *           description: Combined earnings of all users in this location
+ *           example: 250000.00
+ *         averageEarnings:
+ *           type: number
+ *           description: Average earnings per user in this location
+ *           example: 2500.00
+ *         totalBalance:
+ *           type: number
+ *           description: Combined available balance of all users
+ *           example: 180000.00
+ *         maxEarnings:
+ *           type: number
+ *           description: Highest earnings by a single user in this location
+ *           example: 15000.00
+ *         minEarnings:
+ *           type: number
+ *           description: Lowest earnings by a user in this location
+ *           example: 0.00
+ *     
+ *     LocationFilters:
+ *       type: object
+ *       properties:
+ *         country:
+ *           type: string
+ *           nullable: true
+ *           example: "Nigeria"
+ *         state:
+ *           type: string
+ *           nullable: true
+ *           example: "Lagos"
+ *         city:
+ *           type: string
+ *           nullable: true
+ *           example: "Ikeja"
+ *         limit:
+ *           type: integer
+ *           example: 50
+ *         offset:
+ *           type: integer
+ *           example: 0
+ *         sortBy:
+ *           type: string
+ *           enum: [totalEarnings, availableBalance, totalShares, createdAt]
+ *           example: "totalEarnings"
+ *         sortOrder:
+ *           type: string
+ *           enum: [asc, desc]
+ *           example: "desc"
+ *         period:
+ *           type: string
+ *           enum: [all_time, daily, weekly, monthly, yearly]
+ *           example: "all_time"
+ *     
+ *     PaginationInfo:
+ *       type: object
+ *       properties:
+ *         currentPage:
+ *           type: integer
+ *           description: Current page number
+ *           example: 1
+ *         totalPages:
+ *           type: integer
+ *           description: Total number of pages
+ *           example: 5
+ *         totalItems:
+ *           type: integer
+ *           description: Total number of items across all pages
+ *           example: 100
+ *         hasNext:
+ *           type: boolean
+ *           description: Whether there are more pages after current
+ *           example: true
+ *         hasPrev:
+ *           type: boolean
+ *           description: Whether there are pages before current
+ *           example: false
+ *         limit:
+ *           type: integer
+ *           description: Number of items per page
+ *           example: 20
+ *     
+ *     ErrorResponse:
+ *       type: object
+ *       properties:
+ *         success:
+ *           type: boolean
+ *           example: false
+ *         message:
+ *           type: string
+ *           description: Error message describing what went wrong
+ *           example: "Country parameter is required"
+ *         error:
+ *           type: string
+ *           description: Detailed error information (only in development mode)
+ *           example: "ValidationError: country is required"
+ *   
+ *   tags:
+ *     - name: Location Leaderboard
+ *       description: Location-based leaderboard filtering endpoints for country, state, and city
+ */
+
 // Filter by number of shares
 router.get('/filter/shares', async (req, res) => {
   try {
@@ -797,7 +1301,7 @@ router.get('/filter/shares', async (req, res) => {
       minShares: req.query.minShares ? Number(req.query.minShares) : 0,
       maxShares: req.query.maxShares ? Number(req.query.maxShares) : null,
       shareType: req.query.shareType || 'all',
-      limit: req.query.limit ? Number(req.query.limit) : Number.MAX_SAFE_INTEGER,
+      limit: req.query.limit ? Number(req.query.limit) : 50,
       offset: req.query.offset ? Number(req.query.offset) : 0,
       period: req.query.period || 'all_time',
       sortOrder: req.query.sortOrder || 'desc'
@@ -1078,6 +1582,25 @@ router.get('/filter/shares', async (req, res) => {
  */
 
 
+router.post('/admin/visibility/settings',
+  protect,
+  restrictTo('admin'),
+  leaderboardController.getVisibilitySettings
+);
+
+// Toggle earnings visibility
+router.patch('/admin/visibility/earnings',
+  protect,
+  restrictTo('admin'),
+  leaderboardController.toggleEarningsVisibility
+);
+
+// Toggle balance visibility
+router.patch('/admin/visibility/balance',
+  protect,
+  restrictTo('admin'),
+  leaderboardController.toggleBalanceVisibility
+);
 
 
 module.exports = router;
