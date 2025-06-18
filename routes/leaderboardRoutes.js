@@ -30,6 +30,7 @@ try {
 }
 
 
+
 router.use(applyVisibilityRules);
 /**
  * @swagger
