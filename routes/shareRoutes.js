@@ -1708,5 +1708,228 @@ router.post('/admin/manual/cancel', protect, adminProtect, shareController.admin
  */
 router.delete('/admin/manual/:transactionId', protect, adminProtect, shareController.adminDeleteManualPayment);
 
+// Add this route to your shareRoutes.js file in the admin routes section
+
+/**
+ * @swagger
+ * /shares/admin/purchase-report:
+ *   get:
+ *     tags: [Shares - Admin Reports]
+ *     summary: Get share purchase report
+ *     description: Get detailed report of share purchases with date range filtering, user details, and transaction information (admin only)
+ *     security:
+ *       - adminAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: startDate
+ *         schema:
+ *           type: string
+ *           format: date
+ *           example: "2024-01-01"
+ *         description: Start date for filtering purchases (YYYY-MM-DD)
+ *       - in: query
+ *         name: endDate
+ *         schema:
+ *           type: string
+ *           format: date
+ *           example: "2024-12-31"
+ *         description: End date for filtering purchases (YYYY-MM-DD)
+ *       - in: query
+ *         name: status
+ *         schema:
+ *           type: string
+ *           enum: [pending, completed, failed]
+ *           default: completed
+ *         description: Filter by transaction status
+ *       - in: query
+ *         name: page
+ *         schema:
+ *           type: integer
+ *           minimum: 1
+ *           default: 1
+ *         description: Page number for pagination
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *           minimum: 1
+ *           maximum: 200
+ *           default: 50
+ *         description: Number of records per page
+ *       - in: query
+ *         name: sortBy
+ *         schema:
+ *           type: string
+ *           enum: [date, amount, shares, name]
+ *           default: date
+ *         description: Sort purchases by field
+ *       - in: query
+ *         name: sortOrder
+ *         schema:
+ *           type: string
+ *           enum: [asc, desc]
+ *           default: desc
+ *         description: Sort order (ascending or descending)
+ *     responses:
+ *       200:
+ *         description: Share purchase report generated successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *                   example: "Share purchase report generated successfully"
+ *                 filters:
+ *                   type: object
+ *                   properties:
+ *                     startDate:
+ *                       type: string
+ *                       format: date
+ *                       example: "2024-01-01"
+ *                     endDate:
+ *                       type: string
+ *                       format: date
+ *                       example: "2024-12-31"
+ *                     status:
+ *                       type: string
+ *                       example: "completed"
+ *                     totalRecords:
+ *                       type: integer
+ *                       example: 156
+ *                 summary:
+ *                   type: object
+ *                   properties:
+ *                     totalTransactions:
+ *                       type: integer
+ *                       example: 156
+ *                     totalShares:
+ *                       type: integer
+ *                       example: 7850
+ *                     totalAmountNaira:
+ *                       type: number
+ *                       example: 392500000
+ *                     totalAmountUSDT:
+ *                       type: number
+ *                       example: 392500
+ *                     uniqueInvestors:
+ *                       type: integer
+ *                       example: 89
+ *                     paymentMethods:
+ *                       type: object
+ *                       example:
+ *                         paystack:
+ *                           count: 78
+ *                           totalAmount: 195000000
+ *                           currency: "naira"
+ *                     tierBreakdown:
+ *                       type: object
+ *                       properties:
+ *                         tier1:
+ *                           type: integer
+ *                           example: 4200
+ *                         tier2:
+ *                           type: integer
+ *                           example: 2650
+ *                         tier3:
+ *                           type: integer
+ *                           example: 1000
+ *                     averages:
+ *                       type: object
+ *                       properties:
+ *                         avgAmountNaira:
+ *                           type: number
+ *                           example: 2516025.64
+ *                         avgAmountUSDT:
+ *                           type: number
+ *                           example: 2516.03
+ *                         avgShares:
+ *                           type: number
+ *                           example: 50.32
+ *                 purchases:
+ *                   type: array
+ *                   items:
+ *                     type: object
+ *                     properties:
+ *                       transactionId:
+ *                         type: string
+ *                         example: "TXN-A1B2-123456"
+ *                       user:
+ *                         type: object
+ *                         properties:
+ *                           id:
+ *                             type: string
+ *                           name:
+ *                             type: string
+ *                           username:
+ *                             type: string
+ *                           email:
+ *                             type: string
+ *                           phone:
+ *                             type: string
+ *                           walletAddress:
+ *                             type: string
+ *                           registrationDate:
+ *                             type: string
+ *                             format: date-time
+ *                       purchaseDetails:
+ *                         type: object
+ *                         properties:
+ *                           shares:
+ *                             type: integer
+ *                           pricePerShare:
+ *                             type: number
+ *                           currency:
+ *                             type: string
+ *                           totalAmount:
+ *                             type: number
+ *                           paymentMethod:
+ *                             type: string
+ *                           status:
+ *                             type: string
+ *                           purchaseDate:
+ *                             type: string
+ *                             format: date-time
+ *                           daysSincePurchase:
+ *                             type: integer
+ *                           tierBreakdown:
+ *                             type: object
+ *                       additionalInfo:
+ *                         type: object
+ *                         properties:
+ *                           txHash:
+ *                             type: string
+ *                           adminAction:
+ *                             type: boolean
+ *                           adminNote:
+ *                             type: string
+ *                           manualPaymentDetails:
+ *                             type: object
+ *                 pagination:
+ *                   type: object
+ *                   properties:
+ *                     currentPage:
+ *                       type: integer
+ *                     totalPages:
+ *                       type: integer
+ *                     totalRecords:
+ *                       type: integer
+ *                     limit:
+ *                       type: integer
+ *       400:
+ *         description: Bad Request - Invalid date format or parameters
+ *       401:
+ *         $ref: '#/components/responses/UnauthorizedError'
+ *       403:
+ *         $ref: '#/components/responses/ForbiddenError'
+ *       500:
+ *         $ref: '#/components/responses/ServerError'
+ */
+router.get('/admin/purchase-report', protect, adminProtect, shareController.getSharePurchaseReport);
+
 module.exports = router;
  

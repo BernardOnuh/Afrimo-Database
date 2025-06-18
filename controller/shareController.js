@@ -2214,3 +2214,242 @@ exports.adminDeleteManualPayment = async (req, res) => {
     });
   }
 };
+
+// Add this function to the end of your shareController.js file, before the module.exports
+
+/**
+ * @desc    Get share purchase report with date range filtering
+ * @route   GET /api/shares/admin/purchase-report
+ * @access  Private (Admin)
+ */
+exports.getSharePurchaseReport = async (req, res) => {
+  try {
+    const adminId = req.user.id;
+    
+    // Check if admin
+    const admin = await User.findById(adminId);
+    if (!admin || !admin.isAdmin) {
+      return res.status(403).json({
+        success: false,
+        message: 'Unauthorized: Admin access required'
+      });
+    }
+    
+    // Query parameters
+    const { 
+      startDate, 
+      endDate, 
+      status = 'completed', // Default to completed transactions only
+      page = 1, 
+      limit = 50,
+      sortBy = 'date', // date, amount, shares, name
+      sortOrder = 'desc' // desc, asc
+    } = req.query;
+    
+    const skip = (parseInt(page) - 1) * parseInt(limit);
+    
+    // Build date filter
+    let dateFilter = {};
+    if (startDate || endDate) {
+      dateFilter['transactions.createdAt'] = {};
+      
+      if (startDate) {
+        dateFilter['transactions.createdAt']['$gte'] = new Date(startDate);
+      }
+      
+      if (endDate) {
+        // Add 23:59:59 to include the entire end date
+        const endDateTime = new Date(endDate);
+        endDateTime.setHours(23, 59, 59, 999);
+        dateFilter['transactions.createdAt']['$lte'] = endDateTime;
+      }
+    }
+    
+    // Build query
+    const query = {
+      'transactions.status': status,
+      ...dateFilter
+    };
+    
+    console.log('Purchase report query:', JSON.stringify(query, null, 2));
+    
+    // Get user shares with transactions
+    const userShares = await UserShare.find(query)
+      .populate('user', 'name email phone username walletAddress createdAt')
+      .lean();
+    
+    // Format and filter the response
+    const purchases = [];
+    const summary = {
+      totalTransactions: 0,
+      totalShares: 0,
+      totalAmountNaira: 0,
+      totalAmountUSDT: 0,
+      uniqueInvestors: new Set(),
+      paymentMethods: {},
+      tierBreakdown: {
+        tier1: 0,
+        tier2: 0,
+        tier3: 0
+      }
+    };
+    
+    for (const userShare of userShares) {
+      for (const transaction of userShare.transactions) {
+        // Apply filters
+        if (transaction.status !== status) continue;
+        
+        // Date filter (if no date filter in query, this will be skipped)
+        if (startDate || endDate) {
+          const transactionDate = new Date(transaction.createdAt);
+          
+          if (startDate && transactionDate < new Date(startDate)) continue;
+          if (endDate) {
+            const endDateTime = new Date(endDate);
+            endDateTime.setHours(23, 59, 59, 999);
+            if (transactionDate > endDateTime) continue;
+          }
+        }
+        
+        // Clean up payment method display
+        let displayPaymentMethod = transaction.paymentMethod;
+        if (transaction.paymentMethod.startsWith('manual_')) {
+          displayPaymentMethod = transaction.paymentMethod.replace('manual_', '');
+        }
+        
+        // Calculate days since purchase
+        const daysSincePurchase = Math.floor(
+          (new Date() - new Date(transaction.createdAt)) / (1000 * 60 * 60 * 24)
+        );
+        
+        const purchaseData = {
+          transactionId: transaction.transactionId,
+          user: {
+            id: userShare.user._id,
+            name: userShare.user.name,
+            username: userShare.user.username,
+            email: userShare.user.email,
+            phone: userShare.user.phone,
+            walletAddress: userShare.user.walletAddress,
+            registrationDate: userShare.user.createdAt
+          },
+          purchaseDetails: {
+            shares: transaction.shares,
+            pricePerShare: transaction.pricePerShare,
+            currency: transaction.currency,
+            totalAmount: transaction.totalAmount,
+            paymentMethod: displayPaymentMethod,
+            status: transaction.status,
+            purchaseDate: transaction.createdAt,
+            daysSincePurchase,
+            tierBreakdown: transaction.tierBreakdown || { tier1: 0, tier2: 0, tier3: 0 }
+          },
+          additionalInfo: {
+            txHash: transaction.txHash || null,
+            adminAction: transaction.adminAction || false,
+            adminNote: transaction.adminNote || null,
+            manualPaymentDetails: transaction.manualPaymentDetails || {}
+          }
+        };
+        
+        purchases.push(purchaseData);
+        
+        // Update summary statistics
+        summary.totalTransactions++;
+        summary.totalShares += transaction.shares;
+        summary.uniqueInvestors.add(userShare.user._id.toString());
+        
+        if (transaction.currency === 'naira') {
+          summary.totalAmountNaira += transaction.totalAmount;
+        } else if (transaction.currency === 'usdt') {
+          summary.totalAmountUSDT += transaction.totalAmount;
+        }
+        
+        // Payment method stats
+        if (!summary.paymentMethods[displayPaymentMethod]) {
+          summary.paymentMethods[displayPaymentMethod] = {
+            count: 0,
+            totalAmount: 0,
+            currency: transaction.currency
+          };
+        }
+        summary.paymentMethods[displayPaymentMethod].count++;
+        summary.paymentMethods[displayPaymentMethod].totalAmount += transaction.totalAmount;
+        
+        // Tier breakdown
+        if (transaction.tierBreakdown) {
+          summary.tierBreakdown.tier1 += transaction.tierBreakdown.tier1 || 0;
+          summary.tierBreakdown.tier2 += transaction.tierBreakdown.tier2 || 0;
+          summary.tierBreakdown.tier3 += transaction.tierBreakdown.tier3 || 0;
+        }
+      }
+    }
+    
+    // Convert Set to number for unique investors
+    summary.uniqueInvestors = summary.uniqueInvestors.size;
+    
+    // Sort purchases
+    purchases.sort((a, b) => {
+      let comparison = 0;
+      
+      switch (sortBy) {
+        case 'amount':
+          comparison = a.purchaseDetails.totalAmount - b.purchaseDetails.totalAmount;
+          break;
+        case 'shares':
+          comparison = a.purchaseDetails.shares - b.purchaseDetails.shares;
+          break;
+        case 'name':
+          comparison = a.user.name.localeCompare(b.user.name);
+          break;
+        case 'date':
+        default:
+          comparison = new Date(a.purchaseDetails.purchaseDate) - new Date(b.purchaseDetails.purchaseDate);
+          break;
+      }
+      
+      return sortOrder === 'desc' ? -comparison : comparison;
+    });
+    
+    // Apply pagination
+    const paginatedPurchases = purchases.slice(skip, skip + parseInt(limit));
+    
+    // Calculate average purchase amounts
+    const avgAmountNaira = summary.totalTransactions > 0 ? summary.totalAmountNaira / summary.totalTransactions : 0;
+    const avgAmountUSDT = summary.totalTransactions > 0 ? summary.totalAmountUSDT / summary.totalTransactions : 0;
+    const avgShares = summary.totalTransactions > 0 ? summary.totalShares / summary.totalTransactions : 0;
+    
+    res.status(200).json({
+      success: true,
+      message: 'Share purchase report generated successfully',
+      filters: {
+        startDate: startDate || null,
+        endDate: endDate || null,
+        status,
+        totalRecords: purchases.length
+      },
+      summary: {
+        ...summary,
+        averages: {
+          avgAmountNaira: Math.round(avgAmountNaira * 100) / 100,
+          avgAmountUSDT: Math.round(avgAmountUSDT * 100) / 100,
+          avgShares: Math.round(avgShares * 100) / 100
+        }
+      },
+      purchases: paginatedPurchases,
+      pagination: {
+        currentPage: parseInt(page),
+        totalPages: Math.ceil(purchases.length / parseInt(limit)),
+        totalRecords: purchases.length,
+        limit: parseInt(limit)
+      }
+    });
+  } catch (error) {
+    console.error('Error generating share purchase report:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to generate share purchase report',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+};
