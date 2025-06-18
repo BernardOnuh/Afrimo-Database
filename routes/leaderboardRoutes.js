@@ -3,35 +3,39 @@ const router = express.Router();
 const leaderboardController = require('../controller/leaderboardController');
 const { protect } = require('../middleware/auth');
 const { applyVisibilityRules } = require('../middleware/visibilityMiddleware');
-
-let restrictTo;
-try {
-  const auth = require('../middleware/auth');
-  restrictTo = auth.restrictTo || function(...roles) {
-    return (req, res, next) => {
-      // Simple fallback - check if user exists and has role
-      if (!req.user) {
-        return res.status(401).json({ success: false, message: 'Authentication required' });
-      }
-      if (roles.length > 0 && !roles.includes(req.user.role)) {
-        return res.status(403).json({ success: false, message: 'Insufficient permissions' });
-      }
-      next();
-    };
-  };
-} catch (e) {
-  console.log('Auth middleware not found, using fallback restrictTo');
-  restrictTo = function(...roles) {
-    return (req, res, next) => {
-      console.log('Fallback restrictTo middleware - skipping role check');
-      next();
-    };
-  };
-}
+const { restrictTo } = require('../middleware/auth'); 
 
 
 
 router.use(applyVisibilityRules);
+
+// // GET current settings
+// router.get('/admin/visibility/settings',
+//   protect,
+//   restrictTo('admin'),
+//   leaderboardController.getVisibilitySettings
+// );
+
+// POST/UPDATE settings
+router.post('/admin/visibility/settings',
+  protect,
+  restrictTo('admin'),
+  leaderboardController.updateVisibilitySettings
+);
+
+router.post('/admin/visibility/earnings',
+  protect,
+  restrictTo('admin'),
+  leaderboardController.toggleEarningsVisibility
+);
+
+router.post('/admin/visibility/balance',
+  protect,
+  restrictTo('admin'),
+  leaderboardController.toggleBalanceVisibility
+);
+
+
 /**
  * @swagger
  * tags:
@@ -583,7 +587,7 @@ router.get('/filter/earnings', async (req, res) => {
     const filters = {
       minEarnings: req.query.minEarnings ? Number(req.query.minEarnings) : 0,
       maxEarnings: req.query.maxEarnings ? Number(req.query.maxEarnings) : null,
-      limit: req.query.limit ? Number(req.query.limit) : 50,
+      limit: req.query.limit ? Number(req.query.limit) : Number.MAX_SAFE_INTEGER,
       offset: req.query.offset ? Number(req.query.offset) : 0,
       period: req.query.period || 'all_time',
       sortOrder: req.query.sortOrder || 'desc'
@@ -621,7 +625,7 @@ router.get('/filter/balance', async (req, res) => {
     const filters = {
       minBalance: req.query.minBalance ? Number(req.query.minBalance) : 0,
       maxBalance: req.query.maxBalance ? Number(req.query.maxBalance) : null,
-      limit: req.query.limit ? Number(req.query.limit) : 50,
+      limit: req.query.limit ? Number(req.query.limit) : Number.MAX_SAFE_INTEGER,
       offset: req.query.offset ? Number(req.query.offset) : 0,
       period: req.query.period || 'all_time',
       sortOrder: req.query.sortOrder || 'desc'
@@ -659,7 +663,7 @@ router.get('/filter/state', async (req, res) => {
   try {
     const filters = {
       state: req.query.state,
-      limit: req.query.limit ? Number(req.query.limit) : 50,
+      limit: req.query.limit ? Number(req.query.limit) : Number.MAX_SAFE_INTEGER,
       offset: req.query.offset ? Number(req.query.offset) : 0,
       sortBy: req.query.sortBy || 'totalEarnings',
       sortOrder: req.query.sortOrder || 'desc',
@@ -706,7 +710,7 @@ router.get('/filter/city', async (req, res) => {
     const filters = {
       city: req.query.city,
       state: req.query.state, // Optional: can filter by city within a specific state
-      limit: req.query.limit ? Number(req.query.limit) : 50,
+      limit: req.query.limit ? Number(req.query.limit) : Number.MAX_SAFE_INTEGER,
       offset: req.query.offset ? Number(req.query.offset) : 0,
       sortBy: req.query.sortBy || 'totalEarnings',
       sortOrder: req.query.sortOrder || 'desc',
@@ -752,7 +756,7 @@ router.get('/filter/status', async (req, res) => {
   try {
     const filters = {
       status: req.query.status || 'active',
-      limit: req.query.limit ? Number(req.query.limit) : 50,
+      limit: req.query.limit ? Number(req.query.limit) : Number.MAX_SAFE_INTEGER,
       offset: req.query.offset ? Number(req.query.offset) : 0,
       sortBy: req.query.sortBy || 'totalEarnings',
       sortOrder: req.query.sortOrder || 'desc',
@@ -793,7 +797,7 @@ router.get('/filter/shares', async (req, res) => {
       minShares: req.query.minShares ? Number(req.query.minShares) : 0,
       maxShares: req.query.maxShares ? Number(req.query.maxShares) : null,
       shareType: req.query.shareType || 'all',
-      limit: req.query.limit ? Number(req.query.limit) : 50,
+      limit: req.query.limit ? Number(req.query.limit) : Number.MAX_SAFE_INTEGER,
       offset: req.query.offset ? Number(req.query.offset) : 0,
       period: req.query.period || 'all_time',
       sortOrder: req.query.sortOrder || 'desc'
@@ -1074,25 +1078,6 @@ router.get('/filter/shares', async (req, res) => {
  */
 
 
-router.post('/admin/visibility/settings',
-  protect,
-  restrictTo('admin'),
-  leaderboardController.getVisibilitySettings
-);
-
-// Toggle earnings visibility
-router.patch('/admin/visibility/earnings',
-  protect,
-  restrictTo('admin'),
-  leaderboardController.toggleEarningsVisibility
-);
-
-// Toggle balance visibility
-router.patch('/admin/visibility/balance',
-  protect,
-  restrictTo('admin'),
-  leaderboardController.toggleBalanceVisibility
-);
 
 
 module.exports = router;

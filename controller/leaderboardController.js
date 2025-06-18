@@ -60,7 +60,7 @@ const { leaderboardQuerySchema, visibilityUpdateSchema, bulkUpdateSchema } = adm
 // ====================
 
 // Main leaderboard aggregation function (existing - preserved)
-const getTimeFilteredLeaderboard = async (timeFrame, categoryFilter = 'registration', limit = 10) => {
+const getTimeFilteredLeaderboard = async (timeFrame, categoryFilter = 'registration', limit = Number.MAX_SAFE_INTEGER) => {
   // Calculate the date threshold based on the time frame
   const now = new Date();
   let dateThreshold = new Date();
@@ -381,7 +381,7 @@ const getTimeFilteredLeaderboard = async (timeFrame, categoryFilter = 'registrat
 };
 
 // Wrapper function for non-time-filtered leaderboards (existing - preserved)
-const getFilteredLeaderboard = async (categoryFilter = 'registration', limit = 10) => {
+const getFilteredLeaderboard = async (categoryFilter = 'registration', limit = Number.MAX_SAFE_INTEGER) => {
   return getTimeFilteredLeaderboard(null, categoryFilter, limit);
 };
 
@@ -890,7 +890,7 @@ exports.exportLeaderboard = async (req, res) => {
 // Time-based leaderboards (existing - preserved)
 exports.getDailyLeaderboard = async (req, res) => {
   try {
-    const limit = req.query.limit ? parseInt(req.query.limit) : 10;
+    const limit = req.query.limit ? parseInt(req.query.limit) : Number.MAX_SAFE_INTEGER;
     const filter = req.query.filter || 'earnings';
     const leaderboard = await getTimeFilteredLeaderboard('daily', filter, limit);
     
@@ -912,7 +912,7 @@ exports.getDailyLeaderboard = async (req, res) => {
 
 exports.getWeeklyLeaderboard = async (req, res) => {
   try {
-    const limit = req.query.limit ? parseInt(req.query.limit) : 10;
+    const limit = req.query.limit ? parseInt(req.query.limit) : Number.MAX_SAFE_INTEGER;
     const filter = req.query.filter || 'earnings';
     const leaderboard = await getTimeFilteredLeaderboard('weekly', filter, limit);
     
@@ -934,7 +934,7 @@ exports.getWeeklyLeaderboard = async (req, res) => {
 
 exports.getMonthlyLeaderboard = async (req, res) => {
   try {
-    const limit = req.query.limit ? parseInt(req.query.limit) : 10;
+    const limit = req.query.limit ? parseInt(req.query.limit) : Number.MAX_SAFE_INTEGER;
     const filter = req.query.filter || 'earnings';
     const leaderboard = await getTimeFilteredLeaderboard('monthly', filter, limit);
     
@@ -956,7 +956,7 @@ exports.getMonthlyLeaderboard = async (req, res) => {
 
 exports.getYearlyLeaderboard = async (req, res) => {
   try {
-    const limit = req.query.limit ? parseInt(req.query.limit) : 10;
+    const limit = req.query.limit ? parseInt(req.query.limit) : Number.MAX_SAFE_INTEGER;
     const filter = req.query.filter || 'earnings';
     const leaderboard = await getTimeFilteredLeaderboard('yearly', filter, limit);
     
@@ -981,7 +981,7 @@ exports.getLeaderboard = async (req, res) => {
   try {
     const filter = req.query.filter || 'registration';
     const timeFrame = req.query.timeFrame || null;
-    const limit = req.query.limit ? parseInt(req.query.limit) : 10;
+    const limit = req.query.limit ? parseInt(req.query.limit) : Number.MAX_SAFE_INTEGER;
     
     const leaderboard = timeFrame 
       ? await getTimeFilteredLeaderboard(timeFrame, filter, limit)
@@ -1005,7 +1005,7 @@ exports.getLeaderboard = async (req, res) => {
 
 exports.getRegistrationLeaderboard = async (req, res) => {
   try {
-    const limit = req.query.limit ? parseInt(req.query.limit) : 10;
+    const limit = req.query.limit ? parseInt(req.query.limit) : Number.MAX_SAFE_INTEGER;
     const leaderboard = await getFilteredLeaderboard('registration', limit);
     
     res.status(200).json({
@@ -1025,7 +1025,7 @@ exports.getRegistrationLeaderboard = async (req, res) => {
 
 exports.getReferralLeaderboard = async (req, res) => {
   try {
-    const limit = req.query.limit ? parseInt(req.query.limit) : 10;
+    const limit = req.query.limit ? parseInt(req.query.limit) : Number.MAX_SAFE_INTEGER;
     const leaderboard = await getFilteredLeaderboard('referrals', limit);
     
     res.status(200).json({
@@ -1045,7 +1045,7 @@ exports.getReferralLeaderboard = async (req, res) => {
 
 exports.getSpendingLeaderboard = async (req, res) => {
   try {
-    const limit = req.query.limit ? parseInt(req.query.limit) : 10;
+    const limit = req.query.limit ? parseInt(req.query.limit) : Number.MAX_SAFE_INTEGER;
     const leaderboard = await getFilteredLeaderboard('spending', limit);
     
     res.status(200).json({
@@ -1065,7 +1065,7 @@ exports.getSpendingLeaderboard = async (req, res) => {
 
 exports.getCofounderLeaderboard = async (req, res) => {
   try {
-    const limit = req.query.limit ? parseInt(req.query.limit) : 10;
+    const limit = req.query.limit ? parseInt(req.query.limit) : Number.MAX_SAFE_INTEGER;
     const leaderboard = await getFilteredLeaderboard('cofounder', limit);
     
     res.status(200).json({
@@ -1085,7 +1085,7 @@ exports.getCofounderLeaderboard = async (req, res) => {
 
 exports.getEarningsLeaderboard = async (req, res) => {
   try {
-    const limit = req.query.limit ? parseInt(req.query.limit) : 10;
+    const limit = req.query.limit ? parseInt(req.query.limit) : Number.MAX_SAFE_INTEGER;
     const leaderboard = await getFilteredLeaderboard('earnings', limit);
     
     res.status(200).json({
@@ -1105,7 +1105,7 @@ exports.getEarningsLeaderboard = async (req, res) => {
 
 exports.getSharesLeaderboard = async (req, res) => {
   try {
-    const limit = req.query.limit ? parseInt(req.query.limit) : 10;
+    const limit = req.query.limit ? parseInt(req.query.limit) : Number.MAX_SAFE_INTEGER;
     const leaderboard = await getFilteredLeaderboard('shares', limit);
     
     res.status(200).json({
@@ -2139,6 +2139,64 @@ exports.toggleBalanceVisibility = async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Failed to toggle balance visibility'
+    });
+  }
+};
+
+exports.updateVisibilitySettings = async (req, res) => {
+  try {
+    const { showEarnings, showAvailableBalance } = req.body;
+    
+    if (typeof showEarnings !== 'boolean' || typeof showAvailableBalance !== 'boolean') {
+      return res.status(400).json({
+        success: false,
+        message: 'Both showEarnings and showAvailableBalance must be boolean values'
+      });
+    }
+    
+    let settings = await AdminSettings.findOne();
+    
+    if (!settings) {
+      settings = new AdminSettings({
+        showEarnings,
+        showAvailableBalance,
+        updatedBy: req.user._id
+      });
+    } else {
+      settings.showEarnings = showEarnings;
+      settings.showAvailableBalance = showAvailableBalance;
+      settings.updatedBy = req.user._id;
+    }
+    
+    await settings.save();
+    
+    // Invalidate cache
+    invalidateCache();
+    
+    // Log admin action if AdminAuditLog exists
+    if (AdminAuditLog) {
+      await AdminAuditLog.create({
+        adminId: req.user._id,
+        action: 'UPDATE_VISIBILITY_SETTINGS',
+        details: { showEarnings, showAvailableBalance },
+        ipAddress: req.ip,
+        userAgent: req.get('User-Agent')
+      });
+    }
+    
+    res.json({
+      success: true,
+      message: 'Visibility settings updated successfully',
+      data: {
+        showEarnings: settings.showEarnings,
+        showAvailableBalance: settings.showAvailableBalance
+      }
+    });
+  } catch (error) {
+    console.error('Error updating visibility settings:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to update visibility settings'
     });
   }
 };

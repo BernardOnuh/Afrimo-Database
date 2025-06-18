@@ -99,38 +99,67 @@ exports.protect = async (req, res, next) => {
 // Admin authorization middleware
 exports.adminProtect = async (req, res, next) => {
   try {
-    // First authenticate the user
-    exports.protect(req, res, () => {
-      // Then check if user has admin rights
-      if (!req.user || !req.user.isAdmin) {
-        return res.status(403).json({
-          success: false,
-          message: 'Access denied. Admin privileges required.'
-        });
-      }
-      
-      // If user is admin, proceed
-      next();
+    // First authenticate the user using protect middleware
+    await new Promise((resolve, reject) => {
+      exports.protect(req, res, (err) => {
+        if (err) reject(err);
+        else resolve();
+      });
     });
+    
+    // Then check if user has admin rights
+    if (!req.user || !req.user.isAdmin) {
+      return res.status(403).json({
+        success: false,
+        message: 'Access denied. Admin privileges required.'
+      });
+    }
+    
+    // If user is admin, proceed
+    next();
+    
   } catch (error) {
-    console.error('Admin authorization error:', error);
-    return res.status(500).json({
-      success: false,
-      message: 'Internal server error during authorization.',
-      error: process.env.NODE_ENV === 'development' ? error.message : undefined
-    });
+    // Error already handled by protect middleware
+    if (!res.headersSent) {
+      console.error('Admin authorization error:', error);
+      return res.status(500).json({
+        success: false,
+        message: 'Internal server error during authorization.',
+        error: process.env.NODE_ENV === 'development' ? error.message : undefined
+      });
+    }
   }
 };
 
 // Role-based authorization middleware (for future use)
 exports.authorize = (...roles) => {
   return (req, res, next) => {
-    if (!req.user || !roles.includes(req.user.role)) {
+    // Check if user exists
+    if (!req.user) {
       return res.status(403).json({
         success: false,
-        message: `Role ${req.user ? req.user.role : 'undefined'} is not authorized to access this resource`
+        message: 'User not authenticated'
       });
     }
-    next();
+    
+    // If checking for admin role, also check isAdmin field
+    if (roles.includes('admin') && req.user.isAdmin) {
+      return next();
+    }
+    
+    // Otherwise check the role field
+    if (req.user.role && roles.includes(req.user.role)) {
+      return next();
+    }
+    
+    return res.status(403).json({
+      success: false,
+      message: `Role ${req.user.role || 'undefined'} is not authorized to access this resource`
+    });
   };
 };
+
+
+
+// Add restrictTo alias for backward compatibility
+exports.restrictTo = exports.authorize;
