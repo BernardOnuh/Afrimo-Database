@@ -40,7 +40,7 @@ router.use(applyVisibilityRules);
 
 /**
  * @swagger
- * /api/leaderboard:
+ * /leaderboard:
  *   get:
  *     summary: Get comprehensive leaderboard with filters
  *     tags: [Public Leaderboard]
@@ -144,7 +144,7 @@ router.get('/', leaderboardController.getLeaderboard);
 
 /**
  * @swagger
- * /api/leaderboard/registration:
+ * /leaderboard/registration:
  *   get:
  *     summary: Get registration-based leaderboard (newest users first)
  *     tags: [Public Leaderboard]
@@ -180,7 +180,7 @@ router.get('/registration', leaderboardController.getRegistrationLeaderboard);
 
 /**
  * @swagger
- * /api/leaderboard/referrals:
+ * /leaderboard/referrals:
  *   get:
  *     summary: Get referral-based leaderboard (most referrals first)
  *     tags: [Public Leaderboard]
@@ -216,7 +216,7 @@ router.get('/referrals', leaderboardController.getReferralLeaderboard);
 
 /**
  * @swagger
- * /api/leaderboard/spending:
+ * /leaderboard/spending:
  *   get:
  *     summary: Get spending-based leaderboard (highest spenders first)
  *     tags: [Public Leaderboard]
@@ -250,7 +250,7 @@ router.get('/spending', leaderboardController.getSpendingLeaderboard);
 
 /**
  * @swagger
- * /api/leaderboard/cofounder:
+ * /leaderboard/cofounder:
  *   get:
  *     summary: Get cofounder shares leaderboard (most cofounder shares first)
  *     tags: [Public Leaderboard]
@@ -286,7 +286,7 @@ router.get('/cofounder', leaderboardController.getCofounderLeaderboard);
 
 /**
  * @swagger
- * /api/leaderboard/earnings:
+ * /leaderboard/earnings:
  *   get:
  *     summary: Get earnings-based leaderboard (highest earners first)
  *     tags: [Public Leaderboard]
@@ -322,7 +322,7 @@ router.get('/earnings', leaderboardController.getEarningsLeaderboard);
 
 /**
  * @swagger
- * /api/leaderboard/shares:
+ * /leaderboard/shares:
  *   get:
  *     summary: Get shares-based leaderboard (most total shares first)
  *     tags: [Public Leaderboard]
@@ -362,7 +362,7 @@ router.get('/shares', leaderboardController.getSharesLeaderboard);
 
 /**
  * @swagger
- * /api/leaderboard/daily:
+ * /leaderboard/daily:
  *   get:
  *     summary: Get daily leaderboard (today's activity)
  *     tags: [Public Leaderboard]
@@ -415,7 +415,7 @@ router.get('/daily', leaderboardController.getDailyLeaderboard);
 
 /**
  * @swagger
- * /api/leaderboard/weekly:
+ * /leaderboard/weekly:
  *   get:
  *     summary: Get weekly leaderboard (this week's activity)
  *     tags: [Public Leaderboard]
@@ -468,7 +468,7 @@ router.get('/weekly', leaderboardController.getWeeklyLeaderboard);
 
 /**
  * @swagger
- * /api/leaderboard/monthly:
+ * /leaderboard/monthly:
  *   get:
  *     summary: Get monthly leaderboard (this month's activity)
  *     tags: [Public Leaderboard]
@@ -521,7 +521,7 @@ router.get('/monthly', leaderboardController.getMonthlyLeaderboard);
 
 /**
  * @swagger
- * /api/leaderboard/yearly:
+ * /leaderboard/yearly:
  *   get:
  *     summary: Get yearly leaderboard (this year's activity)
  *     tags: [Public Leaderboard]
@@ -578,7 +578,7 @@ router.get('/yearly', leaderboardController.getYearlyLeaderboard);
 
 /**
  * @swagger
- * /api/leaderboard/filter/country:
+ * /leaderboard/filter/country:
  *   get:
  *     summary: Get leaderboard filtered by country
  *     tags: [Location Leaderboard]
@@ -678,7 +678,8 @@ router.get('/filter/country', async (req, res) => {
       });
     }
 
-    const result = await leaderboardController.getLeaderboardByLocation(filters);
+    // Call the controller method that already exists
+    const result = await leaderboardController.getLeaderboardByLocationFixed(filters);
 
     res.json({
       success: true,
@@ -705,9 +706,10 @@ router.get('/filter/country', async (req, res) => {
   }
 });
 
+
 /**
  * @swagger
- * /api/leaderboard/filter/state:
+ * /leaderboard/filter/state:
  *   get:
  *     summary: Get leaderboard filtered by state (optionally within a country)
  *     tags: [Location Leaderboard]
@@ -791,7 +793,7 @@ router.get('/filter/state', async (req, res) => {
   try {
     const filters = {
       state: req.query.state,
-      country: req.query.country, // Optional: filter by state within a specific country
+      country: req.query.country,
       limit: req.query.limit ? Number(req.query.limit) : 50,
       offset: req.query.offset ? Number(req.query.offset) : 0,
       sortBy: req.query.sortBy || 'totalEarnings',
@@ -806,7 +808,7 @@ router.get('/filter/state', async (req, res) => {
       });
     }
 
-    const result = await leaderboardController.getLeaderboardByLocation(filters);
+    const result = await leaderboardController.getLeaderboardByLocationFixed(filters);
 
     res.json({
       success: true,
@@ -835,7 +837,7 @@ router.get('/filter/state', async (req, res) => {
 
 /**
  * @swagger
- * /api/leaderboard/filter/city:
+ * /leaderboard/filter/city:
  *   get:
  *     summary: Get leaderboard filtered by city (optionally within state/country)
  *     tags: [Location Leaderboard]
@@ -925,8 +927,8 @@ router.get('/filter/city', async (req, res) => {
   try {
     const filters = {
       city: req.query.city,
-      state: req.query.state, // Optional: can filter by city within a specific state
-      country: req.query.country, // Optional: can filter by city within a specific country
+      state: req.query.state,
+      country: req.query.country,
       limit: req.query.limit ? Number(req.query.limit) : 50,
       offset: req.query.offset ? Number(req.query.offset) : 0,
       sortBy: req.query.sortBy || 'totalEarnings',
@@ -941,7 +943,7 @@ router.get('/filter/city', async (req, res) => {
       });
     }
 
-    const result = await leaderboardController.getLeaderboardByLocation(filters);
+    const result = await leaderboardController.getLeaderboardByLocationFixed(filters);
 
     res.json({
       success: true,
@@ -967,6 +969,7 @@ router.get('/filter/city', async (req, res) => {
     });
   }
 });
+
 
 // Filter by available balance (updated)
 router.get('/filter/balance', async (req, res) => {

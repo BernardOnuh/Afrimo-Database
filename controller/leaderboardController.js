@@ -1398,10 +1398,11 @@ exports.getLeaderboardByBalance = async (filters) => {
   };
 };
 
-// Function to filter Leaderboard based on Location(State and/or City)
+
 
 exports.getLeaderboardByLocation = async (filters) => {
   const {
+    country = null,
     state = null,
     city = null,
     limit = 50,
@@ -1411,10 +1412,54 @@ exports.getLeaderboardByLocation = async (filters) => {
     period = 'all_time'
   } = filters;
 
-  // Build location filter
+  // Build location filter - check both top-level and nested location fields
   const locationFilter = {};
-  if (state) locationFilter['location.state'] = state;
-  if (city) locationFilter['location.city'] = city;
+  
+  if (country) {
+    locationFilter.$or = [
+      { country: country },
+      { 'location.country': country }
+    ];
+  }
+  
+  if (state) {
+    const stateConditions = [
+      { state: state },
+      { 'location.state': state }
+    ];
+    
+    if (locationFilter.$or) {
+      // If country filter already exists, combine with AND
+      locationFilter.$and = [
+        { $or: locationFilter.$or },
+        { $or: stateConditions }
+      ];
+      delete locationFilter.$or;
+    } else {
+      locationFilter.$or = stateConditions;
+    }
+  }
+  
+  if (city) {
+    const cityConditions = [
+      { city: city },
+      { 'location.city': city }
+    ];
+    
+    if (locationFilter.$and) {
+      // If we already have AND conditions, add to them
+      locationFilter.$and.push({ $or: cityConditions });
+    } else if (locationFilter.$or) {
+      // Convert existing OR to AND structure
+      locationFilter.$and = [
+        { $or: locationFilter.$or },
+        { $or: cityConditions }
+      ];
+      delete locationFilter.$or;
+    } else {
+      locationFilter.$or = cityConditions;
+    }
+  }
 
   // Build date filter
   let dateFilter = {};
@@ -1465,6 +1510,7 @@ exports.getLeaderboardByLocation = async (filters) => {
     {
       $match: {
         'status.isActive': true,
+        isBanned: { $ne: true },
         ...locationFilter,
         ...dateFilter
       }
@@ -1516,6 +1562,28 @@ exports.getLeaderboardByLocation = async (filters) => {
               ]
             }
           ]
+        },
+        // Normalize location fields for consistent output
+        userCountry: {
+          $cond: {
+            if: { $ne: ["$country", null] },
+            then: "$country",
+            else: "$location.country"
+          }
+        },
+        userState: {
+          $cond: {
+            if: { $ne: ["$state", null] },
+            then: "$state",
+            else: "$location.state"
+          }
+        },
+        userCity: {
+          $cond: {
+            if: { $ne: ["$city", null] },
+            then: "$city",
+            else: "$location.city"
+          }
         }
       }
     },
@@ -1535,8 +1603,10 @@ exports.getLeaderboardByLocation = async (filters) => {
               totalEarnings: 1,
               availableBalance: 1,
               totalShares: 1,
-              'location.state': 1,
-              'location.city': 1,
+              // Use separate fields to avoid path collision - NO nested location fields
+              userCountry: 1,
+              userState: 1,
+              userCity: 1,
               'status.isActive': 1,
               createdAt: 1
             }
@@ -1550,7 +1620,9 @@ exports.getLeaderboardByLocation = async (filters) => {
               totalUsers: { $sum: 1 },
               totalEarnings: { $sum: "$totalEarnings" },
               averageEarnings: { $avg: "$totalEarnings" },
-              totalBalance: { $sum: "$availableBalance" }
+              totalBalance: { $sum: "$availableBalance" },
+              maxEarnings: { $max: "$totalEarnings" },
+              minEarnings: { $min: "$totalEarnings" }
             }
           }
         ]
@@ -1566,12 +1638,29 @@ exports.getLeaderboardByLocation = async (filters) => {
   return {
     users: users.map((user, index) => ({
       ...user,
-      rank: offset + index + 1
-    })),
+      rank: offset + index + 1,
+      // Create location object from separate fields
+      location: {
+        country: user.userCountry,
+        state: user.userState,
+        city: user.userCity
+      }
+    })).map(user => {
+      // Remove the separate location fields since we've combined them into location object
+      const { userCountry, userState, userCity, ...userWithoutSeparateFields } = user;
+      return userWithoutSeparateFields;
+    }),
     total: totalCount,
     totalPages: Math.ceil(totalCount / limit),
     currentPage: Math.floor(offset / limit) + 1,
-    locationStats
+    locationStats: {
+      totalUsers: locationStats.totalUsers || 0,
+      totalEarnings: Math.round((locationStats.totalEarnings || 0) * 100) / 100,
+      averageEarnings: Math.round((locationStats.averageEarnings || 0) * 100) / 100,
+      totalBalance: Math.round((locationStats.totalBalance || 0) * 100) / 100,
+      maxEarnings: Math.round((locationStats.maxEarnings || 0) * 100) / 100,
+      minEarnings: Math.round((locationStats.minEarnings || 0) * 100) / 100
+    }
   };
 };
 
@@ -2200,8 +2289,161 @@ exports.updateVisibilitySettings = async (req, res) => {
     });
   }
 };
-// Replace the existing getLeaderboardByLocation function in your controller with this fixed version
 
+
+// Add this new function to get location analytics with proper field handling
+exports.getLocationAnalyticsFixed = async (type = 'countries', parentFilter = null, limit = 10) => {
+  const matchStage = { 
+    'status.isActive': true,
+    isBanned: { $ne: true }
+  };
+  
+  let groupBy;
+  let projectFields = {};
+  
+  switch (type) {
+    case 'countries':
+      groupBy = {
+        $cond: {
+          if: { $ne: ["$country", null] },
+          then: "$country",
+          else: "$location.country"
+        }
+      };
+      projectFields = { country: '$_id' };
+      break;
+      
+    case 'states':
+      groupBy = {
+        country: {
+          $cond: {
+            if: { $ne: ["$country", null] },
+            then: "$country",
+            else: "$location.country"
+          }
+        },
+        state: {
+          $cond: {
+            if: { $ne: ["$state", null] },
+            then: "$state",
+            else: "$location.state"
+          }
+        }
+      };
+      
+      if (parentFilter) {
+        matchStage.$or = [
+          { country: parentFilter },
+          { 'location.country': parentFilter }
+        ];
+      }
+      
+      projectFields = { 
+        country: '$_id.country',
+        state: '$_id.state'
+      };
+      break;
+      
+    case 'cities':
+      groupBy = {
+        country: {
+          $cond: {
+            if: { $ne: ["$country", null] },
+            then: "$country",
+            else: "$location.country"
+          }
+        },
+        state: {
+          $cond: {
+            if: { $ne: ["$state", null] },
+            then: "$state",
+            else: "$location.state"
+          }
+        },
+        city: {
+          $cond: {
+            if: { $ne: ["$city", null] },
+            then: "$city",
+            else: "$location.city"
+          }
+        }
+      };
+      
+      if (parentFilter) {
+        // parentFilter could be country or state
+        matchStage.$or = [
+          { state: parentFilter, 'location.state': parentFilter },
+          { country: parentFilter, 'location.country': parentFilter }
+        ];
+      }
+      
+      projectFields = { 
+        country: '$_id.country',
+        state: '$_id.state', 
+        city: '$_id.city'
+      };
+      break;
+  }
+
+  const pipeline = [
+    { $match: matchStage },
+    {
+      $lookup: {
+        from: 'referrals',
+        localField: '_id',
+        foreignField: 'user',
+        as: 'referralData'
+      }
+    },
+    {
+      $addFields: {
+        referralInfo: {
+          $cond: {
+            if: { $gt: [{ $size: "$referralData" }, 0] },
+            then: { $arrayElemAt: ["$referralData", 0] },
+            else: { totalEarnings: 0 }
+          }
+        }
+      }
+    },
+    {
+      $addFields: {
+        totalEarnings: { $ifNull: ["$referralInfo.totalEarnings", 0] }
+      }
+    },
+    {
+      $group: {
+        _id: groupBy,
+        totalUsers: { $sum: 1 },
+        totalEarnings: { $sum: '$totalEarnings' },
+        averageEarnings: { $avg: '$totalEarnings' },
+        topEarner: { $max: '$totalEarnings' }
+      }
+    },
+    { 
+      $match: { 
+        '_id': { $ne: null },
+        ...(type === 'countries' && { '_id': { $ne: '' } }),
+        ...(type === 'states' && { '_id.state': { $ne: null, $ne: '' } }),
+        ...(type === 'cities' && { '_id.city': { $ne: null, $ne: '' } })
+      }
+    },
+    { $sort: { totalEarnings: -1 } },
+    { $limit: limit },
+    {
+      $project: {
+        _id: 0,
+        ...projectFields,
+        totalUsers: 1,
+        totalEarnings: { $round: ['$totalEarnings', 2] },
+        averageEarnings: { $round: ['$averageEarnings', 2] },
+        topEarner: { $round: ['$topEarner', 2] }
+      }
+    }
+  ];
+
+  return await User.aggregate(pipeline);
+};
 exports.getLeaderboardByLocation = async (filters) => {
   const {
     country = null,
@@ -2365,28 +2607,26 @@ exports.getLeaderboardByLocation = async (filters) => {
             }
           ]
         },
-        // Normalize location fields for consistent output
-        normalizedLocation: {
-          country: {
-            $cond: {
-              if: { $ne: ["$country", null] },
-              then: "$country",
-              else: "$location.country"
-            }
-          },
-          state: {
-            $cond: {
-              if: { $ne: ["$state", null] },
-              then: "$state",
-              else: "$location.state"
-            }
-          },
-          city: {
-            $cond: {
-              if: { $ne: ["$city", null] },
-              then: "$city",
-              else: "$location.city"
-            }
+        // Normalize location fields for consistent output - use different field names to avoid collision
+        resolvedCountry: {
+          $cond: {
+            if: { $ne: ["$country", null] },
+            then: "$country",
+            else: "$location.country"
+          }
+        },
+        resolvedState: {
+          $cond: {
+            if: { $ne: ["$state", null] },
+            then: "$state",
+            else: "$location.state"
+          }
+        },
+        resolvedCity: {
+          $cond: {
+            if: { $ne: ["$city", null] },
+            then: "$city",
+            else: "$location.city"
           }
         }
       }
@@ -2407,12 +2647,10 @@ exports.getLeaderboardByLocation = async (filters) => {
               totalEarnings: 1,
               availableBalance: 1,
               totalShares: 1,
-              // Use normalized location fields
-              location: '$normalizedLocation',
-              // Keep original fields for backwards compatibility
-              'location.state': '$normalizedLocation.state',
-              'location.city': '$normalizedLocation.city',
-              'location.country': '$normalizedLocation.country',
+              // Use the resolved location fields
+              resolvedCountry: 1,
+              resolvedState: 1,
+              resolvedCity: 1,
               'status.isActive': 1,
               createdAt: 1
             }
@@ -2443,7 +2681,20 @@ exports.getLeaderboardByLocation = async (filters) => {
 
   return {
     users: users.map((user, index) => ({
-      ...user,
+      _id: user._id,
+      name: user.name,
+      userName: user.userName,
+      totalEarnings: user.totalEarnings,
+      availableBalance: user.availableBalance,
+      totalShares: user.totalShares,
+      // Create clean location object from resolved fields
+      location: {
+        country: user.resolvedCountry,
+        state: user.resolvedState,
+        city: user.resolvedCity
+      },
+      status: user.status,
+      createdAt: user.createdAt,
       rank: offset + index + 1
     })),
     total: totalCount,
@@ -2460,102 +2711,118 @@ exports.getLeaderboardByLocation = async (filters) => {
   };
 };
 
-// Add this new function to get location analytics with proper field handling
-exports.getLocationAnalyticsFixed = async (type = 'countries', parentFilter = null, limit = 10) => {
-  const matchStage = { 
-    'status.isActive': true,
-    isBanned: { $ne: true }
-  };
+exports.getLeaderboardByLocationFixed = async (filters) => {
+  const {
+    country = null,
+    state = null,
+    city = null,
+    limit = 50,
+    offset = 0,
+    sortBy = 'totalEarnings',
+    sortOrder = 'desc',
+    period = 'all_time'
+  } = filters;
+
+  // Build location filter - check both top-level and nested location fields
+  const locationFilter = {};
   
-  let groupBy;
-  let projectFields = {};
+  if (country) {
+    locationFilter.$or = [
+      { country: country },
+      { 'location.country': country }
+    ];
+  }
   
-  switch (type) {
-    case 'countries':
-      groupBy = {
-        $cond: {
-          if: { $ne: ["$country", null] },
-          then: "$country",
-          else: "$location.country"
-        }
-      };
-      projectFields = { country: '$_id' };
+  if (state) {
+    const stateConditions = [
+      { state: state },
+      { 'location.state': state }
+    ];
+    
+    if (locationFilter.$or) {
+      locationFilter.$and = [
+        { $or: locationFilter.$or },
+        { $or: stateConditions }
+      ];
+      delete locationFilter.$or;
+    } else {
+      locationFilter.$or = stateConditions;
+    }
+  }
+  
+  if (city) {
+    const cityConditions = [
+      { city: city },
+      { 'location.city': city }
+    ];
+    
+    if (locationFilter.$and) {
+      locationFilter.$and.push({ $or: cityConditions });
+    } else if (locationFilter.$or) {
+      locationFilter.$and = [
+        { $or: locationFilter.$or },
+        { $or: cityConditions }
+      ];
+      delete locationFilter.$or;
+    } else {
+      locationFilter.$or = cityConditions;
+    }
+  }
+
+  // Build date filter
+  let dateFilter = {};
+  if (period !== 'all_time') {
+    const now = new Date();
+    let startDate = new Date();
+    
+    switch (period) {
+      case 'daily':
+        startDate.setHours(0, 0, 0, 0);
+        break;
+      case 'weekly':
+        startDate.setDate(now.getDate() - now.getDay());
+        startDate.setHours(0, 0, 0, 0);
+        break;
+      case 'monthly':
+        startDate.setDate(1);
+        startDate.setHours(0, 0, 0, 0);
+        break;
+      case 'yearly':
+        startDate.setMonth(0, 1);
+        startDate.setHours(0, 0, 0, 0);
+        break;
+    }
+    dateFilter.createdAt = { $gte: startDate };
+  }
+
+  // Determine sort field
+  let sortField = {};
+  switch (sortBy) {
+    case 'totalEarnings':
+      sortField = { totalEarnings: sortOrder === 'desc' ? -1 : 1 };
       break;
-      
-    case 'states':
-      groupBy = {
-        country: {
-          $cond: {
-            if: { $ne: ["$country", null] },
-            then: "$country",
-            else: "$location.country"
-          }
-        },
-        state: {
-          $cond: {
-            if: { $ne: ["$state", null] },
-            then: "$state",
-            else: "$location.state"
-          }
-        }
-      };
-      
-      if (parentFilter) {
-        matchStage.$or = [
-          { country: parentFilter },
-          { 'location.country': parentFilter }
-        ];
-      }
-      
-      projectFields = { 
-        country: '$_id.country',
-        state: '$_id.state'
-      };
+    case 'availableBalance':
+      sortField = { availableBalance: sortOrder === 'desc' ? -1 : 1 };
       break;
-      
-    case 'cities':
-      groupBy = {
-        country: {
-          $cond: {
-            if: { $ne: ["$country", null] },
-            then: "$country",
-            else: "$location.country"
-          }
-        },
-        state: {
-          $cond: {
-            if: { $ne: ["$state", null] },
-            then: "$state",
-            else: "$location.state"
-          }
-        },
-        city: {
-          $cond: {
-            if: { $ne: ["$city", null] },
-            then: "$city",
-            else: "$location.city"
-          }
-        }
-      };
-      
-      if (parentFilter) {
-        // parentFilter could be country or state
-        matchStage.$or = [
-          { state: parentFilter, 'location.state': parentFilter },
-          { country: parentFilter, 'location.country': parentFilter }
-        ];
-      }
-      
-      projectFields = { 
-        country: '$_id.country',
-        state: '$_id.state', 
-        city: '$_id.city'
-      };
+    case 'totalShares':
+      sortField = { totalShares: sortOrder === 'desc' ? -1 : 1 };
       break;
+    case 'createdAt':
+      sortField = { createdAt: sortOrder === 'desc' ? -1 : 1 };
+      break;
+    default:
+      sortField = { totalEarnings: -1 };
   }
 
   const pipeline = [
-    { $match: matchStage },
+    {
+      $match: {
+        'status.isActive': true,
+        isBanned: { $ne: true },
+        ...locationFilter,
+        ...dateFilter
+      }
+    },
     {
       $lookup: {
         from: 'referrals',
@@ -2565,51 +2832,144 @@ exports.getLocationAnalyticsFixed = async (type = 'countries', parentFilter = nu
       }
     },
     {
+      $lookup: {
+        from: 'usershares',
+        localField: '_id',
+        foreignField: 'user',
+        as: 'shares'
+      }
+    },
+    {
       $addFields: {
         referralInfo: {
           $cond: {
             if: { $gt: [{ $size: "$referralData" }, 0] },
             then: { $arrayElemAt: ["$referralData", 0] },
-            else: { totalEarnings: 0 }
+            else: {
+              totalEarnings: 0,
+              totalWithdrawn: 0,
+              pendingWithdrawals: 0,
+              processingWithdrawals: 0
+            }
+          }
+        },
+        totalShares: { $sum: '$shares.totalShares' }
+      }
+    },
+    {
+      $addFields: {
+        totalEarnings: { $ifNull: ["$referralInfo.totalEarnings", 0] },
+        availableBalance: {
+          $subtract: [
+            { $ifNull: ["$referralInfo.totalEarnings", 0] },
+            {
+              $add: [
+                { $ifNull: ["$referralInfo.totalWithdrawn", 0] },
+                { $ifNull: ["$referralInfo.pendingWithdrawals", 0] },
+                { $ifNull: ["$referralInfo.processingWithdrawals", 0] }
+              ]
+            }
+          ]
+        },
+        // Use different field names to avoid collision
+        resolvedCountry: {
+          $cond: {
+            if: { $ne: ["$country", null] },
+            then: "$country",
+            else: "$location.country"
+          }
+        },
+        resolvedState: {
+          $cond: {
+            if: { $ne: ["$state", null] },
+            then: "$state",
+            else: "$location.state"
+          }
+        },
+        resolvedCity: {
+          $cond: {
+            if: { $ne: ["$city", null] },
+            then: "$city",
+            else: "$location.city"
           }
         }
       }
     },
     {
-      $addFields: {
-        totalEarnings: { $ifNull: ["$referralInfo.totalEarnings", 0] }
-      }
+      $sort: sortField
     },
     {
-      $group: {
-        _id: groupBy,
-        totalUsers: { $sum: 1 },
-        totalEarnings: { $sum: '$totalEarnings' },
-        averageEarnings: { $avg: '$totalEarnings' },
-        topEarner: { $max: '$totalEarnings' }
-      }
-    },
-    { 
-      $match: { 
-        '_id': { $ne: null },
-        ...(type === 'countries' && { '_id': { $ne: '' } }),
-        ...(type === 'states' && { '_id.state': { $ne: null, $ne: '' } }),
-        ...(type === 'cities' && { '_id.city': { $ne: null, $ne: '' } })
-      }
-    },
-    { $sort: { totalEarnings: -1 } },
-    { $limit: limit },
-    {
-      $project: {
-        _id: 0,
-        ...projectFields,
-        totalUsers: 1,
-        totalEarnings: { $round: ['$totalEarnings', 2] },
-        averageEarnings: { $round: ['$averageEarnings', 2] },
-        topEarner: { $round: ['$topEarner', 2] }
+      $facet: {
+        data: [
+          { $skip: offset },
+          { $limit: limit },
+          {
+            $project: {
+              _id: 1,
+              name: 1,
+              userName: 1,
+              totalEarnings: 1,
+              availableBalance: 1,
+              totalShares: 1,
+              resolvedCountry: 1,
+              resolvedState: 1,
+              resolvedCity: 1,
+              'status.isActive': 1,
+              createdAt: 1
+            }
+          }
+        ],
+        totalCount: [{ $count: "count" }],
+        locationStats: [
+          {
+            $group: {
+              _id: null,
+              totalUsers: { $sum: 1 },
+              totalEarnings: { $sum: "$totalEarnings" },
+              averageEarnings: { $avg: "$totalEarnings" },
+              totalBalance: { $sum: "$availableBalance" },
+              maxEarnings: { $max: "$totalEarnings" },
+              minEarnings: { $min: "$totalEarnings" }
+            }
+          }
+        ]
       }
     }
   ];
 
-  return await User.aggregate(pipeline);
+  const result = await User.aggregate(pipeline);
+  const users = result[0].data;
+  const totalCount = result[0].totalCount[0]?.count || 0;
+  const locationStats = result[0].locationStats[0] || {};
+
+  return {
+    users: users.map((user, index) => ({
+      _id: user._id,
+      name: user.name,
+      userName: user.userName,
+      totalEarnings: user.totalEarnings,
+      availableBalance: user.availableBalance,
+      totalShares: user.totalShares,
+      // Create clean location object from resolved fields
+      location: {
+        country: user.resolvedCountry,
+        state: user.resolvedState,
+        city: user.resolvedCity
+      },
+      status: user.status,
+      createdAt: user.createdAt,
+      rank: offset + index + 1
+    })),
+    total: totalCount,
+    totalPages: Math.ceil(totalCount / limit),
+    currentPage: Math.floor(offset / limit) + 1,
+    locationStats: {
+      totalUsers: locationStats.totalUsers || 0,
+      totalEarnings: Math.round((locationStats.totalEarnings || 0) * 100) / 100,
+      averageEarnings: Math.round((locationStats.averageEarnings || 0) * 100) / 100,
+      totalBalance: Math.round((locationStats.totalBalance || 0) * 100) / 100,
+      maxEarnings: Math.round((locationStats.maxEarnings || 0) * 100) / 100,
+      minEarnings: Math.round((locationStats.minEarnings || 0) * 100) / 100
+    }
+  };
 };
