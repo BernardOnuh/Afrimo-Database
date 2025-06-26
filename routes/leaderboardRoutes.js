@@ -1298,225 +1298,225 @@ router.get('/filter/shares', async (req, res) => {
  */
 
 // Filter by number of shares
-router.get('/filter/shares', async (req, res) => {
-  try {
-    const filters = {
-      minShares: req.query.minShares ? Number(req.query.minShares) : 0,
-      maxShares: req.query.maxShares ? Number(req.query.maxShares) : null,
-      shareType: req.query.shareType || 'all',
-      limit: req.query.limit ? Number(req.query.limit) : 50,
-      offset: req.query.offset ? Number(req.query.offset) : 0,
-      period: req.query.period || 'all_time',
-      sortOrder: req.query.sortOrder || 'desc'
-    };
+// router.get('/filter/shares', async (req, res) => {
+//   try {
+//     const filters = {
+//       minShares: req.query.minShares ? Number(req.query.minShares) : 0,
+//       maxShares: req.query.maxShares ? Number(req.query.maxShares) : null,
+//       shareType: req.query.shareType || 'all',
+//       limit: req.query.limit ? Number(req.query.limit) : 50,
+//       offset: req.query.offset ? Number(req.query.offset) : 0,
+//       period: req.query.period || 'all_time',
+//       sortOrder: req.query.sortOrder || 'desc'
+//     };
 
-    // Call the getLeaderboardByShares function directly since it's not exported
-    const User = require('../models/User');
+//     // Call the getLeaderboardByShares function directly since it's not exported
+//     const User = require('../models/User');
     
-    // Build shares filter
-    const sharesFilter = { $gte: filters.minShares };
-    if (filters.maxShares !== null) {
-      sharesFilter.$lte = filters.maxShares;
-    }
+//     // Build shares filter
+//     const sharesFilter = { $gte: filters.minShares };
+//     if (filters.maxShares !== null) {
+//       sharesFilter.$lte = filters.maxShares;
+//     }
 
-    // Build date filter
-    let dateFilter = {};
-    if (filters.period !== 'all_time') {
-      const now = new Date();
-      let startDate = new Date();
+//     // Build date filter
+//     let dateFilter = {};
+//     if (filters.period !== 'all_time') {
+//       const now = new Date();
+//       let startDate = new Date();
       
-      switch (filters.period) {
-        case 'daily':
-          startDate.setHours(0, 0, 0, 0);
-          break;
-        case 'weekly':
-          startDate.setDate(now.getDate() - now.getDay());
-          startDate.setHours(0, 0, 0, 0);
-          break;
-        case 'monthly':
-          startDate.setDate(1);
-          startDate.setHours(0, 0, 0, 0);
-          break;
-        case 'yearly':
-          startDate.setMonth(0, 1);
-          startDate.setHours(0, 0, 0, 0);
-          break;
-      }
-      dateFilter.createdAt = { $gte: startDate };
-    }
+//       switch (filters.period) {
+//         case 'daily':
+//           startDate.setHours(0, 0, 0, 0);
+//           break;
+//         case 'weekly':
+//           startDate.setDate(now.getDate() - now.getDay());
+//           startDate.setHours(0, 0, 0, 0);
+//           break;
+//         case 'monthly':
+//           startDate.setDate(1);
+//           startDate.setHours(0, 0, 0, 0);
+//           break;
+//         case 'yearly':
+//           startDate.setMonth(0, 1);
+//           startDate.setHours(0, 0, 0, 0);
+//           break;
+//       }
+//       dateFilter.createdAt = { $gte: startDate };
+//     }
 
-    const pipeline = [
-      {
-        $lookup: {
-          from: 'usershares',
-          localField: '_id',
-          foreignField: 'user',
-          as: 'shares'
-        }
-      },
-      {
-        $lookup: {
-          from: 'usercofounderShares',
-          localField: '_id',
-          foreignField: 'user',
-          as: 'cofounderShares'
-        }
-      },
-      {
-        $lookup: {
-          from: 'referrals',
-          localField: '_id',
-          foreignField: 'user',
-          as: 'referralData'
-        }
-      },
-      {
-        $addFields: {
-          regularShares: { $sum: '$shares.totalShares' },
-          cofounderSharesTotal: { $sum: '$cofounderShares.totalShares' },
-          combinedShares: { 
-            $add: [
-              { $sum: '$shares.totalShares' }, 
-              { $sum: '$cofounderShares.totalShares' }
-            ]
-          },
-          referralInfo: {
-            $cond: {
-              if: { $gt: [{ $size: "$referralData" }, 0] },
-              then: { $arrayElemAt: ["$referralData", 0] },
-              else: { totalEarnings: 0 }
-            }
-          }
-        }
-      },
-      {
-        $addFields: {
-          filterShareCount: {
-            $cond: {
-              if: { $eq: [filters.shareType, 'regular'] },
-              then: '$regularShares',
-              else: {
-                $cond: {
-                  if: { $eq: [filters.shareType, 'cofounder'] },
-                  then: '$cofounderSharesTotal',
-                  else: '$combinedShares'
-                }
-              }
-            }
-          },
-          totalEarnings: { $ifNull: ["$referralInfo.totalEarnings", 0] }
-        }
-      },
-      {
-        $match: {
-          'status.isActive': true,
-          isBanned: { $ne: true },
-          filterShareCount: sharesFilter,
-          ...dateFilter
-        }
-      },
-      {
-        $sort: { 
-          filterShareCount: filters.sortOrder === 'desc' ? -1 : 1,
-          totalEarnings: -1
-        }
-      },
-      {
-        $facet: {
-          data: [
-            { $skip: filters.offset },
-            { $limit: filters.limit },
-            {
-              $project: {
-                _id: 1,
-                name: 1,
-                userName: 1,
-                regularShares: 1,
-                cofounderSharesTotal: 1,
-                combinedShares: 1,
-                totalEarnings: 1,
-                'location.state': 1,
-                'location.city': 1,
-                'status.isActive': 1,
-                createdAt: 1,
-                shareBreakdown: {
-                  regular: '$regularShares',
-                  cofounder: '$cofounderSharesTotal',
-                  total: '$combinedShares'
-                },
-                filteredShares: '$filterShareCount'
-              }
-            }
-          ],
-          totalCount: [{ $count: "count" }],
-          stats: [
-            {
-              $group: {
-                _id: null,
-                totalShares: { $sum: '$filterShareCount' },
-                averageShares: { $avg: '$filterShareCount' },
-                maxShares: { $max: '$filterShareCount' },
-                minShares: { $min: '$filterShareCount' },
-                totalUsers: { $sum: 1 },
-                totalEarnings: { $sum: '$totalEarnings' },
-                averageEarnings: { $avg: '$totalEarnings' }
-              }
-            }
-          ]
-        }
-      }
-    ];
+//     const pipeline = [
+//       {
+//         $lookup: {
+//           from: 'usershares',
+//           localField: '_id',
+//           foreignField: 'user',
+//           as: 'shares'
+//         }
+//       },
+//       {
+//         $lookup: {
+//           from: 'usercofounderShares',
+//           localField: '_id',
+//           foreignField: 'user',
+//           as: 'cofounderShares'
+//         }
+//       },
+//       {
+//         $lookup: {
+//           from: 'referrals',
+//           localField: '_id',
+//           foreignField: 'user',
+//           as: 'referralData'
+//         }
+//       },
+//       {
+//         $addFields: {
+//           regularShares: { $sum: '$shares.totalShares' },
+//           cofounderSharesTotal: { $sum: '$cofounderShares.totalShares' },
+//           combinedShares: { 
+//             $add: [
+//               { $sum: '$shares.totalShares' }, 
+//               { $sum: '$cofounderShares.totalShares' }
+//             ]
+//           },
+//           referralInfo: {
+//             $cond: {
+//               if: { $gt: [{ $size: "$referralData" }, 0] },
+//               then: { $arrayElemAt: ["$referralData", 0] },
+//               else: { totalEarnings: 0 }
+//             }
+//           }
+//         }
+//       },
+//       {
+//         $addFields: {
+//           filterShareCount: {
+//             $cond: {
+//               if: { $eq: [filters.shareType, 'regular'] },
+//               then: '$regularShares',
+//               else: {
+//                 $cond: {
+//                   if: { $eq: [filters.shareType, 'cofounder'] },
+//                   then: '$cofounderSharesTotal',
+//                   else: '$combinedShares'
+//                 }
+//               }
+//             }
+//           },
+//           totalEarnings: { $ifNull: ["$referralInfo.totalEarnings", 0] }
+//         }
+//       },
+//       {
+//         $match: {
+//           'status.isActive': true,
+//           isBanned: { $ne: true },
+//           filterShareCount: sharesFilter,
+//           ...dateFilter
+//         }
+//       },
+//       {
+//         $sort: { 
+//           filterShareCount: filters.sortOrder === 'desc' ? -1 : 1,
+//           totalEarnings: -1
+//         }
+//       },
+//       {
+//         $facet: {
+//           data: [
+//             { $skip: filters.offset },
+//             { $limit: filters.limit },
+//             {
+//               $project: {
+//                 _id: 1,
+//                 name: 1,
+//                 userName: 1,
+//                 regularShares: 1,
+//                 cofounderSharesTotal: 1,
+//                 combinedShares: 1,
+//                 totalEarnings: 1,
+//                 'location.state': 1,
+//                 'location.city': 1,
+//                 'status.isActive': 1,
+//                 createdAt: 1,
+//                 shareBreakdown: {
+//                   regular: '$regularShares',
+//                   cofounder: '$cofounderSharesTotal',
+//                   total: '$combinedShares'
+//                 },
+//                 filteredShares: '$filterShareCount'
+//               }
+//             }
+//           ],
+//           totalCount: [{ $count: "count" }],
+//           stats: [
+//             {
+//               $group: {
+//                 _id: null,
+//                 totalShares: { $sum: '$filterShareCount' },
+//                 averageShares: { $avg: '$filterShareCount' },
+//                 maxShares: { $max: '$filterShareCount' },
+//                 minShares: { $min: '$filterShareCount' },
+//                 totalUsers: { $sum: 1 },
+//                 totalEarnings: { $sum: '$totalEarnings' },
+//                 averageEarnings: { $avg: '$totalEarnings' }
+//               }
+//             }
+//           ]
+//         }
+//       }
+//     ];
 
-    const result = await User.aggregate(pipeline);
-    const users = result[0].data;
-    const totalCount = result[0].totalCount[0]?.count || 0;
-    const stats = result[0].stats[0] || {};
+//     const result = await User.aggregate(pipeline);
+//     const users = result[0].data;
+//     const totalCount = result[0].totalCount[0]?.count || 0;
+//     const stats = result[0].stats[0] || {};
 
-    const finalResult = {
-      users: users.map((user, index) => ({
-        ...user,
-        rank: filters.offset + index + 1
-      })),
-      total: totalCount,
-      totalPages: Math.ceil(totalCount / filters.limit),
-      currentPage: Math.floor(filters.offset / filters.limit) + 1,
-      shareType: filters.shareType,
-      statistics: {
-        totalShares: stats.totalShares || 0,
-        averageShares: Math.round((stats.averageShares || 0) * 100) / 100,
-        maxShares: stats.maxShares || 0,
-        minShares: stats.minShares || 0,
-        totalUsers: stats.totalUsers || 0,
-        totalEarnings: Math.round((stats.totalEarnings || 0) * 100) / 100,
-        averageEarnings: Math.round((stats.averageEarnings || 0) * 100) / 100
-      }
-    };
+//     const finalResult = {
+//       users: users.map((user, index) => ({
+//         ...user,
+//         rank: filters.offset + index + 1
+//       })),
+//       total: totalCount,
+//       totalPages: Math.ceil(totalCount / filters.limit),
+//       currentPage: Math.floor(filters.offset / filters.limit) + 1,
+//       shareType: filters.shareType,
+//       statistics: {
+//         totalShares: stats.totalShares || 0,
+//         averageShares: Math.round((stats.averageShares || 0) * 100) / 100,
+//         maxShares: stats.maxShares || 0,
+//         minShares: stats.minShares || 0,
+//         totalUsers: stats.totalUsers || 0,
+//         totalEarnings: Math.round((stats.totalEarnings || 0) * 100) / 100,
+//         averageEarnings: Math.round((stats.averageEarnings || 0) * 100) / 100
+//       }
+//     };
 
-    res.json({
-      success: true,
-      data: finalResult.users,
-      pagination: {
-        currentPage: finalResult.currentPage,
-        totalPages: finalResult.totalPages,
-        totalItems: finalResult.total,
-        hasNext: finalResult.currentPage < finalResult.totalPages,
-        hasPrev: finalResult.currentPage > 1,
-        limit: filters.limit
-      },
-      statistics: finalResult.statistics,
-      shareType: finalResult.shareType,
-      filters
-    });
+//     res.json({
+//       success: true,
+//       data: finalResult.users,
+//       pagination: {
+//         currentPage: finalResult.currentPage,
+//         totalPages: finalResult.totalPages,
+//         totalItems: finalResult.total,
+//         hasNext: finalResult.currentPage < finalResult.totalPages,
+//         hasPrev: finalResult.currentPage > 1,
+//         limit: filters.limit
+//       },
+//       statistics: finalResult.statistics,
+//       shareType: finalResult.shareType,
+//       filters
+//     });
 
-  } catch (error) {
-    console.error('Error fetching shares leaderboard:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Failed to fetch shares leaderboard',
-      error: process.env.NODE_ENV === 'development' ? error.message : undefined
-    });
-  }
-});
+//   } catch (error) {
+//     console.error('Error fetching shares leaderboard:', error);
+//     res.status(500).json({
+//       success: false,
+//       message: 'Failed to fetch shares leaderboard',
+//       error: process.env.NODE_ENV === 'development' ? error.message : undefined
+//     });
+//   }
+// });
 
 /**
  * @swagger
@@ -1585,21 +1585,19 @@ router.get('/filter/shares', async (req, res) => {
  */
 
 
-router.post('/admin/visibility/settings',
+router.get('/admin/visibility/settings',
   protect,
   restrictTo('admin'),
   leaderboardController.getVisibilitySettings
 );
 
-// Toggle earnings visibility
-router.patch('/admin/visibility/earnings',
+router.post('/admin/visibility/earnings',
   protect,
   restrictTo('admin'),
   leaderboardController.toggleEarningsVisibility
 );
 
-// Toggle balance visibility
-router.patch('/admin/visibility/balance',
+router.post('/admin/visibility/balance',
   protect,
   restrictTo('admin'),
   leaderboardController.toggleBalanceVisibility
