@@ -1931,5 +1931,211 @@ router.delete('/admin/manual/:transactionId', protect, adminProtect, shareContro
  */
 router.get('/admin/purchase-report', protect, adminProtect, shareController.getSharePurchaseReport);
 
+// Add these routes to your shareRoutes.js file in the Admin routes section
+// Place them after the existing admin routes but before module.exports
+
+/**
+ * @swagger
+ * /shares/admin/debug-transactions/{userId}:
+ *   get:
+ *     tags: [Shares - Admin Debug]
+ *     summary: Debug user transaction statuses
+ *     description: Analyze user transactions for status mismatches and issues (admin only)
+ *     security:
+ *       - adminAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: userId
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: User ID to debug
+ *         example: "60f7c6b4c8f1a2b3c4d5e6f7"
+ *     responses:
+ *       200:
+ *         description: Debug analysis completed successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 userId:
+ *                   type: string
+ *                 analysis:
+ *                   type: object
+ *                   properties:
+ *                     userShareTransactions:
+ *                       type: array
+ *                     paymentTransactions:
+ *                       type: array
+ *                     discrepancies:
+ *                       type: array
+ *                     recommendations:
+ *                       type: array
+ *                 summary:
+ *                   type: object
+ *                   properties:
+ *                     totalUserShareTransactions:
+ *                       type: integer
+ *                     totalPaymentTransactions:
+ *                       type: integer
+ *                     discrepanciesFound:
+ *                       type: integer
+ *                     suspiciousTransactions:
+ *                       type: integer
+ *       401:
+ *         $ref: '#/components/responses/UnauthorizedError'
+ *       403:
+ *         $ref: '#/components/responses/ForbiddenError'
+ *       404:
+ *         description: User not found
+ *       500:
+ *         $ref: '#/components/responses/ServerError'
+ */
+router.get('/admin/debug-transactions/:userId', protect, adminProtect, shareController.debugUserTransactions);
+
+/**
+ * @swagger
+ * /shares/admin/fix-transaction-statuses/{userId}:
+ *   post:
+ *     tags: [Shares - Admin Debug]
+ *     summary: Fix user transaction status mismatches
+ *     description: Synchronize transaction statuses between UserShare and PaymentTransaction models (admin only)
+ *     security:
+ *       - adminAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: userId
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: User ID to fix
+ *         example: "60f7c6b4c8f1a2b3c4d5e6f7"
+ *     requestBody:
+ *       required: false
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               dryRun:
+ *                 type: boolean
+ *                 default: true
+ *                 description: If true, only shows what would be fixed without making changes
+ *     responses:
+ *       200:
+ *         description: Transaction status fix completed
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *                   example: "Dry run completed - no changes made"
+ *                 userId:
+ *                   type: string
+ *                 fixesFound:
+ *                   type: integer
+ *                 transactionsModified:
+ *                   type: integer
+ *                 fixes:
+ *                   type: array
+ *                   items:
+ *                     type: object
+ *                     properties:
+ *                       transactionId:
+ *                         type: string
+ *                       currentUserShareStatus:
+ *                         type: string
+ *                       paymentTransactionStatus:
+ *                         type: string
+ *                       recommendedAction:
+ *                         type: string
+ *                 dryRun:
+ *                   type: boolean
+ *       401:
+ *         $ref: '#/components/responses/UnauthorizedError'
+ *       403:
+ *         $ref: '#/components/responses/ForbiddenError'
+ *       404:
+ *         description: User not found
+ *       500:
+ *         $ref: '#/components/responses/ServerError'
+ */
+router.post('/admin/fix-transaction-statuses/:userId', protect, adminProtect, shareController.fixUserTransactionStatuses);
+
+/**
+ * @swagger
+ * /shares/admin/transaction-comparison/{userId}:
+ *   get:
+ *     tags: [Shares - Admin Debug]
+ *     summary: Compare transaction data sources
+ *     description: Compare transaction data between UserShare and PaymentTransaction models (admin only)
+ *     security:
+ *       - adminAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: userId
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: User ID to compare
+ *         example: "60f7c6b4c8f1a2b3c4d5e6f7"
+ *     responses:
+ *       200:
+ *         description: Transaction comparison completed successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 comparison:
+ *                   type: object
+ *                   properties:
+ *                     userId:
+ *                       type: string
+ *                     userShareTransactions:
+ *                       type: object
+ *                       properties:
+ *                         total:
+ *                           type: integer
+ *                         regular:
+ *                           type: integer
+ *                         coFounder:
+ *                           type: integer
+ *                         byStatus:
+ *                           type: object
+ *                     paymentTransactions:
+ *                       type: object
+ *                       properties:
+ *                         total:
+ *                           type: integer
+ *                         byStatus:
+ *                           type: object
+ *                     currentTotalShares:
+ *                       type: integer
+ *                     calculatedCompletedShares:
+ *                       type: object
+ *                     discrepancies:
+ *                       type: array
+ *       401:
+ *         $ref: '#/components/responses/UnauthorizedError'
+ *       403:
+ *         $ref: '#/components/responses/ForbiddenError'
+ *       500:
+ *         $ref: '#/components/responses/ServerError'
+ */
+router.get('/admin/transaction-comparison/:userId', protect, adminProtect, shareController.getTransactionComparison);
+
 module.exports = router;
  
