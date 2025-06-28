@@ -1,4 +1,4 @@
-// 2. Updated UserShare Model (models/UserShare.js)
+// CORRECTED: UserShare Model (models/UserShare.js)
 const mongoose = require('mongoose');
 
 const userShareSchema = new mongoose.Schema({
@@ -7,19 +7,23 @@ const userShareSchema = new mongoose.Schema({
     ref: 'User',
     required: true
   },
+  // CORRECTED: Only track direct regular shares here
   totalShares: {
     type: Number,
-    default: 0
+    default: 0,
+    comment: "Direct regular shares purchased"
   },
-  // NEW: Track co-founder shares separately
+  // CORRECTED: Track co-founder shares separately
   coFounderShares: {
     type: Number,
-    default: 0
+    default: 0,
+    comment: "Actual co-founder shares owned"
   },
-  // NEW: Track equivalent regular shares from co-founder shares
+  // CORRECTED: Calculated field for equivalent regular shares from co-founder shares
   equivalentRegularShares: {
     type: Number,
-    default: 0
+    default: 0,
+    comment: "Regular share equivalent of co-founder shares (coFounderShares * ratio)"
   },
   transactions: [{
     transactionId: {
@@ -28,20 +32,24 @@ const userShareSchema = new mongoose.Schema({
     },
     shares: {
       type: Number,
-      required: true
+      required: true,
+      comment: "For regular shares: actual shares. For co-founder: equivalent regular shares"
     },
-    // NEW: For co-founder transactions
+    // CORRECTED: Co-founder specific fields (only populated for co-founder transactions)
     coFounderShares: {
       type: Number,
-      default: 0
+      default: 0,
+      comment: "Actual co-founder shares purchased (only for co-founder transactions)"
     },
     equivalentRegularShares: {
       type: Number,
-      default: 0
+      default: 0,
+      comment: "Regular share equivalent (only for co-founder transactions)"
     },
     shareToRegularRatio: {
       type: Number,
-      default: 1
+      default: 1,
+      comment: "Ratio used at time of purchase"
     },
     pricePerShare: {
       type: Number,
@@ -66,6 +74,7 @@ const userShareSchema = new mongoose.Schema({
       enum: ['pending', 'completed', 'failed'],
       default: 'pending'
     },
+    // CORRECTED: Only for regular share transactions
     tierBreakdown: {
       tier1: { type: Number, default: 0 },
       tier2: { type: Number, default: 0 },
@@ -98,7 +107,7 @@ const userShareSchema = new mongoose.Schema({
   }
 });
 
-// Add shares to a user (both new purchase and admin action)
+// CORRECTED: Add regular shares to a user
 userShareSchema.statics.addShares = async function(userId, shares, transactionData) {
   let userShares = await this.findOne({ user: userId });
      
@@ -111,19 +120,22 @@ userShareSchema.statics.addShares = async function(userId, shares, transactionDa
       transactions: []
     });
   }
+  
+  // CORRECTED: Ensure this is for regular shares only
+  const regularShareTransaction = {
+    ...transactionData,
+    shares: shares, // For regular shares, this is the actual shares
+    coFounderShares: 0, // No co-founder shares in regular transaction
+    equivalentRegularShares: 0, // No equivalent shares in regular transaction
+    shareToRegularRatio: 1 // 1:1 ratio for regular shares
+  };
      
   // Add the transaction
-  userShares.transactions.push(transactionData);
+  userShares.transactions.push(regularShareTransaction);
      
-  // Update total shares if transaction is completed
+  // CORRECTED: Only update regular shares if transaction is completed
   if (transactionData.status === 'completed') {
     userShares.totalShares += shares;
-    
-    // If this is a co-founder transaction, update co-founder specific fields
-    if (transactionData.paymentMethod === 'co-founder' || transactionData.coFounderShares) {
-      userShares.coFounderShares += (transactionData.coFounderShares || 0);
-      userShares.equivalentRegularShares += (transactionData.equivalentRegularShares || 0);
-    }
   }
      
   userShares.updatedAt = Date.now();
@@ -132,7 +144,7 @@ userShareSchema.statics.addShares = async function(userId, shares, transactionDa
   return userShares;
 };
 
-// NEW: Add co-founder shares specifically
+// CORRECTED: Add co-founder shares specifically
 userShareSchema.statics.addCoFounderShares = async function(userId, coFounderShares, transactionData) {
   const CoFounderShare = require('./CoFounderShare');
   
@@ -156,24 +168,25 @@ userShareSchema.statics.addCoFounderShares = async function(userId, coFounderSha
     });
   }
   
-  // Enhanced transaction data for co-founder shares
+  // CORRECTED: Co-founder transaction data structure
   const coFounderTransactionData = {
     ...transactionData,
-    coFounderShares: coFounderShares,
-    equivalentRegularShares: equivalentRegularShares,
+    shares: equivalentRegularShares, // For compatibility with existing code
+    coFounderShares: coFounderShares, // Actual co-founder shares
+    equivalentRegularShares: equivalentRegularShares, // Equivalent regular shares
     shareToRegularRatio: shareToRegularRatio,
-    paymentMethod: 'co-founder'
+    paymentMethod: 'co-founder',
+    tierBreakdown: { tier1: 0, tier2: 0, tier3: 0 } // Co-founder shares don't use tiers
   };
   
   // Add transaction
   userShares.transactions.push(coFounderTransactionData);
   
-  // Update totals if completed
+  // CORRECTED: Only update co-founder fields if completed
   if (transactionData.status === 'completed') {
     userShares.coFounderShares += coFounderShares;
     userShares.equivalentRegularShares += equivalentRegularShares;
-    // Total shares now includes equivalent regular shares
-    userShares.totalShares += equivalentRegularShares;
+    // IMPORTANT: Do NOT add to totalShares - that's only for direct regular shares
   }
   
   userShares.updatedAt = Date.now();
@@ -182,7 +195,7 @@ userShareSchema.statics.addCoFounderShares = async function(userId, coFounderSha
   return userShares;
 };
 
-// Update transaction status
+// CORRECTED: Update transaction status
 userShareSchema.statics.updateTransactionStatus = async function(userId, transactionId, status, adminNote = null) {
   const userShares = await this.findOne({ user: userId, 'transactions.transactionId': transactionId });
      
@@ -195,27 +208,29 @@ userShareSchema.statics.updateTransactionStatus = async function(userId, transac
   if (!transaction) {
     return null;
   }
+  
+  const oldStatus = transaction.status;
      
-  // If changing from non-completed to completed, add the shares to the total
-  if (transaction.status !== 'completed' && status === 'completed') {
-    if (transaction.paymentMethod === 'co-founder' || transaction.coFounderShares) {
-      // For co-founder shares, add equivalent regular shares to total
-      userShares.totalShares += (transaction.equivalentRegularShares || transaction.shares);
-      userShares.coFounderShares += (transaction.coFounderShares || 0);
-      userShares.equivalentRegularShares += (transaction.equivalentRegularShares || 0);
+  // CORRECTED: Handle status changes properly
+  if (oldStatus !== 'completed' && status === 'completed') {
+    // Adding shares when transaction becomes completed
+    if (transaction.paymentMethod === 'co-founder') {
+      // For co-founder shares
+      userShares.coFounderShares += transaction.coFounderShares;
+      userShares.equivalentRegularShares += transaction.equivalentRegularShares;
     } else {
       // For regular shares
       userShares.totalShares += transaction.shares;
     }
   }
      
-  // If changing from completed to non-completed, subtract the shares
-  if (transaction.status === 'completed' && status !== 'completed') {
-    if (transaction.paymentMethod === 'co-founder' || transaction.coFounderShares) {
-      // For co-founder shares, subtract equivalent regular shares from total
-      userShares.totalShares -= (transaction.equivalentRegularShares || transaction.shares);
-      userShares.coFounderShares -= (transaction.coFounderShares || 0);
-      userShares.equivalentRegularShares -= (transaction.equivalentRegularShares || 0);
+  // CORRECTED: Handle status changes from completed to other status
+  if (oldStatus === 'completed' && status !== 'completed') {
+    // Removing shares when transaction is no longer completed
+    if (transaction.paymentMethod === 'co-founder') {
+      // For co-founder shares
+      userShares.coFounderShares -= transaction.coFounderShares;
+      userShares.equivalentRegularShares -= transaction.equivalentRegularShares;
     } else {
       // For regular shares
       userShares.totalShares -= transaction.shares;
@@ -228,7 +243,6 @@ userShareSchema.statics.updateTransactionStatus = async function(userId, transac
   }
      
   transaction.status = status;
-  // Add admin note if provided
   if (adminNote) {
     transaction.adminNote = adminNote;
   }
@@ -239,19 +253,73 @@ userShareSchema.statics.updateTransactionStatus = async function(userId, transac
   return userShares;
 };
 
-// NEW: Get user's share breakdown
+// CORRECTED: Get user's comprehensive share breakdown
 userShareSchema.methods.getShareBreakdown = function() {
+  // Get current co-founder ratio for calculations
+  const CoFounderShare = require('./CoFounderShare');
+  
   return {
-    totalShares: this.totalShares,
-    regularShares: this.totalShares - this.equivalentRegularShares,
+    // Direct regular shares purchased
+    directRegularShares: this.totalShares,
+    
+    // Co-founder shares owned
     coFounderShares: this.coFounderShares,
+    
+    // Equivalent regular shares from co-founder shares
     equivalentRegularShares: this.equivalentRegularShares,
-    shareBreakdown: {
-      direct: this.totalShares - this.equivalentRegularShares,
-      fromCoFounder: this.equivalentRegularShares
+    
+    // CORRECTED: Total effective shares (regular + equivalent from co-founder)
+    totalEffectiveShares: this.totalShares + this.equivalentRegularShares,
+    
+    // Breakdown for clarity
+    breakdown: {
+      directRegular: this.totalShares,
+      fromCoFounder: this.equivalentRegularShares,
+      coFounderActual: this.coFounderShares
+    },
+    
+    // Summary
+    summary: {
+      totalRegularEquivalent: this.totalShares + this.equivalentRegularShares,
+      actualCoFounderShares: this.coFounderShares
     }
   };
 };
+
+// CORRECTED: Virtual field for total effective shares
+userShareSchema.virtual('totalEffectiveShares').get(function() {
+  return this.totalShares + this.equivalentRegularShares;
+});
+
+// CORRECTED: Method to get shares by type
+userShareSchema.methods.getSharesByType = function() {
+  const regularTransactions = this.transactions.filter(t => 
+    t.status === 'completed' && t.paymentMethod !== 'co-founder'
+  );
+  
+  const coFounderTransactions = this.transactions.filter(t => 
+    t.status === 'completed' && t.paymentMethod === 'co-founder'
+  );
+  
+  return {
+    regular: {
+      transactions: regularTransactions,
+      totalShares: this.totalShares,
+      totalTransactions: regularTransactions.length
+    },
+    coFounder: {
+      transactions: coFounderTransactions,
+      coFounderShares: this.coFounderShares,
+      equivalentRegularShares: this.equivalentRegularShares,
+      totalTransactions: coFounderTransactions.length
+    }
+  };
+};
+
+// Index for better performance
+userShareSchema.index({ user: 1 });
+userShareSchema.index({ 'transactions.transactionId': 1 });
+userShareSchema.index({ 'transactions.status': 1 });
 
 const UserShare = mongoose.model('UserShare', userShareSchema);
 
