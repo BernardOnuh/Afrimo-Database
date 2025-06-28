@@ -1,10 +1,13 @@
-// referralUtils.js
+// referralUtils.js - Updated to handle co-founder share conversion with existing system
 const User = require('../models/User');
 const Referral = require('../models/Referral');
 const ReferralTransaction = require('../models/ReferralTransaction');
 const UserShare = require('../models/UserShare');
 const PaymentTransaction = require('../models/Transaction');
 const SiteConfig = require('../models/SiteConfig');
+
+// CONFIGURATION: 1 Co-founder share = 29 regular shares
+const COFOUNDER_TO_SHARES_RATIO = 29;
 
 /**
  * Process referral commissions for a transaction
@@ -27,8 +30,10 @@ const processReferralCommission = async (
   try {
     // First check if transaction is completed
     let transactionStatus = 'unknown';
+    let actualShares = 0;
+    let equivalentShares = 0;
     
-    // Check transaction status based on sourceModel
+    // Check transaction status and get share count based on sourceModel
     if (sourceModel === 'UserShare') {
       const userShare = await UserShare.findOne({
         'transactions.transactionId': transactionId
@@ -48,6 +53,11 @@ const processReferralCommission = async (
               message: 'Transaction not completed, referral commission not processed'
             };
           }
+          
+          // For regular shares, 1:1 conversion
+          actualShares = transaction.shares || 0;
+          equivalentShares = actualShares;
+          
         } else {
           console.log(`Transaction not found in UserShare: ${transactionId}`);
           return {
@@ -74,6 +84,19 @@ const processReferralCommission = async (
             message: 'Payment not completed, referral commission not processed'
           };
         }
+        
+        // For co-founder shares, apply conversion ratio
+        if (transaction.type === 'co-founder' || purchaseType === 'cofounder') {
+          actualShares = transaction.shares || 0;
+          equivalentShares = actualShares * COFOUNDER_TO_SHARES_RATIO;
+          
+          console.log(`[Referral] Co-founder conversion: ${actualShares} co-founder shares = ${equivalentShares} equivalent regular shares for commission calculation`);
+        } else {
+          // Regular transaction
+          actualShares = transaction.shares || 0;
+          equivalentShares = actualShares;
+        }
+        
       } else {
         console.log(`PaymentTransaction not found: ${transactionId}`);
         return {
@@ -83,7 +106,7 @@ const processReferralCommission = async (
       }
     }
     
-    console.log(`Processing referral commission for ${sourceModel} transaction ${transactionId} with status ${transactionStatus}`);
+    console.log(`Processing referral commission for ${sourceModel} transaction ${transactionId} with status ${transactionStatus}, ${actualShares} actual shares, ${equivalentShares} equivalent shares`);
     
     // Find the user who made the purchase
     const user = await User.findById(userId);
@@ -171,7 +194,12 @@ const processReferralCommission = async (
       1,
       purchaseType,
       transactionId,
-      sourceModel
+      sourceModel,
+      {
+        actualShares,
+        equivalentShares,
+        conversionRatio: COFOUNDER_TO_SHARES_RATIO
+      }
     );
     
     // Find Gen 2 referrer (who referred the referrer)
@@ -188,7 +216,12 @@ const processReferralCommission = async (
           2,
           purchaseType,
           transactionId,
-          sourceModel
+          sourceModel,
+          {
+            actualShares,
+            equivalentShares,
+            conversionRatio: COFOUNDER_TO_SHARES_RATIO
+          }
         );
         
         // Find Gen 3 referrer
@@ -205,7 +238,12 @@ const processReferralCommission = async (
               3,
               purchaseType,
               transactionId,
-              sourceModel
+              sourceModel,
+              {
+                actualShares,
+                equivalentShares,
+                conversionRatio: COFOUNDER_TO_SHARES_RATIO
+              }
             );
           }
         }
@@ -214,7 +252,13 @@ const processReferralCommission = async (
     
     return {
       success: true,
-      message: 'Referral commissions processed successfully'
+      message: 'Referral commissions processed successfully',
+      conversionDetails: {
+        actualShares,
+        equivalentShares,
+        conversionRatio: COFOUNDER_TO_SHARES_RATIO,
+        purchaseType
+      }
     };
   } catch (error) {
     console.error('Error processing referral commission:', error);
@@ -369,7 +413,7 @@ const processNewUserReferral = async (userId) => {
 };
 
 /**
- * Process commission for a single referrer
+ * Process commission for a single referrer (Updated with share conversion info)
  * @param {string} beneficiaryId - Referrer ID who receives the commission
  * @param {string} referredUserId - User who made the purchase
  * @param {number} amount - Transaction amount
@@ -379,6 +423,7 @@ const processNewUserReferral = async (userId) => {
  * @param {string} purchaseType - Type of purchase
  * @param {string} sourceTransaction - Original transaction ID
  * @param {string} sourceTransactionModel - Source model for the transaction
+ * @param {object} shareDetails - Details about shares and conversion
  */
 const processCommission = async (
   beneficiaryId,
@@ -389,7 +434,8 @@ const processCommission = async (
   generation,
   purchaseType,
   sourceTransaction,
-  sourceTransactionModel
+  sourceTransactionModel,
+  shareDetails = {}
 ) => {
   try {
     // Calculate commission amount
@@ -414,8 +460,8 @@ const processCommission = async (
       return;
     }
     
-    // Create referral transaction record
-    const transaction = new ReferralTransaction({
+    // Create referral transaction record with enhanced details
+    const transactionData = {
       beneficiary: beneficiaryId,
       referredUser: referredUserId,
       amount: commissionAmount,
@@ -425,8 +471,20 @@ const processCommission = async (
       sourceTransaction,
       sourceTransactionModel,
       status: 'completed' // Mark commission as completed immediately
-    });
+    };
     
+    // Add share conversion details if available
+    if (shareDetails.actualShares !== undefined) {
+      transactionData.metadata = {
+        actualShares: shareDetails.actualShares,
+        equivalentShares: shareDetails.equivalentShares,
+        conversionRatio: shareDetails.conversionRatio,
+        originalAmount: amount,
+        commissionRate: commissionRate
+      };
+    }
+    
+    const transaction = new ReferralTransaction(transactionData);
     await transaction.save();
     
     // Update referral stats
@@ -469,6 +527,13 @@ const processCommission = async (
     
     // Save referral stats
     await referral.save();
+    
+    // Log the commission with conversion details
+    if (shareDetails.actualShares !== undefined) {
+      console.log(`[Referral Commission] Gen ${generation} for ${beneficiaryId}: ${currency} ${commissionAmount.toFixed(2)} (${commissionRate}% of ${amount}) - Based on ${shareDetails.actualShares} ${purchaseType} shares = ${shareDetails.equivalentShares} equivalent shares`);
+    } else {
+      console.log(`[Referral Commission] Gen ${generation} for ${beneficiaryId}: ${currency} ${commissionAmount.toFixed(2)} (${commissionRate}% of ${amount})`);
+    }
     
     // Return the transaction
     return transaction;
@@ -557,6 +622,68 @@ const calculateTotalEarnings = async (userId) => {
       generation1: 0,
       generation2: 0,
       generation3: 0
+    };
+  }
+};
+
+/**
+ * Get user's total share count including co-founder conversion
+ * @param {string} userId - User ID
+ * @returns {object} Total shares breakdown
+ */
+const getUserTotalShares = async (userId) => {
+  try {
+    // Get regular shares
+    const userShares = await UserShare.findOne({ user: userId });
+    const regularShares = userShares ? userShares.totalShares : 0;
+
+    // Get co-founder shares
+    const coFounderTransactions = await PaymentTransaction.find({
+      userId: userId,
+      type: 'co-founder',
+      status: 'completed'
+    });
+    
+    const coFounderShares = coFounderTransactions.reduce((total, txn) => {
+      return total + (txn.shares || 0);
+    }, 0);
+
+    // Convert co-founder shares to equivalent regular shares
+    const equivalentSharesFromCoFounder = coFounderShares * COFOUNDER_TO_SHARES_RATIO;
+    const totalEquivalentShares = regularShares + equivalentSharesFromCoFounder;
+
+    return {
+      regularShares,
+      coFounderShares,
+      equivalentSharesFromCoFounder,
+      totalEquivalentShares,
+      conversionRatio: COFOUNDER_TO_SHARES_RATIO,
+      breakdown: {
+        regularShares: {
+          count: regularShares,
+          transactions: userShares ? userShares.transactions.filter(t => t.status === 'completed').length : 0
+        },
+        coFounderShares: {
+          count: coFounderShares,
+          transactions: coFounderTransactions.length,
+          equivalentRegularShares: equivalentSharesFromCoFounder
+        }
+      }
+    };
+
+  } catch (error) {
+    console.error('Error calculating user total shares:', error);
+    return {
+      regularShares: 0,
+      coFounderShares: 0,
+      equivalentSharesFromCoFounder: 0,
+      totalEquivalentShares: 0,
+      conversionRatio: COFOUNDER_TO_SHARES_RATIO,
+      error: error.message,
+      breakdown: {
+        regularShares: { count: 0, transactions: 0 },
+        coFounderShares: { count: 0, transactions: 0, equivalentRegularShares: 0 }
+      }
     };
   }
 };
@@ -764,14 +891,16 @@ const updateReferralStatsAfterRollback = async (beneficiaryId, amount, generatio
   }
 };
 
-// Export functions
+// Export functions (keeping all existing exports and adding new ones)
 module.exports = {
   processReferralCommission,
-  processNewUserReferral, // Added this function export
+  processNewUserReferral,
   processCommission,
   syncReferralStats,
   calculateTotalEarnings,
   calculateTotalReferredUsers,
   rollbackReferralCommission,
-  updateReferralStatsAfterRollback
+  updateReferralStatsAfterRollback,
+  getUserTotalShares, // NEW: Added this function
+  COFOUNDER_TO_SHARES_RATIO // NEW: Export the conversion ratio
 };

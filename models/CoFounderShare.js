@@ -1,10 +1,11 @@
+// 1. Updated CoFounderShare Model (models/CoFounderShare.js)
 const mongoose = require('mongoose');
 
 const coFounderShareSchema = new mongoose.Schema({
   // Total co-founder shares
   totalShares: {
     type: Number,
-    default: 500 // 50 co-founder shares out of 500 total
+    default: 500 // 500 co-founder shares total
   },
   
   // Shares sold
@@ -13,15 +14,21 @@ const coFounderShareSchema = new mongoose.Schema({
     default: 0
   },
   
+  // NEW: Ratio of co-founder shares to regular shares
+  shareToRegularRatio: {
+    type: Number,
+    default: 29 // 1 co-founder share = 29 regular shares
+  },
+  
   // Pricing for co-founder shares
   pricing: {
     priceNaira: {
       type: Number,
-      default: 1000000 // 1 Million Naira per co-founder share
+      default: 1000000 // 1 Million Naira per co-founder share (29x regular share price)
     },
     priceUSDT: {
       type: Number,
-      default: 1000 // 1000 USDT per co-founder share
+      default: 1000 // 1000 USDT per co-founder share (29x regular share price)
     }
   },
   
@@ -98,10 +105,13 @@ coFounderShareSchema.methods.calculatePurchase = function(quantity, currency) {
     : this.pricing.priceUSDT;
   
   const totalPrice = quantity * price;
+  const equivalentRegularShares = quantity * this.shareToRegularRatio;
   
   return {
     success: true,
-    quantity,
+    coFounderShares: quantity,
+    equivalentRegularShares: equivalentRegularShares,
+    shareToRegularRatio: this.shareToRegularRatio,
     totalPrice,
     currency,
     pricePerShare: price,
