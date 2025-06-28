@@ -82,9 +82,10 @@ exports.calculatePurchase = async (req, res) => {
     const coFounderConfig = await CoFounderShare.findOne();
     const shareToRegularRatio = coFounderConfig?.shareToRegularRatio || 29;
     
-    // Calculate co-founder share equivalence
-    const equivalentCoFounderShares = Math.floor(purchaseDetails.totalShares / shareToRegularRatio);
-    const remainingRegularShares = purchaseDetails.totalShares % shareToRegularRatio;
+    // FIXED: Calculate co-founder share equivalence more clearly
+    const totalRegularShares = purchaseDetails.totalShares;
+    const equivalentCoFounderShares = Math.floor(totalRegularShares / shareToRegularRatio);
+    const remainingRegularShares = totalRegularShares % shareToRegularRatio;
     
     // Enhanced purchase details with co-founder comparison
     const enhancedPurchaseDetails = {
@@ -94,8 +95,9 @@ exports.calculatePurchase = async (req, res) => {
         remainingRegularShares: remainingRegularShares,
         shareToRegularRatio: shareToRegularRatio,
         explanation: equivalentCoFounderShares > 0 ? 
-          `${purchaseDetails.totalShares} regular shares = ${equivalentCoFounderShares} co-founder share${equivalentCoFounderShares !== 1 ? 's' : ''}${remainingRegularShares > 0 ? ` + ${remainingRegularShares} regular share${remainingRegularShares !== 1 ? 's' : ''}` : ''}` :
-          `${purchaseDetails.totalShares} regular share${purchaseDetails.totalShares !== 1 ? 's' : ''} (need ${shareToRegularRatio - purchaseDetails.totalShares} more for 1 co-founder share)`
+          `${totalRegularShares} regular shares = ${equivalentCoFounderShares} co-founder share${equivalentCoFounderShares !== 1 ? 's' : ''}${remainingRegularShares > 0 ? ` + ${remainingRegularShares} regular share${remainingRegularShares !== 1 ? 's' : ''}` : ''}` :
+          `${totalRegularShares} regular share${totalRegularShares !== 1 ? 's' : ''} (need ${shareToRegularRatio - totalRegularShares} more for 1 co-founder share equivalent)`,
+        comparisonNote: `Note: ${shareToRegularRatio} regular shares = 1 co-founder share in terms of value and voting power`
       }
     };
     
@@ -601,33 +603,40 @@ exports.getUserShares = async (req, res) => {
     const coFounderConfig = await CoFounderShare.findOne();
     const shareToRegularRatio = coFounderConfig?.shareToRegularRatio || 29;
     
-    // Calculate regular shares (excluding those from co-founder purchases)
-    const regularShares = userShares.totalShares - (userShares.equivalentRegularShares || 0);
+    // FIXED: Calculate shares properly
+    // Total shares includes both direct regular shares AND equivalent regular shares from co-founder purchases
+    const totalShares = userShares.totalShares;
+    const coFounderShares = userShares.coFounderShares || 0;
+    const equivalentRegularFromCoFounder = userShares.equivalentRegularShares || 0;
     
-    // Calculate co-founder share equivalence for regular shares
-    const equivalentCoFounderShares = Math.floor(regularShares / shareToRegularRatio);
-    const remainingRegularShares = regularShares % shareToRegularRatio;
+    // Regular shares are total minus the equivalent shares from co-founder purchases
+    const directRegularShares = totalShares - equivalentRegularFromCoFounder;
+    
+    // FIXED: Calculate co-founder equivalence for ALL their shares, not just direct regular shares
+    const totalEquivalentCoFounderShares = Math.floor(totalShares / shareToRegularRatio);
+    const remainingRegularShares = totalShares % shareToRegularRatio;
     
     res.status(200).json({
       success: true,
-      totalShares: userShares.totalShares,
-      regularShares: regularShares,
-      coFounderShares: userShares.coFounderShares || 0,
-      equivalentRegularShares: userShares.equivalentRegularShares || 0,
+      totalShares: totalShares,
+      regularShares: directRegularShares,
+      coFounderShares: coFounderShares,
+      equivalentRegularShares: equivalentRegularFromCoFounder,
       shareBreakdown: {
-        directRegularShares: regularShares,
-        fromCoFounderShares: userShares.equivalentRegularShares || 0,
-        totalCoFounderShares: userShares.coFounderShares || 0
+        directRegularShares: directRegularShares,
+        fromCoFounderShares: equivalentRegularFromCoFounder,
+        totalCoFounderShares: coFounderShares,
+        totalShares: totalShares
       },
       coFounderEquivalence: {
-        equivalentCoFounderShares: equivalentCoFounderShares,
+        equivalentCoFounderShares: totalEquivalentCoFounderShares,
         remainingRegularShares: remainingRegularShares,
         shareToRegularRatio: shareToRegularRatio,
-        explanation: equivalentCoFounderShares > 0 ? 
-          `Your ${regularShares} regular shares = ${equivalentCoFounderShares} co-founder share${equivalentCoFounderShares !== 1 ? 's' : ''}${remainingRegularShares > 0 ? ` + ${remainingRegularShares} regular share${remainingRegularShares !== 1 ? 's' : ''}` : ''}` :
-          regularShares > 0 ? 
-            `Your ${regularShares} regular share${regularShares !== 1 ? 's' : ''} (need ${shareToRegularRatio - regularShares} more for 1 co-founder share)` :
-            'No regular shares yet'
+        explanation: totalEquivalentCoFounderShares > 0 ? 
+          `Your ${totalShares} total shares = ${totalEquivalentCoFounderShares} co-founder share${totalEquivalentCoFounderShares !== 1 ? 's' : ''}${remainingRegularShares > 0 ? ` + ${remainingRegularShares} regular share${remainingRegularShares !== 1 ? 's' : ''}` : ''}` :
+          totalShares > 0 ? 
+            `Your ${totalShares} share${totalShares !== 1 ? 's' : ''} (need ${shareToRegularRatio - totalShares} more for 1 co-founder share equivalent)` :
+            'No shares yet'
       },
       transactions: userShares.transactions.map(t => ({
         transactionId: t.transactionId,
@@ -639,7 +648,7 @@ exports.getUserShares = async (req, res) => {
         status: t.status,
         date: t.createdAt,
         adminAction: t.adminAction || false,
-        // NEW: Add co-founder equivalence for each transaction
+        // FIXED: Add co-founder equivalence for each transaction
         coFounderEquivalence: t.paymentMethod === 'co-founder' ? {
           isCoFounderShare: true,
           coFounderShares: t.coFounderShares || 0,
@@ -647,7 +656,8 @@ exports.getUserShares = async (req, res) => {
         } : {
           isCoFounderShare: false,
           equivalentCoFounderShares: Math.floor(t.shares / shareToRegularRatio),
-          remainingRegularShares: t.shares % shareToRegularRatio
+          remainingRegularShares: t.shares % shareToRegularRatio,
+          explanation: `${t.shares} regular shares = ${Math.floor(t.shares / shareToRegularRatio)} co-founder equivalent${Math.floor(t.shares / shareToRegularRatio) !== 1 ? 's' : ''}${t.shares % shareToRegularRatio > 0 ? ` + ${t.shares % shareToRegularRatio} regular` : ''}`
         }
       }))
     });
