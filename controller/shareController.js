@@ -7,6 +7,7 @@ const axios = require('axios');
 const { ethers } = require('ethers');
 const { sendEmail } = require('../utils/emailService');
 const SiteConfig = require('../models/SiteConfig');
+const CoFounderShare = require('../models/CoFounderShare');
 const { processReferralCommission, rollbackReferralCommission } = require('../utils/referralUtils');
 
 // Generate a unique transaction ID
@@ -19,6 +20,10 @@ exports.getShareInfo = async (req, res) => {
   try {
     const shareConfig = await Share.getCurrentConfig();
     
+    // Get co-founder share ratio for comparison
+    const coFounderConfig = await CoFounderShare.findOne();
+    const shareToRegularRatio = coFounderConfig?.shareToRegularRatio || 29;
+    
     const response = {
       success: true,
       pricing: shareConfig.currentPrices,
@@ -27,7 +32,16 @@ exports.getShareInfo = async (req, res) => {
         tier2: shareConfig.currentPrices.tier2.shares - shareConfig.tierSales.tier2Sold,
         tier3: shareConfig.currentPrices.tier3.shares - shareConfig.tierSales.tier3Sold,
       },
-      totalAvailable: shareConfig.totalShares - shareConfig.sharesSold
+      totalAvailable: shareConfig.totalShares - shareConfig.sharesSold,
+      // NEW: Add co-founder share comparison
+      coFounderComparison: {
+        shareToRegularRatio: shareToRegularRatio,
+        explanation: `${shareToRegularRatio} Regular Shares = 1 Co-Founder Share`,
+        coFounderPricing: coFounderConfig ? {
+          priceNaira: coFounderConfig.pricing.priceNaira,
+          priceUSDT: coFounderConfig.pricing.priceUSDT
+        } : null
+      }
     };
     
     res.status(200).json(response);
@@ -40,6 +54,7 @@ exports.getShareInfo = async (req, res) => {
     });
   }
 };
+
 
 // Calculate purchase details before payment
 exports.calculatePurchase = async (req, res) => {
@@ -63,9 +78,30 @@ exports.calculatePurchase = async (req, res) => {
       });
     }
     
+    // Get co-founder share ratio for comparison
+    const coFounderConfig = await CoFounderShare.findOne();
+    const shareToRegularRatio = coFounderConfig?.shareToRegularRatio || 29;
+    
+    // Calculate co-founder share equivalence
+    const equivalentCoFounderShares = Math.floor(purchaseDetails.totalShares / shareToRegularRatio);
+    const remainingRegularShares = purchaseDetails.totalShares % shareToRegularRatio;
+    
+    // Enhanced purchase details with co-founder comparison
+    const enhancedPurchaseDetails = {
+      ...purchaseDetails,
+      coFounderEquivalence: {
+        equivalentCoFounderShares: equivalentCoFounderShares,
+        remainingRegularShares: remainingRegularShares,
+        shareToRegularRatio: shareToRegularRatio,
+        explanation: equivalentCoFounderShares > 0 ? 
+          `${purchaseDetails.totalShares} regular shares = ${equivalentCoFounderShares} co-founder share${equivalentCoFounderShares !== 1 ? 's' : ''}${remainingRegularShares > 0 ? ` + ${remainingRegularShares} regular share${remainingRegularShares !== 1 ? 's' : ''}` : ''}` :
+          `${purchaseDetails.totalShares} regular share${purchaseDetails.totalShares !== 1 ? 's' : ''} (need ${shareToRegularRatio - purchaseDetails.totalShares} more for 1 co-founder share)`
+      }
+    };
+    
     res.status(200).json({
       success: true,
-      purchaseDetails
+      purchaseDetails: enhancedPurchaseDetails
     });
   } catch (error) {
     console.error('Error calculating purchase:', error);
@@ -541,7 +577,7 @@ exports.adminAddShares = async (req, res) => {
 // Get user shares and transactions
 exports.getUserShares = async (req, res) => {
   try {
-    const userId = req.user.id; // From auth middleware
+    const userId = req.user.id;
     
     const userShares = await UserShare.findOne({ user: userId });
     
@@ -549,13 +585,50 @@ exports.getUserShares = async (req, res) => {
       return res.status(200).json({
         success: true,
         totalShares: 0,
+        regularShares: 0,
+        coFounderShares: 0,
+        equivalentRegularShares: 0,
+        coFounderEquivalence: {
+          equivalentCoFounderShares: 0,
+          remainingRegularShares: 0,
+          shareToRegularRatio: 29
+        },
         transactions: []
       });
     }
     
+    // Get co-founder share ratio
+    const coFounderConfig = await CoFounderShare.findOne();
+    const shareToRegularRatio = coFounderConfig?.shareToRegularRatio || 29;
+    
+    // Calculate regular shares (excluding those from co-founder purchases)
+    const regularShares = userShares.totalShares - (userShares.equivalentRegularShares || 0);
+    
+    // Calculate co-founder share equivalence for regular shares
+    const equivalentCoFounderShares = Math.floor(regularShares / shareToRegularRatio);
+    const remainingRegularShares = regularShares % shareToRegularRatio;
+    
     res.status(200).json({
       success: true,
       totalShares: userShares.totalShares,
+      regularShares: regularShares,
+      coFounderShares: userShares.coFounderShares || 0,
+      equivalentRegularShares: userShares.equivalentRegularShares || 0,
+      shareBreakdown: {
+        directRegularShares: regularShares,
+        fromCoFounderShares: userShares.equivalentRegularShares || 0,
+        totalCoFounderShares: userShares.coFounderShares || 0
+      },
+      coFounderEquivalence: {
+        equivalentCoFounderShares: equivalentCoFounderShares,
+        remainingRegularShares: remainingRegularShares,
+        shareToRegularRatio: shareToRegularRatio,
+        explanation: equivalentCoFounderShares > 0 ? 
+          `Your ${regularShares} regular shares = ${equivalentCoFounderShares} co-founder share${equivalentCoFounderShares !== 1 ? 's' : ''}${remainingRegularShares > 0 ? ` + ${remainingRegularShares} regular share${remainingRegularShares !== 1 ? 's' : ''}` : ''}` :
+          regularShares > 0 ? 
+            `Your ${regularShares} regular share${regularShares !== 1 ? 's' : ''} (need ${shareToRegularRatio - regularShares} more for 1 co-founder share)` :
+            'No regular shares yet'
+      },
       transactions: userShares.transactions.map(t => ({
         transactionId: t.transactionId,
         shares: t.shares,
@@ -565,7 +638,17 @@ exports.getUserShares = async (req, res) => {
         paymentMethod: t.paymentMethod,
         status: t.status,
         date: t.createdAt,
-        adminAction: t.adminAction || false
+        adminAction: t.adminAction || false,
+        // NEW: Add co-founder equivalence for each transaction
+        coFounderEquivalence: t.paymentMethod === 'co-founder' ? {
+          isCoFounderShare: true,
+          coFounderShares: t.coFounderShares || 0,
+          equivalentRegularShares: t.equivalentRegularShares || 0
+        } : {
+          isCoFounderShare: false,
+          equivalentCoFounderShares: Math.floor(t.shares / shareToRegularRatio),
+          remainingRegularShares: t.shares % shareToRegularRatio
+        }
       }))
     });
   } catch (error) {
@@ -682,7 +765,7 @@ exports.getAllTransactions = async (req, res) => {
 // Admin: Get overall share statistics
 exports.getShareStatistics = async (req, res) => {
   try {
-    const adminId = req.user.id; // From auth middleware
+    const adminId = req.user.id;
     
     // Check if admin
     const admin = await User.findById(adminId);
@@ -695,6 +778,10 @@ exports.getShareStatistics = async (req, res) => {
     
     // Get current share config
     const shareConfig = await Share.getCurrentConfig();
+    
+    // Get co-founder share config
+    const coFounderConfig = await CoFounderShare.findOne();
+    const shareToRegularRatio = coFounderConfig?.shareToRegularRatio || 29;
     
     // Get user count with shares
     const investorCount = await UserShare.countDocuments({ totalShares: { $gt: 0 } });
@@ -716,6 +803,10 @@ exports.getShareStatistics = async (req, res) => {
       'transactions.status': 'pending'
     });
     
+    // Calculate co-founder share equivalence
+    const totalEquivalentCoFounderShares = Math.floor(shareConfig.sharesSold / shareToRegularRatio);
+    const remainingRegularShares = shareConfig.sharesSold % shareToRegularRatio;
+    
     res.status(200).json({
       success: true,
       statistics: {
@@ -726,7 +817,14 @@ exports.getShareStatistics = async (req, res) => {
         investorCount,
         totalValueNaira,
         totalValueUSDT,
-        pendingTransactions
+        pendingTransactions,
+        // NEW: Co-founder share comparison
+        coFounderComparison: {
+          shareToRegularRatio: shareToRegularRatio,
+          totalEquivalentCoFounderShares: totalEquivalentCoFounderShares,
+          remainingRegularShares: remainingRegularShares,
+          explanation: `${shareConfig.sharesSold} regular shares = ${totalEquivalentCoFounderShares} co-founder share${totalEquivalentCoFounderShares !== 1 ? 's' : ''}${remainingRegularShares > 0 ? ` + ${remainingRegularShares} regular share${remainingRegularShares !== 1 ? 's' : ''}` : ''}`
+        }
       },
       pricing: shareConfig.currentPrices
     });
