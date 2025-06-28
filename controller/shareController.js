@@ -16,7 +16,6 @@ const generateTransactionId = () => {
 };
 
 // Get current share pricing and availability
-// COMPLETE FIX: Get current share pricing and availability (properly accounting for co-founder shares)
 exports.getShareInfo = async (req, res) => {
   try {
     const shareConfig = await Share.getCurrentConfig();
