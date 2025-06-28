@@ -1,4 +1,4 @@
-// migrations/add_cofounder_ratio.js
+// migrations/add_cofounder_ratio.js - FIXED VERSION
 const mongoose = require('mongoose');
 const path = require('path');
 require('dotenv').config({ path: path.join(__dirname, '../.env') }); // Load environment variables
@@ -9,7 +9,7 @@ const UserShare = require('../models/UserShare');
 const PaymentTransaction = require('../models/Transaction'); // Adjust if different
 
 console.log('='.repeat(60));
-console.log('CO-FOUNDER SHARE RATIO MIGRATION');
+console.log('CO-FOUNDER SHARE RATIO MIGRATION (FIXED)');
 console.log('Adding 29:1 ratio support to existing records');
 console.log('='.repeat(60));
 
@@ -19,11 +19,8 @@ async function migrateCoFounderShares() {
   try {
     console.log('🔌 Connecting to database...');
     
-    // Connect to database
-    connection = await mongoose.connect(process.env.MONGODB_URI || process.env.MONGO_URI, {
-      useNewUrlParser: true,
-      useUnifiedTopology: true
-    });
+    // Connect to database (removed deprecated options)
+    connection = await mongoose.connect(process.env.MONGODB_URI || process.env.MONGO_URI);
     
     console.log('✅ Connected to database successfully');
     console.log(`📊 Database: ${mongoose.connection.name}`);
@@ -151,7 +148,7 @@ async function migrateCoFounderShares() {
     console.log();
     
     // ===========================================
-    // STEP 4: Update PaymentTransaction Collection
+    // STEP 4: Update PaymentTransaction Collection (FIXED)
     // ===========================================
     console.log('📝 STEP 4: Updating PaymentTransaction collection...');
     
@@ -163,9 +160,19 @@ async function migrateCoFounderShares() {
     console.log(`   Found ${coFounderTransactions.length} co-founder PaymentTransaction record(s)`);
     
     let paymentTxnUpdates = 0;
+    let paymentMethodFixes = 0;
     
     for (const transaction of coFounderTransactions) {
       let needsUpdate = false;
+      
+      // FIXED: Handle missing paymentMethod
+      if (!transaction.paymentMethod) {
+        // Set a default payment method for co-founder transactions
+        transaction.paymentMethod = 'co-founder';
+        needsUpdate = true;
+        paymentMethodFixes++;
+        console.log(`   🔧 Fixed missing paymentMethod for transaction ${transaction._id}`);
+      }
       
       // Add shareToRegularRatio if missing
       if (!transaction.shareToRegularRatio) {
@@ -186,12 +193,24 @@ async function migrateCoFounderShares() {
       }
       
       if (needsUpdate) {
-        await transaction.save();
+        // Use updateOne to bypass validation issues
+        await PaymentTransaction.updateOne(
+          { _id: transaction._id },
+          {
+            $set: {
+              paymentMethod: transaction.paymentMethod,
+              shareToRegularRatio: transaction.shareToRegularRatio,
+              coFounderShares: transaction.coFounderShares,
+              equivalentRegularShares: transaction.equivalentRegularShares
+            }
+          }
+        );
         paymentTxnUpdates++;
       }
     }
     
     console.log(`   ✅ Updated ${paymentTxnUpdates} PaymentTransaction record(s)`);
+    console.log(`   🔧 Fixed ${paymentMethodFixes} missing paymentMethod field(s)`);
     console.log();
     
     // ===========================================
@@ -222,8 +241,13 @@ async function migrateCoFounderShares() {
       type: 'co-founder',
       shareToRegularRatio: { $exists: true }
     });
+    const coFounderTxnsWithPaymentMethod = await PaymentTransaction.countDocuments({
+      type: 'co-founder',
+      paymentMethod: { $exists: true }
+    });
     
     console.log(`   PaymentTransaction: ${coFounderTxnsWithRatio}/${totalCoFounderTxns} co-founder transactions have ratio fields`);
+    console.log(`   PaymentTransaction: ${coFounderTxnsWithPaymentMethod}/${totalCoFounderTxns} co-founder transactions have paymentMethod`);
     console.log();
     
     // ===========================================
@@ -237,6 +261,7 @@ async function migrateCoFounderShares() {
     console.log(`✅ Co-founder transactions updated: ${transactionUpdates}`);
     console.log(`✅ PaymentTransaction records updated: ${paymentTxnUpdates}`);
     console.log(`✅ User totals recalculated: ${userUpdates}`);
+    console.log(`🔧 PaymentMethod fields fixed: ${paymentMethodFixes}`);
     console.log();
     console.log('🔧 Ratio configuration:');
     console.log('   1 Co-Founder Share = 29 Regular Shares');
@@ -286,7 +311,10 @@ async function checkMigrationStatus() {
     
     const transactionsNeedUpdate = await PaymentTransaction.countDocuments({
       type: 'co-founder',
-      shareToRegularRatio: { $exists: false }
+      $or: [
+        { shareToRegularRatio: { $exists: false } },
+        { paymentMethod: { $exists: false } }
+      ]
     });
     
     const needsMigration = coFounderSharesNeedUpdate > 0 || userSharesNeedUpdate > 0 || transactionsNeedUpdate > 0;
