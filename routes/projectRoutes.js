@@ -12,7 +12,7 @@ const { protect, adminProtect } = require('../middleware/auth');
 
 /**
  * @swagger
- * /api/project/stats:
+ * /project/stats:
  *   get:
  *     summary: Get overall project statistics
  *     description: Retrieve comprehensive project statistics including share sales, user counts, and financial data
@@ -194,7 +194,7 @@ router.get('/stats', projectController.getProjectStats);
 
 /**
  * @swagger
- * /api/project/user-stats:
+ * /project/user-stats:
  *   get:
  *     summary: Get user-specific project statistics
  *     description: Retrieve detailed statistics for the authenticated user including their shares, investments, and referrals
@@ -349,7 +349,7 @@ router.get('/user-stats', protect, projectController.getUserProjectStats);
 
 /**
  * @swagger
- * /api/project/analytics:
+ * /project/analytics:
  *   get:
  *     summary: Get detailed project analytics (Admin only)
  *     description: Retrieve comprehensive project analytics including payment methods, user growth, and detailed statistics
