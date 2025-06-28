@@ -709,66 +709,161 @@ exports.getUserShares = async (req, res) => {
     if (!userShares) {
       return res.status(200).json({
         success: true,
-        directRegularShares: 0,
-        coFounderShares: 0,
-        equivalentRegularShares: 0,
-        totalEffectiveShares: 0,
+        // CLEAR: User has no shares at all
+        totalShares: 0,
+        completedTransactions: 0,
+        pendingTransactions: 0,
+        shareBreakdown: {
+          directRegularShares: 0,
+          coFounderShares: 0,
+          equivalentRegularFromCoFounder: 0,
+          totalEffectiveShares: 0
+        },
         coFounderEquivalence: {
           equivalentCoFounderShares: 0,
           remainingRegularShares: 0,
-          shareToRegularRatio: 29
+          shareToRegularRatio: 29,
+          explanation: "No shares yet"
         },
         transactions: []
       });
     }
     
-    // Get breakdown using the corrected method
-    const breakdown = userShares.getShareBreakdown();
-    
     // Get co-founder ratio
     const coFounderConfig = await CoFounderShare.findOne();
     const shareToRegularRatio = coFounderConfig?.shareToRegularRatio || 29;
     
-    // Calculate co-founder equivalence for total effective shares
-    const totalEffectiveShares = breakdown.totalEffectiveShares;
+    // FIXED: Calculate shares from COMPLETED transactions only
+    let directRegularShares = 0;
+    let coFounderShares = 0;
+    let pendingRegularShares = 0;
+    let pendingCoFounderShares = 0;
+    
+    let completedTransactions = 0;
+    let pendingTransactions = 0;
+    
+    // Process each transaction
+    userShares.transactions.forEach(transaction => {
+      if (transaction.status === 'completed') {
+        completedTransactions++;
+        
+        if (transaction.paymentMethod === 'co-founder') {
+          // This is a co-founder share purchase
+          coFounderShares += transaction.coFounderShares || 0;
+        } else {
+          // This is a regular share purchase
+          directRegularShares += transaction.shares;
+        }
+      } else if (transaction.status === 'pending') {
+        pendingTransactions++;
+        
+        if (transaction.paymentMethod === 'co-founder') {
+          pendingCoFounderShares += transaction.coFounderShares || 0;
+        } else {
+          pendingRegularShares += transaction.shares;
+        }
+      }
+    });
+    
+    // FIXED: Calculate equivalent regular shares from co-founder shares
+    const equivalentRegularFromCoFounder = coFounderShares * shareToRegularRatio;
+    
+    // FIXED: Total effective shares (regular + equivalent from co-founder)
+    const totalEffectiveShares = directRegularShares + equivalentRegularFromCoFounder;
+    
+    // FIXED: Calculate co-founder equivalence for total effective shares
     const totalEquivalentCoFounderShares = Math.floor(totalEffectiveShares / shareToRegularRatio);
     const remainingRegularShares = totalEffectiveShares % shareToRegularRatio;
     
+    // FIXED: Pending shares calculation
+    const pendingEquivalentRegularFromCoFounder = pendingCoFounderShares * shareToRegularRatio;
+    const totalPendingEffectiveShares = pendingRegularShares + pendingEquivalentRegularFromCoFounder;
+    
+    // CLEAR: Generate explanation
+    let explanation = "";
+    if (totalEffectiveShares === 0) {
+      explanation = "No completed shares yet";
+    } else if (totalEquivalentCoFounderShares > 0) {
+      explanation = `Your ${totalEffectiveShares} total effective shares = ${totalEquivalentCoFounderShares} co-founder share${totalEquivalentCoFounderShares !== 1 ? 's' : ''}${remainingRegularShares > 0 ? ` + ${remainingRegularShares} regular share${remainingRegularShares !== 1 ? 's' : ''}` : ''}`;
+    } else if (totalEffectiveShares > 0) {
+      explanation = `Your ${totalEffectiveShares} share${totalEffectiveShares !== 1 ? 's' : ''} (need ${shareToRegularRatio - totalEffectiveShares} more for 1 co-founder share equivalent)`;
+    }
+    
     res.status(200).json({
       success: true,
-      // CORRECTED: Clear separation of share types
-      directRegularShares: userShares.totalShares,
-      coFounderShares: userShares.coFounderShares,
-      equivalentRegularShares: userShares.equivalentRegularShares,
-      totalEffectiveShares: totalEffectiveShares,
       
-      shareBreakdown: breakdown,
+      // CLEAR: Main totals (completed transactions only)
+      totalShares: totalEffectiveShares, // This is what actually counts
+      completedTransactions,
+      pendingTransactions,
       
+      // CLEAR: Detailed breakdown
+      shareBreakdown: {
+        // Completed shares
+        directRegularShares,           // Regular shares from completed transactions
+        coFounderShares,              // Co-founder shares from completed transactions  
+        equivalentRegularFromCoFounder, // Regular share equivalent of co-founder shares
+        totalEffectiveShares,         // Total voting/value power
+        
+        // Pending shares (for information)
+        pending: {
+          pendingRegularShares,
+          pendingCoFounderShares,
+          pendingEquivalentRegularFromCoFounder,
+          totalPendingEffectiveShares
+        },
+        
+        // Summary explanation
+        summary: {
+          explanation: `You have ${directRegularShares} regular shares + ${coFounderShares} co-founder shares (worth ${equivalentRegularFromCoFounder} regular shares) = ${totalEffectiveShares} total effective shares`,
+          ratioExplanation: `1 co-founder share = ${shareToRegularRatio} regular shares`
+        }
+      },
+      
+      // CLEAR: Co-founder equivalence calculation
       coFounderEquivalence: {
         equivalentCoFounderShares: totalEquivalentCoFounderShares,
         remainingRegularShares: remainingRegularShares,
         shareToRegularRatio: shareToRegularRatio,
-        explanation: totalEquivalentCoFounderShares > 0 ? 
-          `Your ${totalEffectiveShares} total effective shares = ${totalEquivalentCoFounderShares} co-founder share${totalEquivalentCoFounderShares !== 1 ? 's' : ''}${remainingRegularShares > 0 ? ` + ${remainingRegularShares} regular share${remainingRegularShares !== 1 ? 's' : ''}` : ''}` :
-          totalEffectiveShares > 0 ? 
-            `Your ${totalEffectiveShares} share${totalEffectiveShares !== 1 ? 's' : ''} (need ${shareToRegularRatio - totalEffectiveShares} more for 1 co-founder share equivalent)` :
-            'No shares yet'
+        explanation: explanation
       },
       
-      transactions: userShares.transactions.map(t => ({
-        transactionId: t.transactionId,
-        type: t.paymentMethod === 'co-founder' ? 'co-founder' : 'regular',
-        shares: t.shares,
-        coFounderShares: t.coFounderShares || 0,
-        equivalentRegularShares: t.equivalentRegularShares || 0,
-        pricePerShare: t.pricePerShare,
-        currency: t.currency,
-        totalAmount: t.totalAmount,
-        paymentMethod: t.paymentMethod,
-        status: t.status,
-        date: t.createdAt,
-        adminAction: t.adminAction || false
-      }))
+      // CLEAR: Transaction list with proper categorization
+      transactions: userShares.transactions.map(t => {
+        // Determine transaction type more clearly
+        let transactionType = 'regular';
+        let displayShares = t.shares;
+        let equivalentShares = 0;
+        
+        if (t.paymentMethod === 'co-founder') {
+          transactionType = 'co-founder';
+          displayShares = t.coFounderShares || 0;
+          equivalentShares = (t.coFounderShares || 0) * shareToRegularRatio;
+        }
+        
+        return {
+          transactionId: t.transactionId,
+          type: transactionType,
+          
+          // CLEAR: Share details based on type
+          shares: displayShares,
+          equivalentRegularShares: equivalentShares,
+          
+          // Original transaction details
+          pricePerShare: t.pricePerShare,
+          currency: t.currency,
+          totalAmount: t.totalAmount,
+          paymentMethod: t.paymentMethod,
+          status: t.status,
+          date: t.createdAt,
+          adminAction: t.adminAction || false,
+          
+          // CLEAR: Impact explanation
+          impact: transactionType === 'co-founder' ? 
+            `${displayShares} co-founder share${displayShares !== 1 ? 's' : ''} = ${equivalentShares} regular share${equivalentShares !== 1 ? 's' : ''} equivalent` :
+            `${displayShares} regular share${displayShares !== 1 ? 's' : ''}`
+        };
+      })
     });
   } catch (error) {
     console.error('Error fetching user shares:', error);
@@ -779,7 +874,6 @@ exports.getUserShares = async (req, res) => {
     });
   }
 };
-
 
 // Admin: Get all transactions
 exports.getAllTransactions = async (req, res) => {
