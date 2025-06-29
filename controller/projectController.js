@@ -19,29 +19,131 @@ exports.getProjectStats = async (req, res) => {
     const shareConfig = await Share.getCurrentConfig();
     const cofounderShareConfig = await CoFounderShare.findOne();
     
-    // UPDATED: Calculate co-founder equivalent shares
+    // Get the share-to-regular ratio
     const shareToRegularRatio = cofounderShareConfig?.shareToRegularRatio || 29;
-    const coFounderSharesSold = cofounderShareConfig?.sharesSold || 0;
-    const equivalentRegularSharesFromCoFounder = coFounderSharesSold * shareToRegularRatio;
+    
+    // CRITICAL FIX: Calculate ACTUALLY VERIFIED co-founder shares
+    // Don't trust the cofounderShareConfig.sharesSold - verify from actual completed transactions
+    const PaymentTransaction = require('../models/Transaction');
+    
+    // Get all COMPLETED co-founder transactions from PaymentTransaction model
+    const completedCoFounderTransactions = await PaymentTransaction.find({
+      type: 'co-founder',
+      status: 'completed'  // Only count truly verified transactions
+    });
+    
+    // Calculate actual verified co-founder shares sold
+    const actualCoFounderSharesSold = completedCoFounderTransactions.reduce((total, tx) => {
+      return total + (tx.shares || 0);
+    }, 0);
+    
+    console.log('=== PROJECT STATS DEBUG ===');
+    console.log(`CoFounder config sharesSold: ${cofounderShareConfig?.sharesSold || 0}`);
+    console.log(`Actual verified co-founder shares: ${actualCoFounderSharesSold}`);
+    console.log(`Completed co-founder transactions: ${completedCoFounderTransactions.length}`);
+    
+    // Calculate equivalent regular shares from VERIFIED co-founder purchases
+    const equivalentRegularSharesFromCoFounder = actualCoFounderSharesSold * shareToRegularRatio;
     
     // Get user counts
     const totalUsers = await User.countDocuments();
-    const shareHolders = await UserShare.countDocuments({ 
-      $or: [
-        { totalShares: { $gt: 0 } },
-        { coFounderShares: { $gt: 0 } }
-      ]
-    });
     
-    // Count regular share holders
-    const regularShareHolders = await UserShare.countDocuments({ totalShares: { $gt: 0 } });
+    // CORRECTED: Count shareholders based on ACTUALLY OWNED shares
+    // Need to aggregate from UserShare transactions with proper verification
+    const userSharesAgg = await UserShare.aggregate([
+      {
+        $addFields: {
+          // Calculate actual owned shares for each user
+          actualOwnedShares: {
+            $reduce: {
+              input: "$transactions",
+              initialValue: 0,
+              in: {
+                $cond: {
+                  if: { $eq: ["$$this.status", "completed"] },
+                  then: {
+                    $cond: {
+                      if: { $eq: ["$$this.paymentMethod", "co-founder"] },
+                      // For co-founder transactions, we need to verify against PaymentTransaction
+                      // For now, we'll be conservative and not count them unless explicitly verified
+                      then: "$$value", // Don't count co-founder shares here - we'll handle separately
+                      else: { $add: ["$$value", { $ifNull: ["$$this.shares", 0] }] }
+                    }
+                  },
+                  else: "$$value"
+                }
+              }
+            }
+          },
+          // Calculate co-founder shares (need separate verification)
+          coFounderSharesFromUserShare: {
+            $reduce: {
+              input: "$transactions",
+              initialValue: 0,
+              in: {
+                $cond: {
+                  if: { 
+                    $and: [
+                      { $eq: ["$$this.status", "completed"] },
+                      { $eq: ["$$this.paymentMethod", "co-founder"] }
+                    ]
+                  },
+                  then: { $add: ["$$value", { $ifNull: ["$$this.coFounderShares", { $ifNull: ["$$this.shares", 0] }] }] },
+                  else: "$$value"
+                }
+              }
+            }
+          }
+        }
+      }
+    ]);
     
-    // Count co-founder share holders
-    const cofounderHolders = await UserShare.countDocuments({ coFounderShares: { $gt: 0 } });
+    // Now we need to verify co-founder shares against PaymentTransaction
+    let totalVerifiedCoFounderSharesAcrossUsers = 0;
+    let totalRegularSharesAcrossUsers = 0;
+    let usersWithRegularShares = 0;
+    let usersWithCoFounderShares = 0;
+    let totalShareHolders = 0;
     
-    // UPDATED: Calculate effective shares and availability
-    const totalDirectSharesSold = shareConfig.sharesSold;
-    const totalEffectiveSharesSold = totalDirectSharesSold + equivalentRegularSharesFromCoFounder;
+    for (const userShare of userSharesAgg) {
+      const userId = userShare.user;
+      
+      // Get regular shares (already verified from UserShare)
+      const regularShares = userShare.actualOwnedShares || 0;
+      if (regularShares > 0) {
+        usersWithRegularShares++;
+        totalRegularSharesAcrossUsers += regularShares;
+      }
+      
+      // Verify co-founder shares against PaymentTransaction
+      const userCoFounderTx = await PaymentTransaction.find({
+        userId: userId,
+        type: 'co-founder',
+        status: 'completed'
+      });
+      
+      const verifiedCoFounderShares = userCoFounderTx.reduce((sum, tx) => sum + (tx.shares || 0), 0);
+      
+      if (verifiedCoFounderShares > 0) {
+        usersWithCoFounderShares++;
+        totalVerifiedCoFounderSharesAcrossUsers += verifiedCoFounderShares;
+      }
+      
+      // Count as shareholder if they have any verified shares
+      if (regularShares > 0 || verifiedCoFounderShares > 0) {
+        totalShareHolders++;
+      }
+    }
+    
+    console.log(`Total regular shares across users: ${totalRegularSharesAcrossUsers}`);
+    console.log(`Total verified co-founder shares across users: ${totalVerifiedCoFounderSharesAcrossUsers}`);
+    console.log(`Users with regular shares: ${usersWithRegularShares}`);
+    console.log(`Users with co-founder shares: ${usersWithCoFounderShares}`);
+    console.log(`Total shareholders: ${totalShareHolders}`);
+    
+    // CORRECTED: Use actual verified numbers instead of config numbers
+    const totalDirectSharesSold = shareConfig.sharesSold; // This should match totalRegularSharesAcrossUsers
+    const totalEffectiveSharesSold = totalRegularSharesAcrossUsers + equivalentRegularSharesFromCoFounder;
     const totalEffectiveSharesAvailable = shareConfig.totalShares - totalEffectiveSharesSold;
     
     // Calculate tier availability after co-founder allocations
@@ -69,7 +171,7 @@ exports.getProjectStats = async (req, res) => {
       remainingCoFounderShares -= coFounderAllocatedToTier3;
     }
     
-    // Calculate total values
+    // Calculate total values based on ACTUAL sales
     const regularShareValueNaira = 
       (shareConfig.tierSales.tier1Sold * shareConfig.currentPrices.tier1.priceNaira) +
       (shareConfig.tierSales.tier2Sold * shareConfig.currentPrices.tier2.priceNaira) +
@@ -80,15 +182,16 @@ exports.getProjectStats = async (req, res) => {
       (shareConfig.tierSales.tier2Sold * shareConfig.currentPrices.tier2.priceUSDT) +
       (shareConfig.tierSales.tier3Sold * shareConfig.currentPrices.tier3.priceUSDT);
     
+    // Calculate co-founder value based on ACTUAL verified sales
     const cofounderValueNaira = cofounderShareConfig ? 
-      cofounderShareConfig.pricing.priceNaira * coFounderSharesSold : 0;
+      cofounderShareConfig.pricing.priceNaira * actualCoFounderSharesSold : 0;
     const cofounderValueUSDT = cofounderShareConfig ? 
-      cofounderShareConfig.pricing.priceUSDT * coFounderSharesSold : 0;
+      cofounderShareConfig.pricing.priceUSDT * actualCoFounderSharesSold : 0;
     
     const totalValueNaira = regularShareValueNaira + cofounderValueNaira;
     const totalValueUSDT = regularShareValueUSDT + cofounderValueUSDT;
     
-    // UPDATED: Calculate actual tier availability
+    // Calculate actual tier availability
     const tierAvailability = {
       tier1: Math.max(0, shareConfig.currentPrices.tier1.shares - shareConfig.tierSales.tier1Sold - coFounderAllocatedToTier1),
       tier2: Math.max(0, shareConfig.currentPrices.tier2.shares - shareConfig.tierSales.tier2Sold - coFounderAllocatedToTier2),
@@ -100,20 +203,23 @@ exports.getProjectStats = async (req, res) => {
       stats: {
         users: {
           total: totalUsers,
-          totalShareHolders: shareHolders,
-          regularShareHolders: regularShareHolders,
-          cofounderShareHolders: cofounderHolders
+          totalShareHolders: totalShareHolders, // CORRECTED: Based on actual ownership
+          regularShareHolders: usersWithRegularShares,
+          cofounderShareHolders: usersWithCoFounderShares
         },
         regularShares: {
           directSold: totalDirectSharesSold,
+          actualSoldToUsers: totalRegularSharesAcrossUsers, // NEW: What users actually own
           available: tierAvailability.tier1 + tierAvailability.tier2 + tierAvailability.tier3,
           total: shareConfig.totalShares,
           tierSales: shareConfig.tierSales,
           tierAvailability: tierAvailability
         },
         cofounderShares: {
-          sold: coFounderSharesSold,
-          available: cofounderShareConfig ? cofounderShareConfig.totalShares - coFounderSharesSold : 0,
+          configSold: cofounderShareConfig?.sharesSold || 0, // What config says
+          actualSold: actualCoFounderSharesSold, // CORRECTED: What's actually verified
+          actualOwnedByUsers: totalVerifiedCoFounderSharesAcrossUsers, // What users actually own
+          available: cofounderShareConfig ? cofounderShareConfig.totalShares - actualCoFounderSharesSold : 0,
           total: cofounderShareConfig ? cofounderShareConfig.totalShares : 0,
           equivalentRegularShares: equivalentRegularSharesFromCoFounder,
           shareToRegularRatio: shareToRegularRatio
@@ -126,18 +232,41 @@ exports.getProjectStats = async (req, res) => {
             tier1: coFounderAllocatedToTier1,
             tier2: coFounderAllocatedToTier2,
             tier3: coFounderAllocatedToTier3
+          },
+          // NEW: Reality check
+          realityCheck: {
+            regularShareDiscrepancy: totalDirectSharesSold - totalRegularSharesAcrossUsers,
+            coFounderShareDiscrepancy: (cofounderShareConfig?.sharesSold || 0) - actualCoFounderSharesSold,
+            explanation: totalDirectSharesSold !== totalRegularSharesAcrossUsers || 
+                        (cofounderShareConfig?.sharesSold || 0) !== actualCoFounderSharesSold ?
+              "There are discrepancies between config and actual verified ownership" :
+              "Config matches actual verified ownership"
           }
         },
         totalValues: {
           naira: {
             regularShares: regularShareValueNaira,
-            cofounderShares: cofounderValueNaira,
+            cofounderShares: cofounderValueNaira, // CORRECTED: Based on actual sales
             total: totalValueNaira
           },
           usdt: {
             regularShares: regularShareValueUSDT,
-            cofounderShares: cofounderValueUSDT,
+            cofounderShares: cofounderValueUSDT, // CORRECTED: Based on actual sales
             total: totalValueUSDT
+          }
+        },
+        // NEW: Debugging info
+        debug: {
+          completedCoFounderTransactions: completedCoFounderTransactions.length,
+          configVsActualCoFounder: {
+            config: cofounderShareConfig?.sharesSold || 0,
+            actual: actualCoFounderSharesSold,
+            difference: (cofounderShareConfig?.sharesSold || 0) - actualCoFounderSharesSold
+          },
+          userAggregationResults: {
+            totalUsersProcessed: userSharesAgg.length,
+            totalRegularShares: totalRegularSharesAcrossUsers,
+            totalVerifiedCoFounderShares: totalVerifiedCoFounderSharesAcrossUsers
           }
         }
       }
