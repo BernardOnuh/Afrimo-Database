@@ -290,37 +290,177 @@ exports.getUserProjectStats = async (req, res) => {
   try {
     const userId = req.user.id;
     
-    // Get user's share data using the corrected model
+    // Get user's share data
     const userShares = await UserShare.findOne({ user: userId });
     
-    // Get share breakdown
-    const shareBreakdown = userShares ? userShares.getShareBreakdown() : {
-      directRegularShares: 0,
-      coFounderShares: 0,
-      equivalentRegularShares: 0,
-      totalEffectiveShares: 0
-    };
+    if (!userShares) {
+      return res.status(200).json({
+        success: true,
+        stats: {
+          shares: {
+            direct: 0,
+            cofounder: 0,
+            equivalentFromCofounder: 0,
+            totalEffective: 0,
+            pending: {
+              directPending: 0,
+              cofounderPending: 0,
+              equivalentPendingFromCofounder: 0,
+              totalPending: 0
+            },
+            cofounderEquivalence: {
+              equivalentCoFounderShares: 0,
+              remainingRegularShares: 0,
+              shareToRegularRatio: 29,
+              explanation: "No shares yet"
+            }
+          },
+          transactions: {
+            regular: 0,
+            cofounder: 0,
+            total: 0,
+            pending: 0,
+            completed: 0
+          },
+          investment: {
+            totalNaira: 0,
+            totalUSDT: 0
+          },
+          referrals: {
+            totalReferred: 0,
+            totalEarnings: 0,
+            generation1: { count: 0, earnings: 0 },
+            generation2: { count: 0, earnings: 0 },
+            generation3: { count: 0, earnings: 0 }
+          }
+        }
+      });
+    }
     
-    // Get user's transaction history
-    const regularTransactions = userShares ? 
-      userShares.transactions.filter(t => t.status === 'completed' && t.paymentMethod !== 'co-founder').length : 0;
+    // Get co-founder transactions from PaymentTransaction model for verification
+    const PaymentTransaction = require('../models/Transaction');
+    const coFounderPaymentTransactions = await PaymentTransaction.find({
+      userId: userId,
+      type: 'co-founder'
+    });
     
-    const cofounderTransactions = userShares ? 
-      userShares.transactions.filter(t => t.status === 'completed' && t.paymentMethod === 'co-founder').length : 0;
+    console.log('=== USER PROJECT STATS DEBUG ===');
+    console.log(`User ID: ${userId}`);
+    console.log(`UserShare transactions: ${userShares.transactions.length}`);
+    console.log(`PaymentTransaction co-founder: ${coFounderPaymentTransactions.length}`);
     
-    // Calculate total investment value
+    // Get current co-founder ratio
+    const cofounderConfig = await CoFounderShare.findOne();
+    const shareToRegularRatio = cofounderConfig?.shareToRegularRatio || 29;
+    
+    // CORRECTED CALCULATION: Verify each transaction properly
+    let directRegularShares = 0;           // Owned regular shares
+    let coFounderShares = 0;               // Owned co-founder shares
+    let pendingDirectRegularShares = 0;    // Pending regular shares
+    let pendingCoFounderShares = 0;        // Pending co-founder shares
+    
+    let regularTransactions = 0;
+    let cofounderTransactions = 0;
+    let completedTransactions = 0;
+    let pendingTransactions = 0;
+    
     let totalInvestmentNaira = 0;
     let totalInvestmentUSDT = 0;
     
-    if (userShares) {
-      for (const transaction of userShares.transactions) {
+    // Process each transaction with proper verification
+    userShares.transactions.forEach((transaction, index) => {
+      console.log(`\n--- Transaction ${index + 1} ---`);
+      console.log(`ID: ${transaction.transactionId}`);
+      console.log(`Method: ${transaction.paymentMethod}`);
+      console.log(`UserShare Status: ${transaction.status}`);
+      console.log(`Shares: ${transaction.shares}`);
+      console.log(`CoFounder Shares: ${transaction.coFounderShares || 'N/A'}`);
+      
+      if (transaction.paymentMethod === 'co-founder') {
+        // Co-founder transaction - verify against PaymentTransaction
+        cofounderTransactions++;
+        
+        const paymentTx = coFounderPaymentTransactions.find(
+          pt => pt.transactionId === transaction.transactionId || 
+                pt._id.toString() === transaction.transactionId
+        );
+        
+        const actualStatus = paymentTx ? paymentTx.status : 'not_found';
+        console.log(`PaymentTransaction Status: ${actualStatus}`);
+        
+        if (paymentTx && paymentTx.status === 'completed') {
+          // ACTUALLY COMPLETED - count as owned
+          const shareCount = transaction.coFounderShares || transaction.shares || 0;
+          coFounderShares += shareCount;
+          completedTransactions++;
+          console.log(`✅ OWNED co-founder shares: ${shareCount}`);
+          
+          // Count investment value for completed transactions
+          if (transaction.status === 'completed') {
+            if (transaction.currency === 'naira') {
+              totalInvestmentNaira += transaction.totalAmount;
+            } else if (transaction.currency === 'usdt') {
+              totalInvestmentUSDT += transaction.totalAmount;
+            }
+          }
+        } else {
+          // NOT ACTUALLY COMPLETED - count as pending
+          const shareCount = transaction.coFounderShares || transaction.shares || 0;
+          pendingCoFounderShares += shareCount;
+          pendingTransactions++;
+          console.log(`⏳ PENDING co-founder shares: ${shareCount}`);
+        }
+      } else {
+        // Regular share transaction
+        regularTransactions++;
+        
         if (transaction.status === 'completed') {
+          directRegularShares += transaction.shares || 0;
+          completedTransactions++;
+          console.log(`✅ OWNED regular shares: ${transaction.shares || 0}`);
+          
+          // Count investment value
           if (transaction.currency === 'naira') {
             totalInvestmentNaira += transaction.totalAmount;
           } else if (transaction.currency === 'usdt') {
             totalInvestmentUSDT += transaction.totalAmount;
           }
+        } else {
+          pendingDirectRegularShares += transaction.shares || 0;
+          pendingTransactions++;
+          console.log(`⏳ PENDING regular shares: ${transaction.shares || 0}`);
         }
+      }
+    });
+    
+    // Calculate derived values for OWNED shares
+    const equivalentRegularFromCofounder = coFounderShares * shareToRegularRatio;
+    const totalEffectiveShares = directRegularShares + equivalentRegularFromCofounder;
+    
+    // Calculate derived values for PENDING shares
+    const equivalentPendingFromCofounder = pendingCoFounderShares * shareToRegularRatio;
+    const totalPendingShares = pendingDirectRegularShares + equivalentPendingFromCofounder;
+    
+    // Calculate co-founder equivalence for owned shares
+    const totalEquivalentCoFounderShares = Math.floor(totalEffectiveShares / shareToRegularRatio);
+    const remainingRegularShares = totalEffectiveShares % shareToRegularRatio;
+    
+    // Generate explanation
+    let explanation = "";
+    if (totalEffectiveShares === 0 && totalPendingShares === 0) {
+      explanation = "No shares yet";
+    } else if (totalEffectiveShares === 0 && totalPendingShares > 0) {
+      explanation = `You have ${totalPendingShares} shares pending verification`;
+    } else if (totalEquivalentCoFounderShares > 0) {
+      explanation = `Your ${totalEffectiveShares} owned shares = ${totalEquivalentCoFounderShares} co-founder equivalent${totalEquivalentCoFounderShares !== 1 ? 's' : ''}${remainingRegularShares > 0 ? ` + ${remainingRegularShares} regular` : ''}`;
+    } else if (totalEffectiveShares > 0) {
+      explanation = `Your ${totalEffectiveShares} owned share${totalEffectiveShares !== 1 ? 's' : ''} (need ${shareToRegularRatio - totalEffectiveShares} more for 1 co-founder equivalent)`;
+    }
+    
+    // Add pending info
+    if (totalPendingShares > 0) {
+      if (totalEffectiveShares > 0) {
+        explanation += `. Plus ${totalPendingShares} shares pending verification`;
       }
     }
     
@@ -333,48 +473,73 @@ exports.getUserProjectStats = async (req, res) => {
       generation3: { count: 0, earnings: 0 }
     };
     
-    // Get current co-founder ratio for equivalence calculations
-    const cofounderConfig = await CoFounderShare.findOne();
-    const shareToRegularRatio = cofounderConfig?.shareToRegularRatio || 29;
-    
-    // Calculate co-founder equivalence
-    const totalEquivalentCoFounderShares = Math.floor(shareBreakdown.totalEffectiveShares / shareToRegularRatio);
-    const remainingRegularShares = shareBreakdown.totalEffectiveShares % shareToRegularRatio;
+    console.log('\n=== FINAL USER STATS ===');
+    console.log(`OWNED Regular Shares: ${directRegularShares}`);
+    console.log(`OWNED Co-founder Shares: ${coFounderShares}`);
+    console.log(`Equivalent from Co-founder: ${equivalentRegularFromCofounder}`);
+    console.log(`Total OWNED Effective Shares: ${totalEffectiveShares}`);
+    console.log(`PENDING Regular Shares: ${pendingDirectRegularShares}`);
+    console.log(`PENDING Co-founder Shares: ${pendingCoFounderShares}`);
+    console.log(`Total PENDING Shares: ${totalPendingShares}`);
+    console.log('===============================\n');
     
     res.status(200).json({
       success: true,
       stats: {
         shares: {
-          direct: shareBreakdown.directRegularShares,
-          cofounder: shareBreakdown.coFounderShares,
-          equivalentFromCofounder: shareBreakdown.equivalentRegularShares,
-          totalEffective: shareBreakdown.totalEffectiveShares,
+          // OWNED SHARES (verified and counted)
+          direct: directRegularShares,
+          cofounder: coFounderShares,
+          equivalentFromCofounder: equivalentRegularFromCofounder,
+          totalEffective: totalEffectiveShares,
+          
+          // PENDING SHARES (awaiting verification)
+          pending: {
+            directPending: pendingDirectRegularShares,
+            cofounderPending: pendingCoFounderShares,
+            equivalentPendingFromCofounder: equivalentPendingFromCofounder,
+            totalPending: totalPendingShares
+          },
+          
+          // CO-FOUNDER EQUIVALENCE (for owned shares only)
           cofounderEquivalence: {
             equivalentCoFounderShares: totalEquivalentCoFounderShares,
             remainingRegularShares: remainingRegularShares,
             shareToRegularRatio: shareToRegularRatio,
-            explanation: totalEquivalentCoFounderShares > 0 ? 
-              `Your ${shareBreakdown.totalEffectiveShares} total shares = ${totalEquivalentCoFounderShares} co-founder equivalent${totalEquivalentCoFounderShares !== 1 ? 's' : ''}${remainingRegularShares > 0 ? ` + ${remainingRegularShares} regular` : ''}` :
-              shareBreakdown.totalEffectiveShares > 0 ? 
-                `Your ${shareBreakdown.totalEffectiveShares} shares (need ${shareToRegularRatio - shareBreakdown.totalEffectiveShares} more for 1 co-founder equivalent)` :
-                'No shares yet'
+            explanation: explanation
           }
         },
+        
         transactions: {
           regular: regularTransactions,
           cofounder: cofounderTransactions,
-          total: regularTransactions + cofounderTransactions
+          total: regularTransactions + cofounderTransactions,
+          completed: completedTransactions,
+          pending: pendingTransactions
         },
+        
         investment: {
           totalNaira: totalInvestmentNaira,
           totalUSDT: totalInvestmentUSDT
         },
+        
         referrals: {
           totalReferred: referralStats.referredUsers || 0,
           totalEarnings: referralStats.totalEarnings || 0,
           generation1: referralStats.generation1 || { count: 0, earnings: 0 },
           generation2: referralStats.generation2 || { count: 0, earnings: 0 },
           generation3: referralStats.generation3 || { count: 0, earnings: 0 }
+        },
+        
+        // NEW: Summary for clarity
+        summary: {
+          ownedSharesTotal: totalEffectiveShares,
+          pendingSharesTotal: totalPendingShares,
+          investmentSummary: `₦${totalInvestmentNaira.toLocaleString()} + $${totalInvestmentUSDT}`,
+          statusBreakdown: `${completedTransactions} completed, ${pendingTransactions} pending transactions`,
+          ownership: totalEffectiveShares > 0 ? 
+            `You own ${directRegularShares} regular + ${coFounderShares} co-founder shares (${equivalentRegularFromCofounder} regular equivalent) = ${totalEffectiveShares} total` :
+            "No verified shares yet"
         }
       }
     });
