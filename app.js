@@ -435,6 +435,7 @@ app.get('/api/test-file-access', (req, res) => {
   });
 });
 
+
 // Enhanced file system debugging endpoint
 app.get('/api/debug/files', (req, res) => {
   try {
