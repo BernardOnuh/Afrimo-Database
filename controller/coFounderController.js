@@ -29,15 +29,18 @@ const getCoFounderShareInfo = async (req, res) => {
         // Calculate approved shares
         const response = {
             success: true,
+            shareToRegularRatio: coFounderShare.shareToRegularRatio || 29,
             pricing: {
                 priceNaira: coFounderShare.pricing.priceNaira,
                 priceUSDT: coFounderShare.pricing.priceUSDT
             },
             availability: {
-                totalShares: coFounderShare.totalShares,
-                sharesSold: coFounderShare.sharesSold,
-                sharesRemaining: coFounderShare.totalShares - coFounderShare.sharesSold
-            }
+                totalCoFounderShares: coFounderShare.totalShares,
+                coFounderSharesSold: coFounderShare.sharesSold,
+                coFounderSharesRemaining: coFounderShare.totalShares - coFounderShare.sharesSold,
+                equivalentRegularSharesRepresented: coFounderShare.sharesSold * (coFounderShare.shareToRegularRatio || 29)
+            },
+            explanation: `1 Co-Founder Share = ${coFounderShare.shareToRegularRatio || 29} Regular Shares`
         };
         
         res.status(200).json(response);
@@ -51,6 +54,7 @@ const getCoFounderShareInfo = async (req, res) => {
     }
 };
 
+
 // Calculate purchase details before payment
 const calculateCoFounderPurchase = async (req, res) => {
     try {
@@ -63,41 +67,16 @@ const calculateCoFounderPurchase = async (req, res) => {
             });
         }
         
-        // Find co-founder share configuration
-        const coFounderShare = await CoFounderShare.findOne();
+        // Use the static method from the model
+        const purchaseDetails = await CoFounderShare.calculatePurchase(parseInt(quantity), currency);
         
-        if (!coFounderShare) {
-            return res.status(400).json({
-                success: false,
-                message: 'Co-founder share configuration not found'
-            });
+        if (!purchaseDetails.success) {
+            return res.status(400).json(purchaseDetails);
         }
-        
-        // Validate available shares
-        if (coFounderShare.sharesSold + quantity > coFounderShare.totalShares) {
-            return res.status(400).json({
-                success: false,
-                message: 'Insufficient shares available',
-                availableShares: coFounderShare.totalShares - coFounderShare.sharesSold
-            });
-        }
-        
-        // Calculate price based on currency
-        const price = currency === 'naira' ? 
-            coFounderShare.pricing.priceNaira : 
-            coFounderShare.pricing.priceUSDT;
-        
-        const totalPrice = quantity * price;
         
         res.status(200).json({
             success: true,
-            purchaseDetails: {
-                quantity,
-                pricePerShare: price,
-                totalPrice,
-                currency,
-                availableSharesAfterPurchase: coFounderShare.totalShares - (coFounderShare.sharesSold + quantity)
-            }
+            purchaseDetails
         });
     } catch (error) {
         console.error('Error calculating co-founder purchase:', error);
@@ -108,6 +87,7 @@ const calculateCoFounderPurchase = async (req, res) => {
         });
     }
 };
+
 
 // Get payment configuration for co-founder shares
 const getPaymentConfig = async (req, res) => {
@@ -361,15 +341,19 @@ const verifyCoFounderPaystackPayment = async (req, res) => {
         
         // Find co-founder share configuration
         const coFounderShare = await CoFounderShare.findOne();
+        const shareToRegularRatio = coFounderShare?.shareToRegularRatio || 29;
         
         // Update shares sold
         coFounderShare.sharesSold += transaction.shares;
         await coFounderShare.save();
         
-        // Add shares to user
-        await UserShare.addShares(transaction.userId, transaction.shares, {
+        // Use the new addCoFounderShares method
+        await UserShare.addCoFounderShares(transaction.userId, transaction.shares, {
             transactionId: transaction._id,
-            shares: transaction.shares,
+            shares: transaction.shares, // For compatibility
+            coFounderShares: transaction.shares,
+            equivalentRegularShares: transaction.shares * shareToRegularRatio,
+            shareToRegularRatio: shareToRegularRatio,
             pricePerShare: transaction.amount / transaction.shares,
             currency: 'naira',
             totalAmount: transaction.amount,
@@ -386,21 +370,20 @@ const verifyCoFounderPaystackPayment = async (req, res) => {
         transaction.status = 'completed';
         await transaction.save();
         
-        // Process referral commissions ONLY for completed transactions
+        // Process referral commissions for completed transactions
         try {
             if (transaction.status === 'completed') {
                 const referralResult = await processReferralCommission(
-                    transaction.userId,   // userId
-                    transaction.amount,   // purchaseAmount
-                    'cofounder',         // purchaseType
-                    transaction._id      // transactionId
+                    transaction.userId,
+                    transaction.amount,
+                    'cofounder',
+                    transaction._id
                 );
                 
                 console.log('Referral commission process result:', referralResult);
             }
         } catch (referralError) {
             console.error('Error processing referral commissions:', referralError);
-            // Continue with the verification process despite referral error
         }
         
         // Notify user
@@ -414,6 +397,7 @@ const verifyCoFounderPaystackPayment = async (req, res) => {
                         <h2>Co-Founder Shares Purchase Successful</h2>
                         <p>Dear ${user.name},</p>
                         <p>You have successfully purchased ${transaction.shares} co-founder share(s).</p>
+                        <p>This is equivalent to ${transaction.shares * shareToRegularRatio} regular shares.</p>
                         <p>Total Amount: ₦${transaction.amount}</p>
                         <p>Transaction ID: ${transaction._id}</p>
                         <p>Thank you for your investment!</p>
@@ -427,7 +411,8 @@ const verifyCoFounderPaystackPayment = async (req, res) => {
         res.status(200).json({
             success: true,
             message: 'Payment verified successfully',
-            shares: transaction.shares,
+            coFounderShares: transaction.shares,
+            equivalentRegularShares: transaction.shares * shareToRegularRatio,
             amount: transaction.amount
         });
     } catch (error) {
@@ -439,6 +424,7 @@ const verifyCoFounderPaystackPayment = async (req, res) => {
         });
     }
 };
+
 
 // EMERGENCY FIX: Replace the submitCoFounderManualPayment function in your coFounderController.js
 const submitCoFounderManualPayment = async (req, res) => {
@@ -701,19 +687,36 @@ const getUserCoFounderShares = async (req, res) => {
         const userId = req.user.id;
         
         // Find user shares
+        const userShares = await UserShare.findOne({ user: userId });
         const transactions = await PaymentTransaction.find({ 
             userId,
             type: 'co-founder',
             status: 'completed'
         }).sort({ createdAt: -1 });
         
-        const totalShares = transactions.reduce((sum, t) => sum + (t.shares || 0), 0);
+        // Get current ratio
+        const coFounderConfig = await CoFounderShare.findOne();
+        const shareToRegularRatio = coFounderConfig?.shareToRegularRatio || 29;
+        
+        const totalCoFounderShares = transactions.reduce((sum, t) => sum + (t.shares || 0), 0);
+        const totalEquivalentRegularShares = totalCoFounderShares * shareToRegularRatio;
+        
+        // Get share breakdown if user has shares
+        const shareBreakdown = userShares ? userShares.getShareBreakdown() : {
+            totalShares: 0,
+            regularShares: 0,
+            coFounderShares: 0,
+            equivalentRegularShares: 0,
+            shareBreakdown: { direct: 0, fromCoFounder: 0 }
+        };
         
         res.status(200).json({
             success: true,
-            totalShares,
+            coFounderShares: totalCoFounderShares,
+            equivalentRegularShares: totalEquivalentRegularShares,
+            shareToRegularRatio: shareToRegularRatio,
+            shareBreakdown: shareBreakdown,
             transactions: transactions.map(t => {
-                // Safe handling of paymentMethod
                 let cleanPaymentMethod = 'unknown';
                 if (t.paymentMethod && typeof t.paymentMethod === 'string') {
                     cleanPaymentMethod = t.paymentMethod.replace('manual_', '');
@@ -721,7 +724,8 @@ const getUserCoFounderShares = async (req, res) => {
                 
                 return {
                     transactionId: t.transactionId || 'No ID',
-                    shares: t.shares || 0,
+                    coFounderShares: t.shares || 0,
+                    equivalentRegularShares: (t.shares || 0) * shareToRegularRatio,
                     amount: t.amount || 0,
                     currency: t.currency || 'unknown',
                     paymentMethod: cleanPaymentMethod,
@@ -739,6 +743,7 @@ const getUserCoFounderShares = async (req, res) => {
         });
     }
 };
+
 
 // Admin verify web3 transaction
 const adminVerifyWeb3Transaction = async (req, res) => {
@@ -1192,7 +1197,7 @@ const adminVerifyCoFounderManualPayment = async (req, res) => {
             });
         }
         
-        // FIXED: Find transaction using PaymentTransaction model (not UserShare)
+        // Find transaction
         const transaction = await PaymentTransaction.findOne({
             transactionId: transactionId,
             type: 'co-founder',
@@ -1215,7 +1220,7 @@ const adminVerifyCoFounderManualPayment = async (req, res) => {
         
         const newStatus = approved ? 'completed' : 'failed';
         
-        // FIXED: Update transaction status directly in PaymentTransaction
+        // Update transaction status
         transaction.status = newStatus;
         transaction.adminNotes = adminNote;
         transaction.verifiedBy = adminId;
@@ -1224,15 +1229,19 @@ const adminVerifyCoFounderManualPayment = async (req, res) => {
         // If approved, update global share counts and process referrals
         if (approved) {
             const coFounderShare = await CoFounderShare.findOne();
+            const shareToRegularRatio = coFounderShare?.shareToRegularRatio || 29;
             
             // Update shares sold
             coFounderShare.sharesSold += transaction.shares;
             await coFounderShare.save();
             
-            // FIXED: Add shares to user (if using UserShare model for co-founder tracking)
-            await UserShare.addShares(transaction.userId, transaction.shares, {
+            // Use addCoFounderShares method with ratio
+            await UserShare.addCoFounderShares(transaction.userId, transaction.shares, {
                 transactionId: transaction._id,
                 shares: transaction.shares,
+                coFounderShares: transaction.shares,
+                equivalentRegularShares: transaction.shares * shareToRegularRatio,
+                shareToRegularRatio: shareToRegularRatio,
                 pricePerShare: transaction.amount / transaction.shares,
                 currency: transaction.currency,
                 totalAmount: transaction.amount,
@@ -1250,16 +1259,15 @@ const adminVerifyCoFounderManualPayment = async (req, res) => {
             // Process referral commissions ONLY for now-completed transactions
             try {
                 const referralResult = await processReferralCommission(
-                    transaction.userId,  // userId
-                    transaction.amount,  // purchaseAmount
-                    'cofounder',        // purchaseType
-                    transaction._id     // transactionId
+                    transaction.userId,
+                    transaction.amount,
+                    'cofounder',
+                    transaction._id
                 );
                 
                 console.log('Referral commission process result:', referralResult);
             } catch (referralError) {
                 console.error('Error processing referral commissions:', referralError);
-                // Continue with the verification process despite referral error
             }
         }
         
@@ -1267,6 +1275,9 @@ const adminVerifyCoFounderManualPayment = async (req, res) => {
         const user = await User.findById(transaction.userId);
         if (user && user.email) {
             try {
+                const coFounderConfig = await CoFounderShare.findOne();
+                const shareToRegularRatio = coFounderConfig?.shareToRegularRatio || 29;
+                
                 await sendEmail({
                     email: user.email,
                     subject: `AfriMobile - Co-Founder Manual Payment ${approved ? 'Approved' : 'Declined'}`,
@@ -1274,6 +1285,7 @@ const adminVerifyCoFounderManualPayment = async (req, res) => {
                         <h2>Co-Founder Share Purchase ${approved ? 'Confirmation' : 'Update'}</h2>
                         <p>Dear ${user.name},</p>
                         <p>Your purchase of ${transaction.shares} co-founder shares for ${transaction.currency === 'naira' ? '₦' : '$'}${transaction.amount} has been ${approved ? 'verified and completed' : 'declined'}.</p>
+                        ${approved ? `<p>This is equivalent to ${transaction.shares * shareToRegularRatio} regular shares.</p>` : ''}
                         <p>Transaction Reference: ${transactionId}</p>
                         ${approved ? 
                             `<p>Thank you for your investment in AfriMobile!</p>` : 
@@ -1302,7 +1314,6 @@ const adminVerifyCoFounderManualPayment = async (req, res) => {
         });
     }
 };
-
 
 // NEW: Admin cancel manual payment
 const adminCancelCoFounderManualPayment = async (req, res) => {
@@ -1678,7 +1689,10 @@ const adminAddCoFounderShares = async (req, res) => {
         let coFounderShare = await CoFounderShare.findOne();
         if (!coFounderShare) {
             coFounderShare = new CoFounderShare();
+            await coFounderShare.save();
         }
+        
+        const shareToRegularRatio = coFounderShare.shareToRegularRatio || 29;
         
         // Check available shares
         if (coFounderShare.sharesSold + parseInt(shares) > coFounderShare.totalShares) {
@@ -1689,22 +1703,30 @@ const adminAddCoFounderShares = async (req, res) => {
         }
         
         // Create transaction with completed status immediately
+        const transactionId = generateTransactionId();
         const transaction = await PaymentTransaction.create({
             userId,
             type: 'co-founder',
+            transactionId,
             shares: parseInt(shares),
             status: 'completed',
             adminNotes: note || 'Admin share allocation',
-            paymentMethod: 'manual',
-            amount: coFounderShare.pricing.priceNaira * parseInt(shares), // Use current price for reference
-            currency: 'naira'
+            paymentMethod: 'co-founder',
+            amount: coFounderShare.pricing.priceNaira * parseInt(shares),
+            currency: 'naira',
+            shareToRegularRatio: shareToRegularRatio,
+            coFounderShares: parseInt(shares),
+            equivalentRegularShares: parseInt(shares) * shareToRegularRatio
         });
         
-        // Add shares to user
-        await UserShare.addShares(userId, parseInt(shares), {
+        // Add co-founder shares to user using the new method
+        await UserShare.addCoFounderShares(userId, parseInt(shares), {
             transactionId: transaction._id,
             shares: parseInt(shares),
-            pricePerShare: coFounderShare.pricing.priceNaira, // Use current price for reference
+            coFounderShares: parseInt(shares),
+            equivalentRegularShares: parseInt(shares) * shareToRegularRatio,
+            shareToRegularRatio: shareToRegularRatio,
+            pricePerShare: coFounderShare.pricing.priceNaira,
             currency: 'naira',
             totalAmount: coFounderShare.pricing.priceNaira * parseInt(shares),
             paymentMethod: 'co-founder',
@@ -1728,17 +1750,16 @@ const adminAddCoFounderShares = async (req, res) => {
             
             if (user && user.referralInfo && user.referralInfo.code) {
                 const referralResult = await processReferralCommission(
-                    userId,                                               // userId
-                    coFounderShare.pricing.priceNaira * parseInt(shares), // purchaseAmount
-                    'cofounder',                                         // purchaseType
-                    transaction._id                                      // transactionId
+                    userId,
+                    coFounderShare.pricing.priceNaira * parseInt(shares),
+                    'cofounder',
+                    transaction._id
                 );
                 
                 console.log('Referral commission process result for admin-added shares:', referralResult);
             }
         } catch (referralError) {
             console.error('Error processing referral commissions for admin-added shares:', referralError);
-            // Continue with the process despite referral error
         }
         
         // Notify user
@@ -1752,6 +1773,7 @@ const adminAddCoFounderShares = async (req, res) => {
                         <h2>Co-Founder Shares Allocation</h2>
                         <p>Dear ${user.name},</p>
                         <p>You have been allocated ${shares} co-founder share(s).</p>
+                        <p>This is equivalent to ${parseInt(shares) * shareToRegularRatio} regular shares.</p>
                         ${note ? `<p>Note: ${note}</p>` : ''}
                         <p>Thank you for your contribution!</p>
                     `
@@ -1764,6 +1786,8 @@ const adminAddCoFounderShares = async (req, res) => {
         res.status(200).json({
             success: true,
             message: `Successfully added ${shares} co-founder shares to user`,
+            coFounderShares: parseInt(shares),
+            equivalentRegularShares: parseInt(shares) * shareToRegularRatio,
             transaction: transaction._id
         });
     } catch (error) {
@@ -1776,8 +1800,8 @@ const adminAddCoFounderShares = async (req, res) => {
     }
 };
 
+
 // Get all co-founder transactions
-// Get all co-founder transactions (FIXED VERSION)
 const getAllCoFounderTransactions = async (req, res) => {
     try {
         const { status, page = 1, limit = 20, paymentMethod, fromDate, toDate } = req.query;
@@ -1907,6 +1931,7 @@ const getCoFounderShareStatistics = async (req, res) => {
         
         // Get current co-founder share configuration
         const coFounderShare = await CoFounderShare.findOne();
+        const shareToRegularRatio = coFounderShare?.shareToRegularRatio || 29;
         
         // Get investor count (only count completed transactions)
         const investorCount = await PaymentTransaction.countDocuments({
@@ -1926,21 +1951,27 @@ const getCoFounderShareStatistics = async (req, res) => {
                 $group: {
                     _id: '$currency',
                     totalAmount: { $sum: '$amount' },
-                    totalShares: { $sum: '$shares' }
+                    totalCoFounderShares: { $sum: '$shares' }
                 }
             }
         ]);
         
+        // Calculate equivalent regular shares
+        const totalEquivalentRegularShares = coFounderShare.sharesSold * shareToRegularRatio;
+        
         res.status(200).json({
             success: true,
             statistics: {
-                totalShares: coFounderShare.totalShares,
-                sharesSold: coFounderShare.sharesSold,
-                sharesRemaining: coFounderShare.totalShares - coFounderShare.sharesSold,
+                totalCoFounderShares: coFounderShare.totalShares,
+                coFounderSharesSold: coFounderShare.sharesSold,
+                coFounderSharesRemaining: coFounderShare.totalShares - coFounderShare.sharesSold,
+                shareToRegularRatio: shareToRegularRatio,
+                totalEquivalentRegularShares: totalEquivalentRegularShares,
                 investorCount,
                 transactions
             },
-            pricing: coFounderShare.pricing
+            pricing: coFounderShare.pricing,
+            ratioExplanation: `Each co-founder share represents ${shareToRegularRatio} regular shares`
         });
     } catch (error) {
         console.error('Error fetching co-founder share statistics:', error);
@@ -2067,6 +2098,60 @@ const initiateCoFounderManualPayment = async (req, res) => {
         });
     }
 };
+const updateShareToRegularRatio = async (req, res) => {
+    try {
+        const { ratio } = req.body;
+        const adminId = req.user.id;
+        
+        // Verify admin
+        const admin = await User.findById(adminId);
+        if (!admin || !admin.isAdmin) {
+            return res.status(403).json({
+                success: false,
+                message: 'Unauthorized: Admin access required'
+            });
+        }
+        
+        if (!ratio || ratio <= 0 || !Number.isInteger(Number(ratio))) {
+            return res.status(400).json({
+                success: false,
+                message: 'Please provide a valid ratio (must be a positive integer)'
+            });
+        }
+        
+        // Find or create co-founder share configuration
+        let coFounderShare = await CoFounderShare.findOne();
+        if (!coFounderShare) {
+            coFounderShare = new CoFounderShare();
+        }
+        
+        const oldRatio = coFounderShare.shareToRegularRatio || 29;
+        const newRatio = parseInt(ratio);
+        
+        coFounderShare.shareToRegularRatio = newRatio;
+        await coFounderShare.save();
+        
+        // Log the change for audit purposes
+        console.log(`Admin ${adminId} updated share-to-regular ratio from ${oldRatio} to ${newRatio}`);
+        
+        res.status(200).json({
+            success: true,
+            message: 'Share to regular ratio updated successfully',
+            oldRatio: oldRatio,
+            newRatio: newRatio,
+            explanation: `1 Co-Founder Share now equals ${newRatio} Regular Shares`
+        });
+    } catch (error) {
+        console.error('Error updating share to regular ratio:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to update ratio',
+            error: process.env.NODE_ENV === 'development' ? error.message : undefined
+        });
+    }
+};
+
+
 
 const uploadCoFounderPaymentProof = async (req, res) => {
     // This function is now handled by submitCoFounderManualPayment

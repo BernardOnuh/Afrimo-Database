@@ -7,6 +7,7 @@ const axios = require('axios');
 const { ethers } = require('ethers');
 const { sendEmail } = require('../utils/emailService');
 const SiteConfig = require('../models/SiteConfig');
+const CoFounderShare = require('../models/CoFounderShare');
 const { processReferralCommission, rollbackReferralCommission } = require('../utils/referralUtils');
 
 // Generate a unique transaction ID
@@ -19,15 +20,151 @@ exports.getShareInfo = async (req, res) => {
   try {
     const shareConfig = await Share.getCurrentConfig();
     
+    // Get co-founder share configuration
+    const coFounderConfig = await CoFounderShare.findOne();
+    const shareToRegularRatio = coFounderConfig?.shareToRegularRatio || 29;
+    const coFounderSharesSold = coFounderConfig?.sharesSold || 0;
+    
+    // CRITICAL FIX: Calculate equivalent regular shares from co-founder purchases
+    const equivalentRegularSharesFromCoFounder = coFounderSharesSold * shareToRegularRatio;
+    
+    console.log('Share calculation debug:', {
+      coFounderSharesSold,
+      shareToRegularRatio,
+      equivalentRegularSharesFromCoFounder,
+      directRegularSharesSold: shareConfig.sharesSold,
+      tier1DirectSold: shareConfig.tierSales.tier1Sold,
+      tier2DirectSold: shareConfig.tierSales.tier2Sold,
+      tier3DirectSold: shareConfig.tierSales.tier3Sold
+    });
+    
+    // FIXED: Allocate co-founder equivalent shares across tiers (starting from tier1)
+    let remainingCoFounderShares = equivalentRegularSharesFromCoFounder;
+    
+    // Calculate tier-specific allocations of co-founder equivalent shares
+    let coFounderAllocatedToTier1 = 0;
+    let coFounderAllocatedToTier2 = 0;
+    let coFounderAllocatedToTier3 = 0;
+    
+    // Allocate co-founder equivalent shares starting from tier1
+    if (remainingCoFounderShares > 0) {
+      const tier1Capacity = shareConfig.currentPrices.tier1.shares;
+      const tier1DirectUsed = shareConfig.tierSales.tier1Sold;
+      const tier1Available = tier1Capacity - tier1DirectUsed;
+      
+      coFounderAllocatedToTier1 = Math.min(remainingCoFounderShares, tier1Available);
+      remainingCoFounderShares -= coFounderAllocatedToTier1;
+    }
+    
+    if (remainingCoFounderShares > 0) {
+      const tier2Capacity = shareConfig.currentPrices.tier2.shares;
+      const tier2DirectUsed = shareConfig.tierSales.tier2Sold;
+      const tier2Available = tier2Capacity - tier2DirectUsed;
+      
+      coFounderAllocatedToTier2 = Math.min(remainingCoFounderShares, tier2Available);
+      remainingCoFounderShares -= coFounderAllocatedToTier2;
+    }
+    
+    if (remainingCoFounderShares > 0) {
+      const tier3Capacity = shareConfig.currentPrices.tier3.shares;
+      const tier3DirectUsed = shareConfig.tierSales.tier3Sold;
+      const tier3Available = tier3Capacity - tier3DirectUsed;
+      
+      coFounderAllocatedToTier3 = Math.min(remainingCoFounderShares, tier3Available);
+      remainingCoFounderShares -= coFounderAllocatedToTier3;
+    }
+    
+    // FIXED: Calculate actual availability after deducting co-founder equivalent shares
+    const tier1ActualAvailable = Math.max(0, 
+      shareConfig.currentPrices.tier1.shares - 
+      shareConfig.tierSales.tier1Sold - 
+      coFounderAllocatedToTier1
+    );
+    
+    const tier2ActualAvailable = Math.max(0, 
+      shareConfig.currentPrices.tier2.shares - 
+      shareConfig.tierSales.tier2Sold - 
+      coFounderAllocatedToTier2
+    );
+    
+    const tier3ActualAvailable = Math.max(0, 
+      shareConfig.currentPrices.tier3.shares - 
+      shareConfig.tierSales.tier3Sold - 
+      coFounderAllocatedToTier3
+    );
+    
+    // Calculate totals
+    const totalDirectSharesSold = shareConfig.sharesSold;
+    const totalEffectiveSharesSold = totalDirectSharesSold + equivalentRegularSharesFromCoFounder;
+    const totalActualAvailable = tier1ActualAvailable + tier2ActualAvailable + tier3ActualAvailable;
+    
+    console.log('Availability calculation:', {
+      tier1ActualAvailable,
+      tier2ActualAvailable, 
+      tier3ActualAvailable,
+      totalActualAvailable,
+      coFounderAllocations: {
+        tier1: coFounderAllocatedToTier1,
+        tier2: coFounderAllocatedToTier2,
+        tier3: coFounderAllocatedToTier3
+      }
+    });
+    
     const response = {
       success: true,
       pricing: shareConfig.currentPrices,
       availability: {
-        tier1: shareConfig.currentPrices.tier1.shares - shareConfig.tierSales.tier1Sold,
-        tier2: shareConfig.currentPrices.tier2.shares - shareConfig.tierSales.tier2Sold,
-        tier3: shareConfig.currentPrices.tier3.shares - shareConfig.tierSales.tier3Sold,
+        tier1: tier1ActualAvailable,
+        tier2: tier2ActualAvailable,
+        tier3: tier3ActualAvailable,
       },
-      totalAvailable: shareConfig.totalShares - shareConfig.sharesSold
+      totalAvailable: totalActualAvailable,
+      
+      // ENHANCED: Detailed breakdown for debugging
+      shareBreakdown: {
+        totalRegularShares: shareConfig.totalShares,
+        directRegularSharesSold: totalDirectSharesSold,
+        coFounderSharesSold: coFounderSharesSold,
+        equivalentRegularFromCoFounder: equivalentRegularSharesFromCoFounder,
+        totalEffectiveSharesSold: totalEffectiveSharesSold,
+        actualRemaining: totalActualAvailable,
+        
+        // Tier-specific breakdown
+        tierBreakdown: {
+          tier1: {
+            capacity: shareConfig.currentPrices.tier1.shares,
+            directSold: shareConfig.tierSales.tier1Sold,
+            coFounderAllocated: coFounderAllocatedToTier1,
+            totalUsed: shareConfig.tierSales.tier1Sold + coFounderAllocatedToTier1,
+            available: tier1ActualAvailable
+          },
+          tier2: {
+            capacity: shareConfig.currentPrices.tier2.shares,
+            directSold: shareConfig.tierSales.tier2Sold,
+            coFounderAllocated: coFounderAllocatedToTier2,
+            totalUsed: shareConfig.tierSales.tier2Sold + coFounderAllocatedToTier2,
+            available: tier2ActualAvailable
+          },
+          tier3: {
+            capacity: shareConfig.currentPrices.tier3.shares,
+            directSold: shareConfig.tierSales.tier3Sold,
+            coFounderAllocated: coFounderAllocatedToTier3,
+            totalUsed: shareConfig.tierSales.tier3Sold + coFounderAllocatedToTier3,
+            available: tier3ActualAvailable
+          }
+        }
+      },
+      
+      coFounderComparison: {
+        shareToRegularRatio: shareToRegularRatio,
+        explanation: `${shareToRegularRatio} Regular Shares = 1 Co-Founder Share`,
+        coFounderPricing: coFounderConfig ? {
+          priceNaira: coFounderConfig.pricing.priceNaira,
+          priceUSDT: coFounderConfig.pricing.priceUSDT
+        } : null,
+        coFounderSharesSold: coFounderSharesSold,
+        equivalentRegularShares: equivalentRegularSharesFromCoFounder
+      }
     };
     
     res.status(200).json(response);
@@ -40,6 +177,7 @@ exports.getShareInfo = async (req, res) => {
     });
   }
 };
+
 
 // Calculate purchase details before payment
 exports.calculatePurchase = async (req, res) => {
@@ -63,9 +201,32 @@ exports.calculatePurchase = async (req, res) => {
       });
     }
     
+    // Get co-founder share ratio for comparison
+    const coFounderConfig = await CoFounderShare.findOne();
+    const shareToRegularRatio = coFounderConfig?.shareToRegularRatio || 29;
+    
+    // FIXED: Calculate co-founder share equivalence more clearly
+    const totalRegularShares = purchaseDetails.totalShares;
+    const equivalentCoFounderShares = Math.floor(totalRegularShares / shareToRegularRatio);
+    const remainingRegularShares = totalRegularShares % shareToRegularRatio;
+    
+    // Enhanced purchase details with co-founder comparison
+    const enhancedPurchaseDetails = {
+      ...purchaseDetails,
+      coFounderEquivalence: {
+        equivalentCoFounderShares: equivalentCoFounderShares,
+        remainingRegularShares: remainingRegularShares,
+        shareToRegularRatio: shareToRegularRatio,
+        explanation: equivalentCoFounderShares > 0 ? 
+          `${totalRegularShares} regular shares = ${equivalentCoFounderShares} co-founder share${equivalentCoFounderShares !== 1 ? 's' : ''}${remainingRegularShares > 0 ? ` + ${remainingRegularShares} regular share${remainingRegularShares !== 1 ? 's' : ''}` : ''}` :
+          `${totalRegularShares} regular share${totalRegularShares !== 1 ? 's' : ''} (need ${shareToRegularRatio - totalRegularShares} more for 1 co-founder share equivalent)`,
+        comparisonNote: `Note: ${shareToRegularRatio} regular shares = 1 co-founder share in terms of value and voting power`
+      }
+    };
+    
     res.status(200).json({
       success: true,
-      purchaseDetails
+      purchaseDetails: enhancedPurchaseDetails
     });
   } catch (error) {
     console.error('Error calculating purchase:', error);
@@ -541,33 +702,284 @@ exports.adminAddShares = async (req, res) => {
 // Get user shares and transactions
 exports.getUserShares = async (req, res) => {
   try {
-    const userId = req.user.id; // From auth middleware
+    const userId = req.user.id;
     
     const userShares = await UserShare.findOne({ user: userId });
+    
+    // EMERGENCY DEBUG: Check co-founder transactions in PaymentTransaction model
+    const PaymentTransaction = require('../models/Transaction'); // Adjust path as needed
+    const coFounderPaymentTransactions = await PaymentTransaction.find({
+      userId: userId,
+      type: 'co-founder'
+    });
+    
+    console.log('=== DEBUGGING USER SHARES ===');
+    console.log(`User ID: ${userId}`);
+    console.log(`UserShare transactions count: ${userShares ? userShares.transactions.length : 0}`);
+    console.log(`PaymentTransaction co-founder count: ${coFounderPaymentTransactions.length}`);
+    
+    if (userShares) {
+      console.log('\n=== USERSHARE TRANSACTIONS ===');
+      userShares.transactions.forEach((tx, index) => {
+        console.log(`${index + 1}. ID: ${tx.transactionId}`);
+        console.log(`   Status: ${tx.status}`);
+        console.log(`   Method: ${tx.paymentMethod}`);
+        console.log(`   Shares: ${tx.shares}`);
+        console.log(`   CoFounder Shares: ${tx.coFounderShares}`);
+        console.log(`   Admin Action: ${tx.adminAction}`);
+        console.log(`   Date: ${tx.createdAt}`);
+        console.log('   ---');
+      });
+    }
+    
+    console.log('\n=== PAYMENT TRANSACTIONS (Co-founder) ===');
+    coFounderPaymentTransactions.forEach((tx, index) => {
+      console.log(`${index + 1}. ID: ${tx.transactionId || tx._id}`);
+      console.log(`   Status: ${tx.status}`);
+      console.log(`   Method: ${tx.paymentMethod}`);
+      console.log(`   Shares: ${tx.shares}`);
+      console.log(`   Amount: ${tx.amount}`);
+      console.log(`   Verified By: ${tx.verifiedBy}`);
+      console.log(`   Admin Notes: ${tx.adminNotes}`);
+      console.log(`   Date: ${tx.createdAt}`);
+      console.log('   ---');
+    });
     
     if (!userShares) {
       return res.status(200).json({
         success: true,
-        totalShares: 0,
-        transactions: []
+        message: "No UserShare record found",
+        debug: {
+          coFounderPaymentTransactions: coFounderPaymentTransactions.length
+        }
       });
     }
     
+    // Get co-founder ratio
+    const coFounderConfig = await CoFounderShare.findOne();
+    const shareToRegularRatio = coFounderConfig?.shareToRegularRatio || 29;
+    
+    // CORRECTED CALCULATION: Only count VERIFIED completed transactions
+    let directRegularShares = 0;
+    let coFounderShares = 0;
+    let pendingRegularShares = 0;
+    let pendingCoFounderShares = 0;
+    
+    let completedTransactions = 0;
+    let pendingTransactions = 0;
+    
+    // Process UserShare transactions
+    userShares.transactions.forEach(transaction => {
+      if (transaction.status === 'completed') {
+        completedTransactions++;
+        
+        if (transaction.paymentMethod === 'co-founder') {
+          // CRITICAL CHECK: Verify this is actually completed
+          const paymentTx = coFounderPaymentTransactions.find(
+            pt => pt.transactionId === transaction.transactionId || 
+                  pt._id.toString() === transaction.transactionId
+          );
+          
+          if (paymentTx && paymentTx.status === 'completed') {
+            // Actually completed
+            coFounderShares += transaction.coFounderShares || transaction.shares || 0;
+            console.log(`✅ COUNTING co-founder shares: ${transaction.coFounderShares || transaction.shares || 0}`);
+          } else {
+            // UserShare says completed but PaymentTransaction says otherwise
+            pendingCoFounderShares += transaction.coFounderShares || transaction.shares || 0;
+            pendingTransactions++;
+            completedTransactions--; // Move to pending count
+            console.log(`⚠️  MOVING TO PENDING: UserShare says completed but PaymentTransaction says ${paymentTx ? paymentTx.status : 'not found'}`);
+          }
+        } else {
+          // Regular share transaction
+          directRegularShares += transaction.shares || 0;
+        }
+      } else if (transaction.status === 'pending') {
+        pendingTransactions++;
+        
+        if (transaction.paymentMethod === 'co-founder') {
+          pendingCoFounderShares += transaction.coFounderShares || transaction.shares || 0;
+        } else {
+          pendingRegularShares += transaction.shares || 0;
+        }
+      }
+    });
+    
+    // Calculate derived values
+    const equivalentRegularFromCoFounder = coFounderShares * shareToRegularRatio;
+    const totalEffectiveShares = directRegularShares + equivalentRegularFromCoFounder;
+    
+    const pendingEquivalentRegularFromCoFounder = pendingCoFounderShares * shareToRegularRatio;
+    const totalPendingEffectiveShares = pendingRegularShares + pendingEquivalentRegularFromCoFounder;
+    
+    const totalEquivalentCoFounderShares = Math.floor(totalEffectiveShares / shareToRegularRatio);
+    const remainingRegularShares = totalEffectiveShares % shareToRegularRatio;
+    
+    // Generate explanation
+    let explanation = "";
+    if (totalEffectiveShares === 0 && totalPendingEffectiveShares === 0) {
+      explanation = "No shares yet";
+    } else if (totalEffectiveShares === 0 && totalPendingEffectiveShares > 0) {
+      explanation = `You have ${totalPendingEffectiveShares} shares pending verification (${pendingRegularShares} regular + ${pendingCoFounderShares} co-founder)`;
+    } else if (totalEquivalentCoFounderShares > 0) {
+      explanation = `Your ${totalEffectiveShares} completed shares = ${totalEquivalentCoFounderShares} co-founder share${totalEquivalentCoFounderShares !== 1 ? 's' : ''}${remainingRegularShares > 0 ? ` + ${remainingRegularShares} regular share${remainingRegularShares !== 1 ? 's' : ''}` : ''}`;
+    } else if (totalEffectiveShares > 0) {
+      explanation = `Your ${totalEffectiveShares} completed share${totalEffectiveShares !== 1 ? 's' : ''} (need ${shareToRegularRatio - totalEffectiveShares} more for 1 co-founder share equivalent)`;
+    }
+    
+    // Add pending info
+    if (totalPendingEffectiveShares > 0) {
+      if (totalEffectiveShares > 0) {
+        explanation += `. Plus ${totalPendingEffectiveShares} shares pending verification`;
+      }
+    }
+    
+    console.log('\n=== FINAL CALCULATION ===');
+    console.log(`Completed Regular Shares: ${directRegularShares}`);
+    console.log(`Completed Co-founder Shares: ${coFounderShares}`);
+    console.log(`Pending Regular Shares: ${pendingRegularShares}`);
+    console.log(`Pending Co-founder Shares: ${pendingCoFounderShares}`);
+    console.log(`Total Effective Shares (Completed): ${totalEffectiveShares}`);
+    console.log(`Total Pending Effective Shares: ${totalPendingEffectiveShares}`);
+    console.log('===============================\n');
+    
     res.status(200).json({
       success: true,
-      totalShares: userShares.totalShares,
-      transactions: userShares.transactions.map(t => ({
-        transactionId: t.transactionId,
-        shares: t.shares,
-        pricePerShare: t.pricePerShare,
-        currency: t.currency,
-        totalAmount: t.totalAmount,
-        paymentMethod: t.paymentMethod,
-        status: t.status,
-        date: t.createdAt,
-        adminAction: t.adminAction || false
-      }))
+      
+      // CORRECTED: Only truly completed shares count
+      totalShares: totalEffectiveShares,
+      completedTransactions,
+      pendingTransactions,
+      
+      // DETAILED BREAKDOWN
+      shareBreakdown: {
+        // COMPLETED SHARES (verified and counted)
+        directRegularShares,
+        coFounderShares,
+        equivalentRegularFromCoFounder,
+        totalEffectiveShares,
+        
+        // PENDING SHARES (awaiting verification)
+        pending: {
+          pendingRegularShares,
+          pendingCoFounderShares,
+          pendingEquivalentRegularFromCoFounder,
+          totalPendingEffectiveShares
+        },
+        
+        // SUMMARY
+        summary: {
+          explanation: coFounderShares > 0 || directRegularShares > 0 ? 
+            `You have ${directRegularShares} regular shares + ${coFounderShares} co-founder shares (worth ${equivalentRegularFromCoFounder} regular shares) = ${totalEffectiveShares} total effective shares` :
+            "No completed shares yet",
+          ratioExplanation: `1 co-founder share = ${shareToRegularRatio} regular shares`,
+          pendingSummary: totalPendingEffectiveShares > 0 ? 
+            `${pendingRegularShares} regular + ${pendingCoFounderShares} co-founder shares pending verification` :
+            "No pending shares"
+        }
+      },
+      
+      // CO-FOUNDER EQUIVALENCE
+      coFounderEquivalence: {
+        equivalentCoFounderShares: totalEquivalentCoFounderShares,
+        remainingRegularShares: remainingRegularShares,
+        shareToRegularRatio: shareToRegularRatio,
+        explanation: explanation
+      },
+      
+      // DEBUG INFO
+      debug: {
+        userShareTransactionCount: userShares.transactions.length,
+        paymentTransactionCount: coFounderPaymentTransactions.length,
+        statusMismatches: coFounderPaymentTransactions.filter(pt => {
+          const userTx = userShares.transactions.find(
+            ut => ut.transactionId === pt.transactionId || ut.transactionId === pt._id.toString()
+          );
+          return userTx && userTx.status !== pt.status;
+        }).length
+      },
+      
+      // TRANSACTION LIST
+      transactions: userShares.transactions.map(t => {
+        let transactionType = 'regular';
+        let displayShares = t.shares || 0;
+        let equivalentShares = 0;
+        let actualStatus = t.status;
+        
+        if (t.paymentMethod === 'co-founder') {
+          transactionType = 'co-founder';
+          displayShares = t.coFounderShares || t.shares || 0;
+          equivalentShares = displayShares * shareToRegularRatio;
+          
+          // Check actual status against PaymentTransaction
+          const paymentTx = coFounderPaymentTransactions.find(
+            pt => pt.transactionId === t.transactionId || pt._id.toString() === t.transactionId
+          );
+          
+          if (paymentTx && paymentTx.status !== t.status) {
+            actualStatus = `${t.status} (actually ${paymentTx.status})`;
+          }
+        }
+        
+        let statusNote = "";
+        const baseStatus = t.status;
+        
+        switch (baseStatus) {
+          case 'completed':
+            if (t.paymentMethod === 'co-founder') {
+              const paymentTx = coFounderPaymentTransactions.find(
+                pt => pt.transactionId === t.transactionId || pt._id.toString() === t.transactionId
+              );
+              if (paymentTx && paymentTx.status === 'completed') {
+                statusNote = "✅ Verified and counted in your totals";
+              } else {
+                statusNote = "⚠️ UserShare says completed but needs verification";
+              }
+            } else {
+              statusNote = "✅ Verified and counted in your totals";
+            }
+            break;
+          case 'pending':
+            statusNote = "⏳ Awaiting payment verification";
+            break;
+          case 'failed':
+            statusNote = "❌ Payment verification failed";
+            break;
+          default:
+            statusNote = `Status: ${baseStatus}`;
+        }
+        
+        return {
+          transactionId: t.transactionId,
+          type: transactionType,
+          shares: displayShares,
+          equivalentRegularShares: equivalentShares,
+          pricePerShare: t.pricePerShare,
+          currency: t.currency,
+          totalAmount: t.totalAmount,
+          paymentMethod: t.paymentMethod,
+          status: actualStatus,
+          statusNote: statusNote,
+          date: t.createdAt,
+          adminAction: t.adminAction || false,
+          
+          impact: baseStatus === 'completed' && 
+                  (t.paymentMethod !== 'co-founder' || 
+                   coFounderPaymentTransactions.find(pt => 
+                     (pt.transactionId === t.transactionId || pt._id.toString() === t.transactionId) && 
+                     pt.status === 'completed'
+                   )) ? 
+            (transactionType === 'co-founder' ? 
+              `${displayShares} co-founder share${displayShares !== 1 ? 's' : ''} = ${equivalentShares} regular share${equivalentShares !== 1 ? 's' : ''} equivalent (ACTIVE)` :
+              `${displayShares} regular share${displayShares !== 1 ? 's' : ''} (ACTIVE)`) :
+            (transactionType === 'co-founder' ? 
+              `${displayShares} co-founder share${displayShares !== 1 ? 's' : ''} = ${equivalentShares} regular share${equivalentShares !== 1 ? 's' : ''} equivalent (PENDING)` :
+              `${displayShares} regular share${displayShares !== 1 ? 's' : ''} (${baseStatus.toUpperCase()})`)
+        };
+      }).sort((a, b) => new Date(b.date) - new Date(a.date))
     });
+    
   } catch (error) {
     console.error('Error fetching user shares:', error);
     res.status(500).json({
@@ -577,6 +989,7 @@ exports.getUserShares = async (req, res) => {
     });
   }
 };
+
 
 // Admin: Get all transactions
 exports.getAllTransactions = async (req, res) => {
@@ -682,7 +1095,7 @@ exports.getAllTransactions = async (req, res) => {
 // Admin: Get overall share statistics
 exports.getShareStatistics = async (req, res) => {
   try {
-    const adminId = req.user.id; // From auth middleware
+    const adminId = req.user.id;
     
     // Check if admin
     const admin = await User.findById(adminId);
@@ -695,6 +1108,10 @@ exports.getShareStatistics = async (req, res) => {
     
     // Get current share config
     const shareConfig = await Share.getCurrentConfig();
+    
+    // Get co-founder share config
+    const coFounderConfig = await CoFounderShare.findOne();
+    const shareToRegularRatio = coFounderConfig?.shareToRegularRatio || 29;
     
     // Get user count with shares
     const investorCount = await UserShare.countDocuments({ totalShares: { $gt: 0 } });
@@ -716,6 +1133,10 @@ exports.getShareStatistics = async (req, res) => {
       'transactions.status': 'pending'
     });
     
+    // Calculate co-founder share equivalence
+    const totalEquivalentCoFounderShares = Math.floor(shareConfig.sharesSold / shareToRegularRatio);
+    const remainingRegularShares = shareConfig.sharesSold % shareToRegularRatio;
+    
     res.status(200).json({
       success: true,
       statistics: {
@@ -726,7 +1147,14 @@ exports.getShareStatistics = async (req, res) => {
         investorCount,
         totalValueNaira,
         totalValueUSDT,
-        pendingTransactions
+        pendingTransactions,
+        // NEW: Co-founder share comparison
+        coFounderComparison: {
+          shareToRegularRatio: shareToRegularRatio,
+          totalEquivalentCoFounderShares: totalEquivalentCoFounderShares,
+          remainingRegularShares: remainingRegularShares,
+          explanation: `${shareConfig.sharesSold} regular shares = ${totalEquivalentCoFounderShares} co-founder share${totalEquivalentCoFounderShares !== 1 ? 's' : ''}${remainingRegularShares > 0 ? ` + ${remainingRegularShares} regular share${remainingRegularShares !== 1 ? 's' : ''}` : ''}`
+        }
       },
       pricing: shareConfig.currentPrices
     });
@@ -2449,6 +2877,375 @@ exports.getSharePurchaseReport = async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Failed to generate share purchase report',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+};
+// Database verification and fix script for transaction statuses
+// Add this as a new endpoint or run as a one-time script
+
+/**
+ * @desc    Debug and fix transaction statuses
+ * @route   GET /api/shares/admin/debug-transactions/:userId
+ * @access  Private (Admin)
+ */
+exports.debugUserTransactions = async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const adminId = req.user.id;
+    
+    // Check if admin
+    const admin = await User.findById(adminId);
+    if (!admin || !admin.isAdmin) {
+      return res.status(403).json({
+        success: false,
+        message: 'Unauthorized: Admin access required'
+      });
+    }
+    
+    // Get user shares
+    const userShares = await UserShare.findOne({ user: userId });
+    
+    if (!userShares) {
+      return res.status(404).json({
+        success: false,
+        message: 'User shares not found'
+      });
+    }
+    
+    // Also get co-founder transactions from PaymentTransaction model
+    const coFounderTransactions = await PaymentTransaction.find({
+      userId: userId,
+      type: 'co-founder'
+    });
+    
+    console.log(`[DEBUG] Found ${userShares.transactions.length} transactions in UserShare`);
+    console.log(`[DEBUG] Found ${coFounderTransactions.length} co-founder transactions in PaymentTransaction`);
+    
+    // Analyze transactions
+    const analysis = {
+      userShareTransactions: [],
+      paymentTransactions: [],
+      discrepancies: [],
+      recommendations: []
+    };
+    
+    // Analyze UserShare transactions
+    userShares.transactions.forEach((transaction, index) => {
+      const txAnalysis = {
+        index,
+        transactionId: transaction.transactionId,
+        paymentMethod: transaction.paymentMethod,
+        status: transaction.status,
+        shares: transaction.shares,
+        coFounderShares: transaction.coFounderShares,
+        adminAction: transaction.adminAction,
+        date: transaction.createdAt,
+        issues: []
+      };
+      
+      // Check for issues
+      if (transaction.paymentMethod === 'co-founder') {
+        if (transaction.status === 'completed' && !transaction.adminAction) {
+          txAnalysis.issues.push('Co-founder transaction marked as completed but not admin action');
+        }
+        
+        if (!transaction.coFounderShares && transaction.shares) {
+          txAnalysis.issues.push('Missing coFounderShares field for co-founder transaction');
+        }
+      }
+      
+      // Check if transaction ID looks like it should be pending
+      if (transaction.transactionId && transaction.transactionId.includes('685f')) {
+        txAnalysis.issues.push('Transaction ID suggests this might be incorrectly processed');
+      }
+      
+      analysis.userShareTransactions.push(txAnalysis);
+    });
+    
+    // Analyze PaymentTransaction records
+    coFounderTransactions.forEach((transaction, index) => {
+      const txAnalysis = {
+        id: transaction._id,
+        transactionId: transaction.transactionId,
+        paymentMethod: transaction.paymentMethod,
+        status: transaction.status,
+        shares: transaction.shares,
+        amount: transaction.amount,
+        currency: transaction.currency,
+        adminNotes: transaction.adminNotes,
+        verifiedBy: transaction.verifiedBy,
+        date: transaction.createdAt,
+        issues: []
+      };
+      
+      // Check for issues
+      if (transaction.status === 'completed' && !transaction.verifiedBy) {
+        txAnalysis.issues.push('Marked as completed but no verifier recorded');
+      }
+      
+      if (transaction.status === 'pending' && transaction.verifiedBy) {
+        txAnalysis.issues.push('Marked as pending but has verifier');
+      }
+      
+      // Find corresponding UserShare transaction
+      const userShareTx = userShares.transactions.find(
+        t => t.transactionId === transaction.transactionId || 
+             t.transactionId === transaction._id.toString()
+      );
+      
+      if (userShareTx && userShareTx.status !== transaction.status) {
+        txAnalysis.issues.push(`Status mismatch: UserShare(${userShareTx.status}) vs PaymentTransaction(${transaction.status})`);
+        
+        analysis.discrepancies.push({
+          transactionId: transaction.transactionId,
+          userShareStatus: userShareTx.status,
+          paymentTransactionStatus: transaction.status,
+          recommendedAction: 'Sync statuses'
+        });
+      }
+      
+      analysis.paymentTransactions.push(txAnalysis);
+    });
+    
+    // Generate recommendations
+    if (analysis.discrepancies.length > 0) {
+      analysis.recommendations.push('Status synchronization needed between UserShare and PaymentTransaction');
+    }
+    
+    const suspiciousCompletedTx = analysis.userShareTransactions.filter(
+      tx => tx.paymentMethod === 'co-founder' && 
+           tx.status === 'completed' && 
+           tx.issues.length > 0
+    );
+    
+    if (suspiciousCompletedTx.length > 0) {
+      analysis.recommendations.push('Review co-founder transactions marked as completed without proper verification');
+    }
+    
+    res.status(200).json({
+      success: true,
+      userId,
+      analysis,
+      summary: {
+        totalUserShareTransactions: userShares.transactions.length,
+        totalPaymentTransactions: coFounderTransactions.length,
+        discrepanciesFound: analysis.discrepancies.length,
+        suspiciousTransactions: suspiciousCompletedTx.length
+      }
+    });
+    
+  } catch (error) {
+    console.error('Error debugging user transactions:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to debug user transactions',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+};
+
+/**
+ * @desc    Fix transaction statuses based on PaymentTransaction records
+ * @route   POST /api/shares/admin/fix-transaction-statuses/:userId
+ * @access  Private (Admin)
+ */
+exports.fixUserTransactionStatuses = async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const { dryRun = true } = req.body; // Default to dry run
+    const adminId = req.user.id;
+    
+    // Check if admin
+    const admin = await User.findById(adminId);
+    if (!admin || !admin.isAdmin) {
+      return res.status(403).json({
+        success: false,
+        message: 'Unauthorized: Admin access required'
+      });
+    }
+    
+    // Get user shares
+    const userShares = await UserShare.findOne({ user: userId });
+    
+    if (!userShares) {
+      return res.status(404).json({
+        success: false,
+        message: 'User shares not found'
+      });
+    }
+    
+    // Get co-founder transactions
+    const coFounderTransactions = await PaymentTransaction.find({
+      userId: userId,
+      type: 'co-founder'
+    });
+    
+    const fixes = [];
+    let transactionsModified = 0;
+    
+    // Check each UserShare transaction against PaymentTransaction
+    for (let i = 0; i < userShares.transactions.length; i++) {
+      const userTx = userShares.transactions[i];
+      
+      // Find corresponding PaymentTransaction
+      const paymentTx = coFounderTransactions.find(
+        pt => pt.transactionId === userTx.transactionId || 
+              pt._id.toString() === userTx.transactionId
+      );
+      
+      if (paymentTx && paymentTx.status !== userTx.status) {
+        const fix = {
+          transactionId: userTx.transactionId,
+          currentUserShareStatus: userTx.status,
+          paymentTransactionStatus: paymentTx.status,
+          recommendedAction: `Change UserShare status to ${paymentTx.status}`,
+          reasoning: 'PaymentTransaction is the source of truth for co-founder transactions'
+        };
+        
+        fixes.push(fix);
+        
+        if (!dryRun) {
+          // Actually apply the fix
+          userShares.transactions[i].status = paymentTx.status;
+          transactionsModified++;
+          
+          console.log(`[FIX] Updated transaction ${userTx.transactionId} status from ${userTx.status} to ${paymentTx.status}`);
+        }
+      }
+    }
+    
+    // Recalculate user's total shares if not dry run
+    if (!dryRun && transactionsModified > 0) {
+      // Only count completed transactions
+      const completedShares = userShares.transactions
+        .filter(t => t.status === 'completed')
+        .reduce((total, t) => {
+          if (t.paymentMethod === 'co-founder') {
+            // For co-founder shares, use equivalentRegularShares if available, otherwise calculate
+            return total + (t.equivalentRegularShares || (t.coFounderShares || t.shares || 0) * 29);
+          } else {
+            return total + (t.shares || 0);
+          }
+        }, 0);
+      
+      userShares.totalShares = completedShares;
+      await userShares.save();
+      
+      console.log(`[FIX] Updated user total shares to ${completedShares}`);
+    }
+    
+    res.status(200).json({
+      success: true,
+      message: dryRun ? 'Dry run completed - no changes made' : `Fixed ${transactionsModified} transaction statuses`,
+      userId,
+      fixesFound: fixes.length,
+      transactionsModified,
+      fixes,
+      dryRun
+    });
+    
+  } catch (error) {
+    console.error('Error fixing user transaction statuses:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fix transaction statuses',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+};
+
+/**
+ * @desc    Get detailed transaction comparison for a user
+ * @route   GET /api/shares/admin/transaction-comparison/:userId
+ * @access  Private (Admin)
+ */
+exports.getTransactionComparison = async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const adminId = req.user.id;
+    
+    // Check if admin
+    const admin = await User.findById(adminId);
+    if (!admin || !admin.isAdmin) {
+      return res.status(403).json({
+        success: false,
+        message: 'Unauthorized: Admin access required'
+      });
+    }
+    
+    // Get both data sources
+    const userShares = await UserShare.findOne({ user: userId });
+    const paymentTransactions = await PaymentTransaction.find({
+      userId: userId,
+      type: 'co-founder'
+    });
+    
+    // Get regular share transactions for comparison
+    const regularTransactions = userShares ? 
+      userShares.transactions.filter(t => t.paymentMethod !== 'co-founder') : [];
+    
+    const coFounderUserShareTx = userShares ? 
+      userShares.transactions.filter(t => t.paymentMethod === 'co-founder') : [];
+    
+    // Create comparison
+    const comparison = {
+      userId,
+      userShareTransactions: {
+        total: userShares ? userShares.transactions.length : 0,
+        regular: regularTransactions.length,
+        coFounder: coFounderUserShareTx.length,
+        byStatus: {
+          completed: userShares ? userShares.transactions.filter(t => t.status === 'completed').length : 0,
+          pending: userShares ? userShares.transactions.filter(t => t.status === 'pending').length : 0,
+          failed: userShares ? userShares.transactions.filter(t => t.status === 'failed').length : 0
+        }
+      },
+      paymentTransactions: {
+        total: paymentTransactions.length,
+        byStatus: {
+          completed: paymentTransactions.filter(t => t.status === 'completed').length,
+          pending: paymentTransactions.filter(t => t.status === 'pending').length,
+          failed: paymentTransactions.filter(t => t.status === 'failed').length
+        }
+      },
+      currentTotalShares: userShares ? userShares.totalShares : 0,
+      calculatedCompletedShares: {
+        regular: regularTransactions
+          .filter(t => t.status === 'completed')
+          .reduce((sum, t) => sum + (t.shares || 0), 0),
+        coFounderFromUserShare: coFounderUserShareTx
+          .filter(t => t.status === 'completed')
+          .reduce((sum, t) => sum + (t.coFounderShares || t.shares || 0), 0),
+        coFounderFromPaymentTx: paymentTransactions
+          .filter(t => t.status === 'completed')
+          .reduce((sum, t) => sum + (t.shares || 0), 0)
+      }
+    };
+    
+    // Identify discrepancies
+    comparison.discrepancies = [];
+    
+    if (comparison.calculatedCompletedShares.coFounderFromUserShare !== 
+        comparison.calculatedCompletedShares.coFounderFromPaymentTx) {
+      comparison.discrepancies.push({
+        type: 'co-founder-share-mismatch',
+        userShareTotal: comparison.calculatedCompletedShares.coFounderFromUserShare,
+        paymentTransactionTotal: comparison.calculatedCompletedShares.coFounderFromPaymentTx,
+        message: 'Co-founder share totals don\'t match between UserShare and PaymentTransaction'
+      });
+    }
+    
+    res.status(200).json({
+      success: true,
+      comparison
+    });
+    
+  } catch (error) {
+    console.error('Error getting transaction comparison:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to get transaction comparison',
       error: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }

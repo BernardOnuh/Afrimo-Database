@@ -26,13 +26,13 @@ const shareSchema = new mongoose.Schema({
     default: 10000 // 2000 + 3000 + 5000
   },
   
-  // Total shares sold
+  // Total regular shares sold (excludes co-founder equivalent shares)
   sharesSold: {
     type: Number,
     default: 0
   },
   
-  // Track sales per tier
+  // Track direct regular share sales per tier
   tierSales: {
     tier1Sold: { type: Number, default: 0 },
     tier2Sold: { type: Number, default: 0 },
@@ -71,57 +71,284 @@ shareSchema.statics.updatePricing = async function(tier, priceNaira, priceUSDT) 
   return config;
 };
 
-// Determine which tier a purchase belongs to and calculate price
+// UPDATED: Calculate purchase considering co-founder share allocations
 shareSchema.statics.calculatePurchase = async function(quantity, currency) {
-  const config = await this.getCurrentConfig();
-  
-  // Determine which tier(s) the purchase belongs to
-  let remainingShares = quantity;
-  let totalPrice = 0;
-  let tierBreakdown = {
-    tier1: 0,
-    tier2: 0,
-    tier3: 0
-  };
-  
-  // Check tier1 availability
-  const tier1Available = config.currentPrices.tier1.shares - config.tierSales.tier1Sold;
-  if (tier1Available > 0 && remainingShares > 0) {
-    const tier1Purchase = Math.min(tier1Available, remainingShares);
-    tierBreakdown.tier1 = tier1Purchase;
-    totalPrice += tier1Purchase * (currency === 'naira' ? config.currentPrices.tier1.priceNaira : config.currentPrices.tier1.priceUSDT);
-    remainingShares -= tier1Purchase;
+  try {
+    const shareConfig = await this.getCurrentConfig();
+    
+    // ADDED: Get co-founder shares to calculate true availability
+    const CoFounderShare = require('./CoFounderShare');
+    const coFounderConfig = await CoFounderShare.findOne();
+    const shareToRegularRatio = coFounderConfig?.shareToRegularRatio || 29;
+    const coFounderSharesSold = coFounderConfig?.sharesSold || 0;
+    const equivalentRegularSharesFromCoFounder = coFounderSharesSold * shareToRegularRatio;
+    
+    console.log('Calculate purchase debug:', {
+      requestedQuantity: quantity,
+      coFounderSharesSold,
+      equivalentRegularSharesFromCoFounder,
+      shareToRegularRatio
+    });
+    
+    // ADDED: Allocate co-founder equivalent shares across tiers (starting from tier1)
+    let remainingCoFounderShares = equivalentRegularSharesFromCoFounder;
+    
+    let coFounderAllocatedToTier1 = 0;
+    let coFounderAllocatedToTier2 = 0;
+    let coFounderAllocatedToTier3 = 0;
+    
+    // Allocate co-founder equivalent shares starting from tier1
+    if (remainingCoFounderShares > 0) {
+      const tier1Capacity = shareConfig.currentPrices.tier1.shares;
+      const tier1DirectUsed = shareConfig.tierSales.tier1Sold;
+      const tier1Available = tier1Capacity - tier1DirectUsed;
+      
+      coFounderAllocatedToTier1 = Math.min(remainingCoFounderShares, tier1Available);
+      remainingCoFounderShares -= coFounderAllocatedToTier1;
+    }
+    
+    if (remainingCoFounderShares > 0) {
+      const tier2Capacity = shareConfig.currentPrices.tier2.shares;
+      const tier2DirectUsed = shareConfig.tierSales.tier2Sold;
+      const tier2Available = tier2Capacity - tier2DirectUsed;
+      
+      coFounderAllocatedToTier2 = Math.min(remainingCoFounderShares, tier2Available);
+      remainingCoFounderShares -= coFounderAllocatedToTier2;
+    }
+    
+    if (remainingCoFounderShares > 0) {
+      const tier3Capacity = shareConfig.currentPrices.tier3.shares;
+      const tier3DirectUsed = shareConfig.tierSales.tier3Sold;
+      const tier3Available = tier3Capacity - tier3DirectUsed;
+      
+      coFounderAllocatedToTier3 = Math.min(remainingCoFounderShares, tier3Available);
+      remainingCoFounderShares -= coFounderAllocatedToTier3;
+    }
+    
+    // UPDATED: Calculate actual available shares per tier after co-founder allocations
+    const tier1ActualAvailable = Math.max(0, 
+      shareConfig.currentPrices.tier1.shares - 
+      shareConfig.tierSales.tier1Sold - 
+      coFounderAllocatedToTier1
+    );
+    
+    const tier2ActualAvailable = Math.max(0, 
+      shareConfig.currentPrices.tier2.shares - 
+      shareConfig.tierSales.tier2Sold - 
+      coFounderAllocatedToTier2
+    );
+    
+    const tier3ActualAvailable = Math.max(0, 
+      shareConfig.currentPrices.tier3.shares - 
+      shareConfig.tierSales.tier3Sold - 
+      coFounderAllocatedToTier3
+    );
+    
+    const totalActualAvailable = tier1ActualAvailable + tier2ActualAvailable + tier3ActualAvailable;
+    
+    console.log('Tier availability after co-founder allocation:', {
+      tier1ActualAvailable,
+      tier2ActualAvailable,
+      tier3ActualAvailable,
+      totalActualAvailable
+    });
+    
+    // UPDATED: Check if enough shares are available
+    if (quantity > totalActualAvailable) {
+      return {
+        success: false,
+        message: `Insufficient shares available. Only ${totalActualAvailable} shares remaining (${equivalentRegularSharesFromCoFounder} equivalent shares from ${coFounderSharesSold} co-founder shares are already allocated).`,
+        totalPrice: 0,
+        currency: currency,
+        totalShares: 0,
+        tierBreakdown: { tier1: 0, tier2: 0, tier3: 0 },
+        insufficientShares: true,
+        available: totalActualAvailable,
+        requested: quantity,
+        debug: {
+          coFounderSharesSold,
+          equivalentRegularFromCoFounder: equivalentRegularSharesFromCoFounder,
+          coFounderAllocations: {
+            tier1: coFounderAllocatedToTier1,
+            tier2: coFounderAllocatedToTier2,
+            tier3: coFounderAllocatedToTier3
+          }
+        }
+      };
+    }
+    
+    // UPDATED: Calculate tier breakdown using actual available shares
+    let remainingShares = quantity;
+    let totalPrice = 0;
+    const tierBreakdown = { tier1: 0, tier2: 0, tier3: 0 };
+    
+    // Tier 1
+    if (remainingShares > 0 && tier1ActualAvailable > 0) {
+      const tier1Purchase = Math.min(remainingShares, tier1ActualAvailable);
+      tierBreakdown.tier1 = tier1Purchase;
+      
+      const tier1Price = currency === 'naira' ? 
+        shareConfig.currentPrices.tier1.priceNaira : 
+        shareConfig.currentPrices.tier1.priceUSDT;
+      
+      totalPrice += tier1Purchase * tier1Price;
+      remainingShares -= tier1Purchase;
+    }
+    
+    // Tier 2
+    if (remainingShares > 0 && tier2ActualAvailable > 0) {
+      const tier2Purchase = Math.min(remainingShares, tier2ActualAvailable);
+      tierBreakdown.tier2 = tier2Purchase;
+      
+      const tier2Price = currency === 'naira' ? 
+        shareConfig.currentPrices.tier2.priceNaira : 
+        shareConfig.currentPrices.tier2.priceUSDT;
+      
+      totalPrice += tier2Purchase * tier2Price;
+      remainingShares -= tier2Purchase;
+    }
+    
+    // Tier 3
+    if (remainingShares > 0 && tier3ActualAvailable > 0) {
+      const tier3Purchase = Math.min(remainingShares, tier3ActualAvailable);
+      tierBreakdown.tier3 = tier3Purchase;
+      
+      const tier3Price = currency === 'naira' ? 
+        shareConfig.currentPrices.tier3.priceNaira : 
+        shareConfig.currentPrices.tier3.priceUSDT;
+      
+      totalPrice += tier3Purchase * tier3Price;
+      remainingShares -= tier3Purchase;
+    }
+    
+    // Check if all shares could be allocated
+    const totalPurchasable = tierBreakdown.tier1 + tierBreakdown.tier2 + tierBreakdown.tier3;
+    
+    if (remainingShares > 0) {
+      return {
+        success: false,
+        message: `Only ${totalPurchasable} shares available across all tiers after accounting for co-founder allocations`,
+        totalPrice: 0,
+        currency: currency,
+        totalShares: 0,
+        tierBreakdown: { tier1: 0, tier2: 0, tier3: 0 },
+        insufficientShares: true,
+        available: totalPurchasable,
+        requested: quantity
+      };
+    }
+    
+    return {
+      success: true,
+      totalPrice: totalPrice,
+      currency: currency,
+      totalShares: totalPurchasable,
+      tierBreakdown: tierBreakdown,
+      insufficientShares: false,
+      // ADDED: Additional information for debugging and transparency
+      breakdown: {
+        totalEffectiveSharesSold: shareConfig.sharesSold + equivalentRegularSharesFromCoFounder,
+        actualAvailable: totalActualAvailable,
+        equivalentFromCoFounder: equivalentRegularSharesFromCoFounder,
+        coFounderAllocations: {
+          tier1: coFounderAllocatedToTier1,
+          tier2: coFounderAllocatedToTier2,
+          tier3: coFounderAllocatedToTier3
+        },
+        tierAvailability: {
+          tier1: tier1ActualAvailable,
+          tier2: tier2ActualAvailable,
+          tier3: tier3ActualAvailable
+        }
+      }
+    };
+  } catch (error) {
+    console.error('Error calculating purchase:', error);
+    return {
+      success: false,
+      message: 'Error calculating purchase details',
+      totalPrice: 0,
+      currency: currency,
+      totalShares: 0,
+      tierBreakdown: { tier1: 0, tier2: 0, tier3: 0 },
+      insufficientShares: true,
+      error: error.message
+    };
   }
-  
-  // Check tier2 availability
-  const tier2Available = config.currentPrices.tier2.shares - config.tierSales.tier2Sold;
-  if (tier2Available > 0 && remainingShares > 0) {
-    const tier2Purchase = Math.min(tier2Available, remainingShares);
-    tierBreakdown.tier2 = tier2Purchase;
-    totalPrice += tier2Purchase * (currency === 'naira' ? config.currentPrices.tier2.priceNaira : config.currentPrices.tier2.priceUSDT);
-    remainingShares -= tier2Purchase;
+};
+
+// ADDED: Helper method to get comprehensive share statistics
+shareSchema.statics.getComprehensiveStats = async function() {
+  try {
+    const shareConfig = await this.getCurrentConfig();
+    
+    // Get co-founder data
+    const CoFounderShare = require('./CoFounderShare');
+    const coFounderConfig = await CoFounderShare.findOne();
+    const shareToRegularRatio = coFounderConfig?.shareToRegularRatio || 29;
+    const coFounderSharesSold = coFounderConfig?.sharesSold || 0;
+    const equivalentRegularSharesFromCoFounder = coFounderSharesSold * shareToRegularRatio;
+    
+    // Calculate total effective shares sold
+    const totalEffectiveSharesSold = shareConfig.sharesSold + equivalentRegularSharesFromCoFounder;
+    const totalEffectiveSharesRemaining = shareConfig.totalShares - totalEffectiveSharesSold;
+    
+    return {
+      totalShares: shareConfig.totalShares,
+      directRegularSharesSold: shareConfig.sharesSold,
+      coFounderSharesSold: coFounderSharesSold,
+      equivalentRegularSharesFromCoFounder: equivalentRegularSharesFromCoFounder,
+      totalEffectiveSharesSold: totalEffectiveSharesSold,
+      totalEffectiveSharesRemaining: totalEffectiveSharesRemaining,
+      shareToRegularRatio: shareToRegularRatio,
+      tierSales: shareConfig.tierSales,
+      currentPrices: shareConfig.currentPrices
+    };
+  } catch (error) {
+    console.error('Error getting comprehensive stats:', error);
+    return null;
   }
-  
-  // Check tier3 availability
-  const tier3Available = config.currentPrices.tier3.shares - config.tierSales.tier3Sold;
-  if (tier3Available > 0 && remainingShares > 0) {
-    const tier3Purchase = Math.min(tier3Available, remainingShares);
-    tierBreakdown.tier3 = tier3Purchase;
-    totalPrice += tier3Purchase * (currency === 'naira' ? config.currentPrices.tier3.priceNaira : config.currentPrices.tier3.priceUSDT);
-    remainingShares -= tier3Purchase;
+};
+
+// ADDED: Helper method to validate share allocation consistency
+shareSchema.statics.validateShareConsistency = async function() {
+  try {
+    const stats = await this.getComprehensiveStats();
+    
+    if (!stats) {
+      return { valid: false, message: 'Could not retrieve stats' };
+    }
+    
+    // Check if total shares sold doesn't exceed total shares
+    if (stats.totalEffectiveSharesSold > stats.totalShares) {
+      return {
+        valid: false,
+        message: `Total effective shares sold (${stats.totalEffectiveSharesSold}) exceeds total shares (${stats.totalShares})`,
+        oversold: stats.totalEffectiveSharesSold - stats.totalShares
+      };
+    }
+    
+    // Check tier consistency
+    const tierTotal = stats.tierSales.tier1Sold + stats.tierSales.tier2Sold + stats.tierSales.tier3Sold;
+    if (tierTotal !== stats.directRegularSharesSold) {
+      return {
+        valid: false,
+        message: `Tier sales total (${tierTotal}) doesn't match direct regular shares sold (${stats.directRegularSharesSold})`,
+        difference: tierTotal - stats.directRegularSharesSold
+      };
+    }
+    
+    return {
+      valid: true,
+      message: 'Share allocation is consistent',
+      stats: stats
+    };
+  } catch (error) {
+    return {
+      valid: false,
+      message: 'Error validating consistency: ' + error.message
+    };
   }
-  
-  // Check if all shares could be allocated
-  const totalPurchasable = tierBreakdown.tier1 + tierBreakdown.tier2 + tierBreakdown.tier3;
-  
-  return {
-    success: totalPurchasable > 0,
-    totalPrice,
-    currency,
-    totalShares: totalPurchasable,
-    tierBreakdown,
-    insufficientShares: quantity > totalPurchasable
-  };
 };
 
 const Share = mongoose.model('Share', shareSchema);
