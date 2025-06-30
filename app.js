@@ -40,8 +40,10 @@ const corsOptions = {
       'http://localhost:5000',
       'http://localhost:8080',
       'https://afrimo-database.onrender.com',
-      'https://www.afrimobiltech.com',  // ← ADD THIS LINE
-      'https://afrimobiltech.com',      // ← AND THIS (without www)
+      'https://www.afrimobil.com',  // ← ADD THIS LINE
+      'https://afrimobil.com',      // ← AND THIS (without www)
+      'https://www.afrimobiletech.com',  // ← ADD THIS LINE
+      'https://afrimobiletech.com',      // ← AND THIS (without www)
       'https://your-frontend-domain.netlify.app', // If using Netlify
       // Add more domains as needed
     ];
