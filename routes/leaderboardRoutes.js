@@ -4,6 +4,11 @@ const leaderboardController = require('../controller/leaderboardController');
 const { protect } = require('../middleware/auth');
 const { applyVisibilityRules } = require('../middleware/visibilityMiddleware');
 
+router.use((req, res, next) => {
+  console.log(`🔍 Leaderboard Router - ${req.method} ${req.originalUrl} - Path: ${req.path}`);
+  next();
+});
+
 let restrictTo;
 try {
   const auth = require('../middleware/auth');
@@ -28,6 +33,24 @@ try {
     };
   };
 }
+
+router.get('/admin/visibility/settings',
+  protect,
+  restrictTo('admin'),
+  leaderboardController.getVisibilitySettings
+);
+
+router.post('/admin/visibility/earnings',
+  protect,
+  restrictTo('admin'),
+  leaderboardController.toggleEarningsVisibility
+);
+
+router.post('/admin/visibility/balance',
+  protect,
+  restrictTo('admin'),
+  leaderboardController.toggleBalanceVisibility
+);
 
 
 router.use(applyVisibilityRules);
@@ -1585,23 +1608,7 @@ router.get('/filter/shares', async (req, res) => {
  */
 
 
-router.get('/admin/visibility/settings',
-  protect,
-  restrictTo('admin'),
-  leaderboardController.getVisibilitySettings
-);
 
-router.post('/admin/visibility/earnings',
-  protect,
-  restrictTo('admin'),
-  leaderboardController.toggleEarningsVisibility
-);
-
-router.post('/admin/visibility/balance',
-  protect,
-  restrictTo('admin'),
-  leaderboardController.toggleBalanceVisibility
-);
 
 
 module.exports = router;
