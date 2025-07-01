@@ -1066,46 +1066,45 @@ exports.getSpendingLeaderboard = async (req, res) => {
 };
 
 // Fixed getCofounderLeaderboard function
-// Fixed getCofounderLeaderboard function
 exports.getCofounderLeaderboard = async (req, res) => {
   try {
     const limit = req.query.limit ? parseInt(req.query.limit) : 50;
     
     console.log('Getting cofounder leaderboard with limit:', limit);
     
-    // Create a comprehensive aggregation pipeline for cofounder shares
+    // FIXED: Simplified aggregation pipeline focusing on completed transactions
     const pipeline = [
-      // First, lookup cofounder shares
+      // First, get all active users
       {
-        $lookup: {
-          from: 'cofoundershares',
-          localField: '_id',
-          foreignField: 'user',
-          as: 'cofounderShares'
+        $match: {
+          'status.isActive': true,
+          isBanned: { $ne: true }
         }
       },
       
-      // Also lookup payment transactions for cofounder type
+      // Lookup completed co-founder transactions
       {
         $lookup: {
-          from: 'transactions', // Using 'transactions' instead of 'paymenttransactions'
-          localField: '_id',
-          foreignField: 'userId',
+          from: 'transactions', // Make sure this matches your actual collection name
+          let: { userId: '$_id' },
+          pipeline: [
+            {
+              $match: {
+                $expr: {
+                  $and: [
+                    { $eq: ['$userId', '$$userId'] },
+                    { $eq: ['$type', 'co-founder'] },
+                    { $eq: ['$status', 'completed'] }
+                  ]
+                }
+              }
+            }
+          ],
           as: 'cofounderTransactions'
         }
       },
       
-      // Lookup user shares for additional context
-      {
-        $lookup: {
-          from: 'usershares',
-          localField: '_id',
-          foreignField: 'user',
-          as: 'userShares'
-        }
-      },
-      
-      // Lookup referral data
+      // Lookup referral data for context
       {
         $lookup: {
           from: 'referrals',
@@ -1115,82 +1114,47 @@ exports.getCofounderLeaderboard = async (req, res) => {
         }
       },
       
-      // Add calculated fields
+      // Calculate total co-founder shares from transactions
       {
         $addFields: {
-          // Get cofounder shares from cofoundershares collection
-          directCofounderShares: { $sum: '$cofounderShares.totalShares' },
-          
-          // Get cofounder shares from completed payment transactions
-          transactionCofounderShares: {
-            $sum: {
-              $map: {
-                input: {
-                  $filter: {
-                    input: '$cofounderTransactions',
-                    as: 'transaction',
-                    cond: {
-                      $and: [
-                        { $eq: ['$$transaction.type', 'co-founder'] },
-                        { $eq: ['$$transaction.status', 'completed'] }
-                      ]
-                    }
-                  }
-                },
-                as: 'validTransaction',
-                in: '$$validTransaction.shares'
-              }
-            }
+          totalCofounderShares: {
+            $sum: '$cofounderTransactions.shares'
           },
           
-          // Get user shares that might contain cofounder info
-          userSharesCofounder: {
-            $sum: {
-              $map: {
-                input: '$userShares',
-                as: 'userShare',
-                in: { $ifNull: ['$$userShare.cofounderShares', 0] }
-              }
-            }
+          totalEarnings: {
+            $ifNull: [
+              { $arrayElemAt: ['$referralData.totalEarnings', 0] },
+              0
+            ]
           },
           
-          // Get referral info
-          referralInfo: {
-            $cond: {
-              if: { $gt: [{ $size: "$referralData" }, 0] },
-              then: { $arrayElemAt: ["$referralData", 0] },
-              else: { totalEarnings: 0 }
+          // Debug fields to understand the data
+          transactionCount: { $size: '$cofounderTransactions' },
+          transactionDetails: {
+            $map: {
+              input: '$cofounderTransactions',
+              as: 'transaction',
+              in: {
+                shares: '$$transaction.shares',
+                amount: '$$transaction.amount',
+                status: '$$transaction.status',
+                date: '$$transaction.createdAt'
+              }
             }
           }
         }
       },
       
-      // Calculate total cofounder shares from all sources
-      {
-        $addFields: {
-          totalCofounderShares: {
-            $add: [
-              '$directCofounderShares',
-              '$transactionCofounderShares',
-              '$userSharesCofounder'
-            ]
-          },
-          totalEarnings: { $ifNull: ["$referralInfo.totalEarnings", 0] }
-        }
-      },
-      
-      // Filter to only include users with cofounder shares > 0
+      // FIXED: Only include users who actually have co-founder shares
       {
         $match: {
-          totalCofounderShares: { $gt: 0 },
-          'status.isActive': true,
-          isBanned: { $ne: true }
+          totalCofounderShares: { $gt: 0 }
         }
       },
       
-      // Sort by total cofounder shares descending
+      // Sort by total co-founder shares descending
       {
-        $sort: { totalCofounderShares: -1 }
+        $sort: { totalCofounderShares: -1, totalEarnings: -1 }
       },
       
       // Limit results
@@ -1205,72 +1169,74 @@ exports.getCofounderLeaderboard = async (req, res) => {
           name: 1,
           userName: 1,
           totalCofounderShares: 1,
-          directCofounderShares: 1,
-          transactionCofounderShares: 1,
-          userSharesCofounder: 1,
           totalEarnings: 1,
           'location.state': 1,
           'location.city': 1,
           createdAt: 1,
-          // Add equivalent regular shares (assuming 1:29 ratio)
-          equivalentRegularShares: { $multiply: ['$totalCofounderShares', 29] }
+          // Calculate equivalent regular shares (assuming 1:29 ratio)
+          equivalentRegularShares: { 
+            $multiply: ['$totalCofounderShares', 29] 
+          },
+          // Debug info (remove in production)
+          transactionCount: 1,
+          transactionDetails: 1
         }
       }
     ];
     
-    console.log('Executing cofounder aggregation pipeline...');
+    console.log('Executing fixed cofounder aggregation pipeline...');
     const cofounders = await User.aggregate(pipeline);
     
     console.log(`Found ${cofounders.length} cofounders with shares > 0`);
     
-    // Debug: Let's also check what's in the database
+    // Enhanced debug info
     const debugInfo = await Promise.all([
-      // Check cofoundershares collection
-      CoFounderShare.countDocuments(),
-      
-      // Check payment transactions using direct MongoDB query
+      // Check total completed co-founder transactions
       User.aggregate([
         {
           $lookup: {
             from: 'transactions',
-            localField: '_id',
-            foreignField: 'userId',
+            let: { userId: '$_id' },
+            pipeline: [
+              {
+                $match: {
+                  $expr: {
+                    $and: [
+                      { $eq: ['$userId', '$$userId'] },
+                      { $eq: ['$type', 'co-founder'] },
+                      { $eq: ['$status', 'completed'] }
+                    ]
+                  }
+                }
+              }
+            ],
             as: 'transactions'
           }
         },
         {
           $match: {
-            'transactions.type': 'co-founder',
-            'transactions.status': 'completed'
+            'transactions.0': { $exists: true } // Has at least one transaction
           }
         },
-        { $count: 'total' }
-      ]).then(result => result[0]?.total || 0),
+        {
+          $project: {
+            name: 1,
+            userName: 1,
+            transactionCount: { $size: '$transactions' },
+            totalShares: { $sum: '$transactions.shares' }
+          }
+        }
+      ]),
       
-      // Check if any users have cofounder data in usershares
-      User.aggregate([
-        {
-          $lookup: {
-            from: 'usershares',
-            localField: '_id',
-            foreignField: 'user',
-            as: 'userShares'
-          }
-        },
-        {
-          $match: {
-            'userShares.cofounderShares': { $gt: 0 }
-          }
-        },
-        { $count: 'total' }
-      ]).then(result => result[0]?.total || 0)
+      // Check collection names and structure
+      User.db.db.listCollections().toArray()
     ]);
     
-    console.log('Debug info:', {
-      cofounderSharesCount: debugInfo[0],
-      completedCofounderTransactions: debugInfo[1],
-      usersWithCofounderInUserShares: debugInfo[2]
-    });
+    const usersWithTransactions = debugInfo[0];
+    const collections = debugInfo[1].map(c => c.name);
+    
+    console.log('Debug - Users with completed co-founder transactions:', usersWithTransactions);
+    console.log('Debug - Available collections:', collections);
     
     res.json({
       success: true,
@@ -1288,9 +1254,12 @@ exports.getCofounderLeaderboard = async (req, res) => {
       },
       filter: 'cofounder',
       debug: process.env.NODE_ENV === 'development' ? {
-        cofounderSharesInDB: debugInfo[0],
-        completedTransactions: debugInfo[1],
-        usersWithCofounderShares: debugInfo[2]
+        totalCofoundersFound: cofounders.length,
+        usersWithTransactions: usersWithTransactions.length,
+        transactionDetails: usersWithTransactions,
+        availableCollections: collections.filter(name => 
+          name.includes('transaction') || name.includes('cofounder')
+        )
       } : undefined
     });
     
