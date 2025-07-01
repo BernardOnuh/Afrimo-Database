@@ -1066,6 +1066,7 @@ exports.getSpendingLeaderboard = async (req, res) => {
 };
 
 // Fixed getCofounderLeaderboard function
+// Fixed getCofounderLeaderboard function
 exports.getCofounderLeaderboard = async (req, res) => {
   try {
     const limit = req.query.limit ? parseInt(req.query.limit) : 50;
@@ -1087,7 +1088,7 @@ exports.getCofounderLeaderboard = async (req, res) => {
       // Also lookup payment transactions for cofounder type
       {
         $lookup: {
-          from: 'paymenttransactions', // Make sure this matches your actual collection name
+          from: 'transactions', // Using 'transactions' instead of 'paymenttransactions'
           localField: '_id',
           foreignField: 'userId',
           as: 'cofounderTransactions'
@@ -1227,14 +1228,27 @@ exports.getCofounderLeaderboard = async (req, res) => {
       // Check cofoundershares collection
       CoFounderShare.countDocuments(),
       
-      // Check payment transactions
-      PaymentTransaction ? PaymentTransaction.countDocuments({ 
-        type: 'co-founder', 
-        status: 'completed' 
-      }) : 0,
+      // Check payment transactions using direct MongoDB query
+      User.aggregate([
+        {
+          $lookup: {
+            from: 'transactions',
+            localField: '_id',
+            foreignField: 'userId',
+            as: 'transactions'
+          }
+        },
+        {
+          $match: {
+            'transactions.type': 'co-founder',
+            'transactions.status': 'completed'
+          }
+        },
+        { $count: 'total' }
+      ]).then(result => result[0]?.total || 0),
       
       // Check if any users have cofounder data in usershares
-      UserShare ? User.aggregate([
+      User.aggregate([
         {
           $lookup: {
             from: 'usershares',
@@ -1249,7 +1263,7 @@ exports.getCofounderLeaderboard = async (req, res) => {
           }
         },
         { $count: 'total' }
-      ]) : []
+      ]).then(result => result[0]?.total || 0)
     ]);
     
     console.log('Debug info:', {
@@ -1286,6 +1300,158 @@ exports.getCofounderLeaderboard = async (req, res) => {
       success: false,
       message: 'Failed to fetch cofounder leaderboard',
       error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+};
+
+// Alternative simpler diagnostic function to check what data exists
+exports.diagnoseCofounderData = async (req, res) => {
+  try {
+    const diagnostics = {};
+    
+    // Check CoFounderShare collection
+    try {
+      const cofounderConfig = await CoFounderShare.findOne();
+      diagnostics.cofounderConfig = {
+        exists: !!cofounderConfig,
+        totalShares: cofounderConfig?.totalShares || 0,
+        sharesSold: cofounderConfig?.sharesSold || 0,
+        ratio: cofounderConfig?.shareToRegularRatio || 0
+      };
+    } catch (e) {
+      diagnostics.cofounderConfig = { error: e.message };
+    }
+    
+    // Check transactions collection for cofounder transactions
+    try {
+      const cofounderTransactions = await User.aggregate([
+        {
+          $lookup: {
+            from: 'transactions',
+            localField: '_id',
+            foreignField: 'userId',
+            as: 'transactions'
+          }
+        },
+        {
+          $unwind: '$transactions'
+        },
+        {
+          $match: {
+            'transactions.type': 'co-founder',
+            'transactions.status': 'completed'
+          }
+        },
+        {
+          $project: {
+            name: 1,
+            'transactions.shares': 1,
+            'transactions.amount': 1,
+            'transactions.currency': 1
+          }
+        },
+        { $limit: 5 }
+      ]);
+      
+      diagnostics.paymentTransactions = {
+        count: cofounderTransactions.length,
+        sample: cofounderTransactions
+      };
+    } catch (e) {
+      diagnostics.paymentTransactions = { error: e.message };
+    }
+    
+    // Check UserShare collection for cofounder data
+    try {
+      const usersWithCofounderShares = await User.aggregate([
+        {
+          $lookup: {
+            from: 'usershares',
+            localField: '_id',
+            foreignField: 'user',
+            as: 'userShares'
+          }
+        },
+        {
+          $unwind: { path: '$userShares', preserveNullAndEmptyArrays: true }
+        },
+        {
+          $match: {
+            $or: [
+              { 'userShares.cofounderShares': { $gt: 0 } },
+              { 'userShares.transactions.paymentMethod': 'co-founder' }
+            ]
+          }
+        },
+        {
+          $project: {
+            name: 1,
+            'userShares.cofounderShares': 1,
+            'userShares.totalShares': 1,
+            cofounderTransactions: {
+              $filter: {
+                input: '$userShares.transactions',
+                as: 'transaction',
+                cond: { $eq: ['$transaction.paymentMethod', 'co-founder'] }
+              }
+            }
+          }
+        },
+        { $limit: 5 }
+      ]);
+      
+      diagnostics.userSharesWithCofounder = {
+        count: usersWithCofounderShares.length,
+        sample: usersWithCofounderShares
+      };
+    } catch (e) {
+      diagnostics.userSharesWithCofounder = { error: e.message };
+    }
+    
+    // Check direct cofoundershares collection if it exists
+    try {
+      const directCofounderShares = await User.aggregate([
+        {
+          $lookup: {
+            from: 'cofoundershares',
+            localField: '_id',
+            foreignField: 'user',
+            as: 'cofounderShares'
+          }
+        },
+        {
+          $match: {
+            'cofounderShares.totalShares': { $gt: 0 }
+          }
+        },
+        {
+          $project: {
+            name: 1,
+            'cofounderShares.totalShares': 1
+          }
+        },
+        { $limit: 5 }
+      ]);
+      
+      diagnostics.directCofounderShares = {
+        count: directCofounderShares.length,
+        sample: directCofounderShares
+      };
+    } catch (e) {
+      diagnostics.directCofounderShares = { error: e.message };
+    }
+    
+    res.json({
+      success: true,
+      diagnostics
+    });
+    
+  } catch (error) {
+    console.error('Error in cofounder diagnostics:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Diagnostics failed',
+      error: error.message
     });
   }
 };
