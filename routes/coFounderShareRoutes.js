@@ -3,6 +3,7 @@ const express = require('express');
 const router = express.Router();
 const coFounderController = require('../controller/coFounderController');
 const { protect, adminProtect } = require('../middleware/auth');
+const { coFounderPaymentUpload } = require('../config/multer');
 const User = require('../models/User');
 const PaymentTransaction = require('../models/Transaction');
 const multer = require('multer');
@@ -630,9 +631,7 @@ router.get('/user/shares', protect, coFounderController.getUserCoFounderShares);
  */
 router.post('/manual/submit', 
   protect, 
-  upload.single('paymentProof'),
-  handleUploadError,
-  logUpload,
+  coFounderPaymentUpload.single('paymentProof'), 
   coFounderController.submitCoFounderManualPayment
 );
 

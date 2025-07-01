@@ -21,6 +21,7 @@ const app = express();
 console.log('======================================');
 console.log(`NODE_ENV: ${process.env.NODE_ENV}`);
 console.log(`LENCO_API_KEY configured: ${process.env.LENCO_API_KEY ? 'Yes' : 'No'}`);
+console.log(`Storage Method: MongoDB + Legacy File System`);
 console.log('======================================');
 
 // ========================================
@@ -129,8 +130,8 @@ mongoose.connect(process.env.MONGODB_URI, {
 });
 
 // Middleware
-app.use(express.json({ limit: '1mb' })); // Limit request body size
-app.use(express.urlencoded({ extended: true, limit: '1mb' }));
+app.use(express.json({ limit: '10mb' })); // Increased limit for MongoDB storage
+app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
 // Logging middleware
 if (process.env.NODE_ENV === 'development') {
@@ -150,141 +151,42 @@ if (process.env.NODE_ENV === 'development') {
 }
 
 // ====================================
-// ENHANCED STATIC FILE SERVING FOR ALL UPLOAD TYPES
+// SIMPLIFIED STATIC FILE SERVING (LEGACY SUPPORT)
 // ====================================
 
-// Enhanced static file serving for uploads with security, logging, and CORS
+console.log('📁 Setting up legacy file serving (MongoDB storage active for new uploads)');
+
+// Simplified static file serving for legacy files
 app.use('/uploads', (req, res, next) => {
   // Add CORS headers for file serving
   res.header('Access-Control-Allow-Origin', '*');
   res.header('Access-Control-Allow-Methods', 'GET, OPTIONS');
   res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
   
-  const requestedPath = req.path;
-  console.log(`[static-serve] Requested file: ${requestedPath}`);
-  console.log(`[static-serve] Full request URL: ${req.originalUrl}`);
-  console.log(`[static-serve] Origin: ${req.get('Origin')}`);
-  console.log(`[static-serve] Request method: ${req.method}`);
-  console.log(`[static-serve] User agent: ${req.get('User-Agent')}`);
+  console.log(`[legacy-serve] Legacy file request: ${req.path}`);
+  console.log(`[legacy-serve] Note: New files are served from MongoDB via controllers`);
   
-  // Security: Allow access to both payment-proofs and cofounder-payment-proofs directories
-  const allowedDirs = ['/payment-proofs/', '/cofounder-payment-proofs/'];
-  const isAllowed = allowedDirs.some(dir => requestedPath.startsWith(dir));
-  
-  if (!isAllowed) {
-    console.log(`[static-serve] Access denied for path: ${requestedPath}`);
-    console.log(`[static-serve] Allowed directories: ${allowedDirs.join(', ')}`);
-    return res.status(403).json({
-      success: false,
-      message: 'Access denied - only payment-proofs and cofounder-payment-proofs directories accessible'
-    });
-  }
-  
-  // Construct full file path
-  const fullPath = path.join(process.cwd(), 'uploads', requestedPath);
-  console.log(`[static-serve] Checking file at: ${fullPath}`);
-  console.log(`[static-serve] Current working directory: ${process.cwd()}`);
-  
-  // Check if file exists
-  if (!fs.existsSync(fullPath)) {
-    console.log(`[static-serve] File not found: ${fullPath}`);
-    
-    // List available files for debugging
-    const uploadsDir = path.join(process.cwd(), 'uploads');
-    const paymentProofsDir = path.join(uploadsDir, 'payment-proofs');
-    const cofounderPaymentProofsDir = path.join(uploadsDir, 'cofounder-payment-proofs');
-    
-    console.log(`[static-serve] Debug info:`);
-    console.log(`[static-serve] - Uploads dir exists: ${fs.existsSync(uploadsDir)}`);
-    console.log(`[static-serve] - Payment-proofs dir exists: ${fs.existsSync(paymentProofsDir)}`);
-    console.log(`[static-serve] - Co-founder payment-proofs dir exists: ${fs.existsSync(cofounderPaymentProofsDir)}`);
-    
-    // List files in both directories
-    [paymentProofsDir, cofounderPaymentProofsDir].forEach((dir, index) => {
-      const dirName = index === 0 ? 'payment-proofs' : 'cofounder-payment-proofs';
-      if (fs.existsSync(dir)) {
-        try {
-          const files = fs.readdirSync(dir);
-          console.log(`[static-serve] Available files in ${dirName}: ${files.length > 0 ? files.join(', ') : 'No files'}`);
-        } catch (err) {
-          console.log(`[static-serve] Error reading ${dirName} directory: ${err.message}`);
-        }
-      }
-    });
-    
-    return res.status(404).json({
-      success: false,
-      message: 'File not found on server'
-    });
-  }
-  
-  // Log file stats
-  try {
-    const stats = fs.statSync(fullPath);
-    console.log(`[static-serve] File found - Size: ${stats.size} bytes, Modified: ${stats.mtime}`);
-  } catch (err) {
-    console.log(`[static-serve] Error getting file stats: ${err.message}`);
-  }
-  
-  // File exists, proceed to serve it
-  console.log(`[static-serve] Serving file: ${fullPath}`);
+  // This will only serve old files that exist on disk
   next();
 }, express.static(path.join(__dirname, 'uploads'), {
-  // Add caching headers for better performance
-  maxAge: '1d', // Cache for 1 day
+  maxAge: '1d',
   etag: true,
   lastModified: true,
-  // Add custom headers including CORS
   setHeaders: function (res, path, stat) {
-    console.log(`[static-serve] Setting headers for: ${path}`);
     res.set('Access-Control-Allow-Origin', '*');
     res.set('Access-Control-Allow-Methods', 'GET, OPTIONS');
-    res.set('X-Served-By', 'AfriMobile-API');
+    res.set('X-Served-By', 'AfriMobile-API-Legacy');
   }
 }));
 
-// ====================================
-// SEPARATE STATIC SERVING FOR CO-FOUNDER PAYMENT PROOFS (ALTERNATIVE ROUTE)
-// ====================================
-
-// Serve co-founder payment proofs from a separate route (for backward compatibility)
+// Simplified co-founder payment proofs route (legacy support)
 app.use('/cofounder-payment-proofs', (req, res, next) => {
-  // Add CORS headers
   res.header('Access-Control-Allow-Origin', '*');
   res.header('Access-Control-Allow-Methods', 'GET, OPTIONS');
   res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
   
-  console.log(`[cofounder-static] Requested file: ${req.path}`);
-  console.log(`[cofounder-static] Full URL: ${req.originalUrl}`);
-  
-  // Construct path to co-founder payment proofs directory
-  const requestedFile = req.path.startsWith('/') ? req.path.substring(1) : req.path;
-  const fullPath = path.join(process.cwd(), 'uploads', 'cofounder-payment-proofs', requestedFile);
-  
-  console.log(`[cofounder-static] Looking for file: ${fullPath}`);
-  
-  // Check if file exists
-  if (!fs.existsSync(fullPath)) {
-    console.log(`[cofounder-static] File not found: ${fullPath}`);
-    
-    // Debug: List available files
-    const cofounderDir = path.join(process.cwd(), 'uploads', 'cofounder-payment-proofs');
-    if (fs.existsSync(cofounderDir)) {
-      try {
-        const files = fs.readdirSync(cofounderDir);
-        console.log(`[cofounder-static] Available files: ${files.join(', ')}`);
-      } catch (err) {
-        console.log(`[cofounder-static] Error reading directory: ${err.message}`);
-      }
-    }
-    
-    return res.status(404).json({
-      success: false,
-      message: 'Co-founder payment proof file not found'
-    });
-  }
-  
-  console.log(`[cofounder-static] Serving file: ${fullPath}`);
+  console.log(`[cofounder-legacy] Legacy co-founder file request: ${req.path}`);
+  console.log(`[cofounder-legacy] Note: New files are served from MongoDB via controllers`);
   next();
 }, express.static(path.join(__dirname, 'uploads', 'cofounder-payment-proofs'), {
   maxAge: '1d',
@@ -293,7 +195,7 @@ app.use('/cofounder-payment-proofs', (req, res, next) => {
   setHeaders: function (res, path, stat) {
     res.set('Access-Control-Allow-Origin', '*');
     res.set('Access-Control-Allow-Methods', 'GET, OPTIONS');
-    res.set('X-Served-By', 'AfriMobile-API-CoFounder');
+    res.set('X-Served-By', 'AfriMobile-API-CoFounder-Legacy');
   }
 }));
 
@@ -301,10 +203,10 @@ app.use('/cofounder-payment-proofs', (req, res, next) => {
 setupSwagger(app);
 
 // ========================================
-// FILE SYSTEM MONITORING MIDDLEWARE
+// SIMPLIFIED API MONITORING MIDDLEWARE
 // ========================================
 
-// Add file persistence monitoring
+// Simplified API monitoring for MongoDB storage
 app.use('/api', (req, res, next) => {
   // Ensure CORS headers are present on all API routes
   res.header('Access-Control-Allow-Origin', req.headers.origin || '*');
@@ -317,46 +219,11 @@ app.use('/api', (req, res, next) => {
     return res.status(200).end();
   }
   
-  // Log file system info on file-related requests
+  // Log file-related requests (now using MongoDB storage)
   if (req.path.includes('shares') && (req.method === 'POST' || req.path.includes('manual') || req.path.includes('upload'))) {
-    const uploadsDir = path.join(process.cwd(), 'uploads');
-    const paymentProofsDir = path.join(uploadsDir, 'payment-proofs');
-    const cofounderPaymentProofsDir = path.join(uploadsDir, 'cofounder-payment-proofs');
-    
-    console.log(`[file-monitor] Request: ${req.method} ${req.path}`);
-    console.log(`[file-monitor] Timestamp: ${new Date().toISOString()}`);
-    console.log(`[file-monitor] Working directory: ${process.cwd()}`);
-    console.log(`[file-monitor] Uploads directory exists: ${fs.existsSync(uploadsDir)}`);
-    console.log(`[file-monitor] Payment-proofs directory exists: ${fs.existsSync(paymentProofsDir)}`);
-    console.log(`[file-monitor] Co-founder payment-proofs directory exists: ${fs.existsSync(cofounderPaymentProofsDir)}`);
-    
-    // Check both directories
-    [paymentProofsDir, cofounderPaymentProofsDir].forEach((dir, index) => {
-      const dirName = index === 0 ? 'payment-proofs' : 'cofounder-payment-proofs';
-      if (fs.existsSync(dir)) {
-        try {
-          const files = fs.readdirSync(dir);
-          console.log(`[file-monitor] Files in ${dirName}: ${files.length}`);
-          if (files.length > 0) {
-            console.log(`[file-monitor] Recent files in ${dirName}: ${files.slice(-3).join(', ')}`);
-            
-            // Check file ages
-            files.forEach(file => {
-              try {
-                const filePath = path.join(dir, file);
-                const stats = fs.statSync(filePath);
-                const ageInMinutes = (Date.now() - stats.mtime.getTime()) / (1000 * 60);
-                console.log(`[file-monitor] File ${file}: ${Math.round(ageInMinutes)} minutes old`);
-              } catch (err) {
-                console.log(`[file-monitor] Error checking file ${file}: ${err.message}`);
-              }
-            });
-          }
-        } catch (err) {
-          console.log(`[file-monitor] Error reading ${dirName} directory: ${err.message}`);
-        }
-      }
-    });
+    console.log(`[api-monitor] File upload request: ${req.method} ${req.path}`);
+    console.log(`[api-monitor] Timestamp: ${new Date().toISOString()}`);
+    console.log(`[api-monitor] Storage: MongoDB (new uploads) + Legacy file system (old files)`);
   }
   next();
 });
@@ -405,40 +272,35 @@ app.get('/api/cors-test', (req, res) => {
   });
 });
 
-// Add an endpoint to test file serving
+// Updated file access test endpoint
 app.get('/api/test-file-access', (req, res) => {
-  const testUrl = `${req.protocol}://${req.get('host')}/uploads/payment-proofs/test.jpg`;
-  const cofounderTestUrl = `${req.protocol}://${req.get('host')}/uploads/cofounder-payment-proofs/test.jpg`;
-  
   res.json({
     success: true,
-    message: 'File access test endpoint',
-    testFileUrls: {
-      regular: testUrl,
-      cofounder: cofounderTestUrl,
-      cofounderAlternative: `${req.protocol}://${req.get('host')}/cofounder-payment-proofs/test.jpg`
+    message: 'File access test endpoint - MongoDB + Legacy support',
+    storage: {
+      primary: 'MongoDB (for new uploads)',
+      legacy: 'File System (for old files)',
+      transition: 'Gradual migration to MongoDB'
     },
-    uploadsPaths: {
-      regular: '/uploads/payment-proofs/',
-      cofounder: '/uploads/cofounder-payment-proofs/',
-      cofounderAlternative: '/cofounder-payment-proofs/'
+    testEndpoints: {
+      paymentProof: '/api/shares/payment-proof/:transactionId',
+      cofounderPaymentProof: '/cofounder/payment-proof/:transactionId',
+      legacyFileServing: '/uploads/payment-proofs/ and /cofounder-payment-proofs/'
     },
     corsHeaders: {
       'Access-Control-Allow-Origin': res.get('Access-Control-Allow-Origin'),
       'Access-Control-Allow-Methods': res.get('Access-Control-Allow-Methods')
     },
     suggestions: [
-      'Try accessing a file directly: GET /uploads/payment-proofs/filename.jpg',
-      'Try accessing co-founder file: GET /uploads/cofounder-payment-proofs/filename.jpg',
-      'Alternative co-founder route: GET /cofounder-payment-proofs/filename.jpg',
-      'Check browser console for detailed CORS errors',
-      'Verify your frontend origin is in the allowedOrigins list'
+      'New files are automatically stored in MongoDB',
+      'Old files continue to be served from file system',
+      'Use controller endpoints for payment proof access',
+      'Legacy static routes available for backward compatibility'
     ]
   });
 });
 
-
-// Enhanced file system debugging endpoint
+// Updated file system debugging endpoint
 app.get('/api/debug/files', (req, res) => {
   try {
     const uploadsDir = path.join(process.cwd(), 'uploads');
@@ -449,6 +311,11 @@ app.get('/api/debug/files', (req, res) => {
       success: true,
       timestamp: new Date().toISOString(),
       environment: process.env.NODE_ENV,
+      storage: {
+        primary: 'MongoDB',
+        legacy: 'File System',
+        status: 'Hybrid mode active'
+      },
       paths: {
         cwd: process.cwd(),
         uploadsDir,
@@ -482,7 +349,7 @@ app.get('/api/debug/files', (req, res) => {
       };
     }
     
-    // Check both directories
+    // Check both directories (legacy files only)
     const directories = [
       { path: paymentProofsDir, key: 'paymentProofs', name: 'payment-proofs' },
       { path: cofounderPaymentProofsDir, key: 'cofounderPaymentProofs', name: 'cofounder-payment-proofs' }
@@ -503,12 +370,14 @@ app.get('/api/debug/files', (req, res) => {
                 modified: stats.mtime,
                 url: `/uploads/${name}/${file}`,
                 alternativeUrl: key === 'cofounderPaymentProofs' ? `/cofounder-payment-proofs/${file}` : null,
-                ageMinutes: Math.round((Date.now() - stats.mtime.getTime()) / (1000 * 60))
+                ageMinutes: Math.round((Date.now() - stats.mtime.getTime()) / (1000 * 60)),
+                isLegacy: true
               };
             } catch (err) {
               return {
                 name: file,
-                error: err.message
+                error: err.message,
+                isLegacy: true
               };
             }
           });
@@ -520,6 +389,8 @@ app.get('/api/debug/files', (req, res) => {
         }
       }
     });
+    
+    result.note = "This shows legacy files only. New uploads are stored in MongoDB and accessed via controllers.";
     
     res.json(result);
   } catch (error) {

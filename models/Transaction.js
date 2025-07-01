@@ -48,12 +48,20 @@ const TransactionSchema = new mongoose.Schema({
   },
   
   // ADDED: File storage path for payment proofs (manual payments)
+  paymentProofData: {
+    type: Buffer,
+    required: false
+  },
+  paymentProofContentType: {
+    type: String,
+    required: false
+  },
+  // Keep paymentProofPath for backward compatibility
   paymentProofPath: {
     type: String,
-    default: null,
-    trim: true
+    required: false
   },
-  
+    
   // ADDED: Manual payment details structure
   manualPaymentDetails: {
     bankName: {

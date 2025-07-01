@@ -3,6 +3,7 @@ const express = require('express');
 const router = express.Router();
 const shareController = require('../controller/shareController');
 const { protect, adminProtect } = require('../middleware/auth');
+const { paymentProofUpload } = require('../config/multer');
 const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
@@ -820,9 +821,7 @@ router.get('/user/shares', protect, shareController.getUserShares);
 // Enhanced manual payment submission route with better error handling
 router.post('/manual/submit', 
   protect, 
-  upload.single('paymentProof'), 
-  handleUploadError,
-  logUpload,
+  paymentProofUpload.single('paymentProof'), 
   shareController.submitManualPayment
 );
 /*

@@ -6,7 +6,7 @@ const ReferralTransactionSchema = new mongoose.Schema({
     type: mongoose.Schema.Types.ObjectId,
     ref: 'User',
     required: true,
-    index: true // Add index for better query performance
+    index: true
   },
   
   // User who made the purchase that generated this commission
@@ -14,20 +14,20 @@ const ReferralTransactionSchema = new mongoose.Schema({
     type: mongoose.Schema.Types.ObjectId,
     ref: 'User',
     required: true,
-    index: true // Add index for better query performance
+    index: true
   },
   
   // Amount of commission earned
   amount: {
     type: Number,
     required: true,
-    min: 0 // Ensure non-negative amounts
+    min: 0
   },
   
   // Currency of the commission
   currency: {
     type: String,
-    enum: ['naira', 'usdt', 'USD'], // Added USD for compatibility
+    enum: ['naira', 'usdt', 'USD'],
     default: 'naira'
   },
   
@@ -36,53 +36,51 @@ const ReferralTransactionSchema = new mongoose.Schema({
     type: Number,
     enum: [1, 2, 3],
     required: true,
-    index: true // Add index for generation-based queries
+    index: true
   },
   
-  // Original transaction that generated this commission
+  // FIXED: Original transaction that generated this commission - now supports both ObjectId and String
   sourceTransaction: {
-    type: mongoose.Schema.Types.ObjectId,
-    refPath: 'sourceTransactionModel',
-    index: true // Add index for rollback queries
+    type: mongoose.Schema.Types.Mixed, // Changed from ObjectId to Mixed to support both
+    index: true
   },
   
-  // Model type for the source transaction (for flexibility)
+  // Model type for the source transaction
   sourceTransactionModel: {
     type: String,
     enum: ['Transaction', 'PaymentTransaction', 'UserShare'],
-    default: 'PaymentTransaction' // Updated default to match co-founder usage
+    default: 'PaymentTransaction'
   },
   
   // Purchase type that generated this commission
   purchaseType: {
     type: String,
     enum: ['share', 'cofounder', 'other'],
-    default: 'share' // Changed default to 'share' as it's more common
+    default: 'share'
   },
   
   // Status of the referral transaction
   status: {
     type: String,
-    enum: ['pending', 'completed', 'failed', 'rolled_back'], // Added 'rolled_back' status
+    enum: ['pending', 'completed', 'failed', 'rolled_back'],
     default: 'completed',
-    index: true // Add index for status-based queries
+    index: true
   },
   
-  // NEW: Timestamp when transaction was rolled back (if applicable)
+  // Timestamp when transaction was rolled back (if applicable)
   rolledBackAt: {
     type: Date,
     default: null
   },
   
-  // NEW: Additional notes or comments (useful for rollbacks or admin actions)
+  // Additional notes or comments
   notes: {
     type: String,
-    maxlength: 500 // Limit note length
+    maxlength: 500
   },
   
-  // NEW: Metadata for additional information (flexible object for future use)
+  // Metadata for additional information
   metadata: {
-    // Share conversion details for co-founder purchases
     actualShares: {
       type: Number,
       min: 0
@@ -94,7 +92,7 @@ const ReferralTransactionSchema = new mongoose.Schema({
     conversionRatio: {
       type: Number,
       min: 1,
-      default: 29 // Default co-founder to regular share ratio
+      default: 29
     },
     originalAmount: {
       type: Number,
@@ -103,21 +101,20 @@ const ReferralTransactionSchema = new mongoose.Schema({
     commissionRate: {
       type: Number,
       min: 0,
-      max: 100 // Percentage
+      max: 100
     },
-    // Additional flexible metadata
     additionalData: {
-      type: mongoose.Schema.Types.Mixed // For any future custom data
+      type: mongoose.Schema.Types.Mixed
     }
   },
   
-  // NEW: Processing details
+  // Processing details
   processedBy: {
     type: mongoose.Schema.Types.ObjectId,
-    ref: 'User' // Admin who processed manual transactions
+    ref: 'User'
   },
   
-  // NEW: Commission calculation details
+  // Commission calculation details
   commissionDetails: {
     baseAmount: {
       type: Number,
@@ -134,7 +131,7 @@ const ReferralTransactionSchema = new mongoose.Schema({
     }
   }
 }, {
-  timestamps: true // Automatically adds createdAt and updatedAt
+  timestamps: true
 });
 
 // Compound indexes for better query performance
@@ -142,7 +139,7 @@ ReferralTransactionSchema.index({ beneficiary: 1, status: 1 });
 ReferralTransactionSchema.index({ beneficiary: 1, generation: 1, status: 1 });
 ReferralTransactionSchema.index({ sourceTransaction: 1, sourceTransactionModel: 1 });
 ReferralTransactionSchema.index({ referredUser: 1, generation: 1 });
-ReferralTransactionSchema.index({ createdAt: -1 }); // For sorting by newest first
+ReferralTransactionSchema.index({ createdAt: -1 });
 
 // Virtual for formatted amount display
 ReferralTransactionSchema.virtual('formattedAmount').get(function() {
@@ -163,10 +160,10 @@ ReferralTransactionSchema.methods.rollback = function(reason = 'Transaction roll
   return this.save();
 };
 
-// Static method to find commissions by source transaction
+// FIXED: Static method to find commissions by source transaction (handles both ObjectId and String)
 ReferralTransactionSchema.statics.findBySourceTransaction = function(transactionId, sourceModel) {
   return this.find({
-    sourceTransaction: transactionId,
+    sourceTransaction: transactionId, // Works with both ObjectId and String now
     sourceTransactionModel: sourceModel
   });
 };
@@ -204,7 +201,7 @@ ReferralTransactionSchema.pre('save', function(next) {
   // Ensure commission details are consistent
   if (this.commissionDetails && this.commissionDetails.baseAmount && this.commissionDetails.commissionRate) {
     const expectedAmount = (this.commissionDetails.baseAmount * this.commissionDetails.commissionRate) / 100;
-    if (Math.abs(this.amount - expectedAmount) > 0.01) { // Allow for small rounding differences
+    if (Math.abs(this.amount - expectedAmount) > 0.01) {
       return next(new Error('Commission amount does not match calculated amount'));
     }
   }

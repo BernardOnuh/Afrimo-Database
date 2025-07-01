@@ -144,7 +144,7 @@ const getTimeFilteredLeaderboard = async (timeFrame, categoryFilter = 'registrat
     },
     {
       $lookup: {
-        from: 'usercofounderShares',
+        from: 'cofoundershares',
         localField: '_id',
         foreignField: 'user',
         as: 'cofounderShares'
@@ -1937,7 +1937,7 @@ exports.getLeaderboardByShares = async (filters) => {
     },
     {
       $lookup: {
-        from: 'usercofounderShares',
+        from: 'cofoundershares',
         localField: '_id',
         foreignField: 'user',
         as: 'cofounderShares'

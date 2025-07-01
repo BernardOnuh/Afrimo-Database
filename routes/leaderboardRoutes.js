@@ -1920,7 +1920,7 @@ router.get('/filter/shares', async (req, res) => {
 //       },
 //       {
 //         $lookup: {
-//           from: 'usercofounderShares',
+//           from: 'cofoundershares',
 //           localField: '_id',
 //           foreignField: 'user',
 //           as: 'cofounderShares'

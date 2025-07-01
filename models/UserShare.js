@@ -86,7 +86,19 @@ const userShareSchema = new mongoose.Schema({
     },
     adminNote: String,
     txHash: String,
+    
+    // UPDATED: MongoDB image storage fields
+    paymentProofData: {
+      type: Buffer,
+      required: false
+    },
+    paymentProofContentType: {
+      type: String,
+      required: false
+    },
+    // Keep existing paymentProofPath for backward compatibility
     paymentProofPath: String,
+    
     manualPaymentDetails: {
       bankName: String,
       accountName: String,
@@ -313,6 +325,28 @@ userShareSchema.methods.getSharesByType = function() {
       equivalentRegularShares: this.equivalentRegularShares,
       totalTransactions: coFounderTransactions.length
     }
+  };
+};
+
+// UPDATED: Method to check if transaction has payment proof (MongoDB or file)
+userShareSchema.methods.hasPaymentProof = function(transactionId) {
+  const transaction = this.transactions.find(t => t.transactionId === transactionId);
+  if (!transaction) return false;
+  
+  return !!(transaction.paymentProofData || transaction.paymentProofPath);
+};
+
+// UPDATED: Method to get payment proof info
+userShareSchema.methods.getPaymentProofInfo = function(transactionId) {
+  const transaction = this.transactions.find(t => t.transactionId === transactionId);
+  if (!transaction) return null;
+  
+  return {
+    hasProof: !!(transaction.paymentProofData || transaction.paymentProofPath),
+    storedInMongoDB: !!transaction.paymentProofData,
+    storedInFileSystem: !!transaction.paymentProofPath,
+    contentType: transaction.paymentProofContentType,
+    url: this.hasPaymentProof(transactionId) ? `/uploads/payment-proofs/${transactionId}` : null
   };
 };
 
