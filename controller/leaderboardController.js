@@ -3614,3 +3614,346 @@ exports.getLeaderboardByLocationFixed = async (filters) => {
     }
   };
 };
+// Add these functions to your leaderboardController.js file
+
+// 1. User Status Diagnostic Function
+exports.diagnoseCofounderUserStatus = async (req, res) => {
+  try {
+    const PaymentTransaction = require('../models/Transaction');
+    
+    // Get all users with completed co-founder transactions
+    const uniqueUserIds = await PaymentTransaction.distinct('userId', {
+      type: 'co-founder',
+      status: 'completed'
+    });
+    
+    console.log('Unique user IDs with completed transactions:', uniqueUserIds);
+    
+    // Get detailed information about each user
+    const userDetails = await User.find({
+      _id: { $in: uniqueUserIds }
+    }).select('name userName status.isActive isBanned isSuspended createdAt');
+    
+    // Check which users pass the filter criteria
+    const filterResults = userDetails.map(user => {
+      const isActive = user.status?.isActive === true;
+      const isNotBanned = user.isBanned !== true;
+      const passesFilter = isActive && isNotBanned;
+      
+      return {
+        _id: user._id,
+        name: user.name,
+        userName: user.userName,
+        status: {
+          isActive: user.status?.isActive,
+          isBanned: user.isBanned,
+          isSuspended: user.isSuspended
+        },
+        passesFilter,
+        reason: !passesFilter ? 
+          (!isActive ? 'Not active' : 'Is banned') : 
+          'Passes all filters'
+      };
+    });
+    
+    // Get transaction details for each user
+    const transactionsByUser = await PaymentTransaction.aggregate([
+      {
+        $match: {
+          type: 'co-founder',
+          status: 'completed',
+          userId: { $in: uniqueUserIds }
+        }
+      },
+      {
+        $group: {
+          _id: '$userId',
+          totalShares: { $sum: '$shares' },
+          transactionCount: { $sum: 1 },
+          transactions: {
+            $push: {
+              transactionId: '$transactionId',
+              shares: '$shares',
+              amount: '$amount',
+              date: '$createdAt'
+            }
+          }
+        }
+      }
+    ]);
+    
+    res.json({
+      success: true,
+      analysis: {
+        totalUsersWithTransactions: uniqueUserIds.length,
+        userFilterResults: filterResults,
+        transactionsByUser: transactionsByUser,
+        summary: {
+          usersPassingFilter: filterResults.filter(u => u.passesFilter).length,
+          usersFailingFilter: filterResults.filter(u => !u.passesFilter).length,
+          reasonsForFailure: filterResults
+            .filter(u => !u.passesFilter)
+            .map(u => ({ user: u.userName, reason: u.reason }))
+        }
+      }
+    });
+    
+  } catch (error) {
+    console.error('Error in user status diagnostic:', error);
+    res.status(500).json({
+      success: false,
+      message: 'User status diagnostic failed',
+      error: error.message
+    });
+  }
+};
+
+// 2. Debug Leaderboard Function (shows all users regardless of status)
+exports.getCofounderLeaderboardDebug = async (req, res) => {
+  try {
+    const limit = req.query.limit ? parseInt(req.query.limit) : 50;
+    const PaymentTransaction = require('../models/Transaction');
+    const actualCollectionName = PaymentTransaction.collection.name;
+    
+    console.log('Getting ALL cofounder users (debug mode) with limit:', limit);
+    
+    const pipeline = [
+      // Don't filter by status initially - get ALL users
+      {
+        $lookup: {
+          from: actualCollectionName,
+          let: { userId: '$_id' },
+          pipeline: [
+            {
+              $match: {
+                $expr: {
+                  $and: [
+                    { $eq: ['$userId', '$$userId'] },
+                    { $eq: ['$type', 'co-founder'] },
+                    { $eq: ['$status', 'completed'] }
+                  ]
+                }
+              }
+            }
+          ],
+          as: 'cofounderTransactions'
+        }
+      },
+      
+      // Calculate total co-founder shares from transactions
+      {
+        $addFields: {
+          totalCofounderShares: {
+            $sum: '$cofounderTransactions.shares'
+          },
+          transactionCount: { $size: '$cofounderTransactions' }
+        }
+      },
+      
+      // Only include users who have co-founder shares
+      {
+        $match: {
+          totalCofounderShares: { $gt: 0 }
+        }
+      },
+      
+      // Lookup referral data
+      {
+        $lookup: {
+          from: 'referrals',
+          localField: '_id',
+          foreignField: 'user',
+          as: 'referralData'
+        }
+      },
+      
+      {
+        $addFields: {
+          totalEarnings: {
+            $ifNull: [
+              { $arrayElemAt: ['$referralData.totalEarnings', 0] },
+              0
+            ]
+          }
+        }
+      },
+      
+      // Sort by total co-founder shares descending
+      {
+        $sort: { totalCofounderShares: -1, totalEarnings: -1 }
+      },
+      
+      // Limit results
+      {
+        $limit: limit
+      },
+      
+      // Project final fields including status information
+      {
+        $project: {
+          _id: 1,
+          name: 1,
+          userName: 1,
+          totalCofounderShares: 1,
+          totalEarnings: 1,
+          'location.state': 1,
+          'location.city': 1,
+          createdAt: 1,
+          equivalentRegularShares: { 
+            $multiply: ['$totalCofounderShares', 29]
+          },
+          // Include status information for debugging
+          'status.isActive': 1,
+          isBanned: 1,
+          isSuspended: 1,
+          transactionCount: 1,
+          // Show if user would pass the normal filter
+          wouldPassNormalFilter: {
+            $and: [
+              { $eq: ['$status.isActive', true] },
+              { $ne: ['$isBanned', true] }
+            ]
+          },
+          transactionDetails: {
+            $map: {
+              input: '$cofounderTransactions',
+              as: 'transaction',
+              in: {
+                shares: '$$transaction.shares',
+                amount: '$$transaction.amount',
+                status: '$$transaction.status',
+                transactionId: '$$transaction.transactionId',
+                date: '$$transaction.createdAt'
+              }
+            }
+          }
+        }
+      }
+    ];
+    
+    const allCofounders = await User.aggregate(pipeline);
+    
+    // Separate users by filter status
+    const activeUsers = allCofounders.filter(user => user.wouldPassNormalFilter);
+    const inactiveUsers = allCofounders.filter(user => !user.wouldPassNormalFilter);
+    
+    console.log(`Found ${allCofounders.length} total cofounders (${activeUsers.length} active, ${inactiveUsers.length} inactive)`);
+    
+    res.json({
+      success: true,
+      debug: true,
+      data: allCofounders.map((user, index) => ({
+        ...user,
+        rank: index + 1
+      })),
+      analysis: {
+        totalFound: allCofounders.length,
+        activeCount: activeUsers.length,
+        inactiveCount: inactiveUsers.length,
+        inactiveUsers: inactiveUsers.map(user => ({
+          _id: user._id,
+          name: user.name,
+          userName: user.userName,
+          isActive: user.status?.isActive,
+          isBanned: user.isBanned,
+          isSuspended: user.isSuspended,
+          totalShares: user.totalCofounderShares,
+          reason: !user.status?.isActive ? 'Not active' : 
+                  user.isBanned ? 'Is banned' : 'Other issue'
+        }))
+      },
+      pagination: {
+        currentPage: 1,
+        totalPages: 1,
+        totalItems: allCofounders.length,
+        hasNext: false,
+        hasPrev: false,
+        limit: limit
+      },
+      filter: 'cofounder-debug'
+    });
+    
+  } catch (error) {
+    console.error('Error fetching debug cofounder leaderboard:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch debug cofounder leaderboard',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+};
+
+// 3. Fix Inactive Users Function (Admin only)
+exports.fixInactiveCofounderUsers = async (req, res) => {
+  try {
+    const adminId = req.user.id;
+    
+    // Verify admin
+    const admin = await User.findById(adminId);
+    if (!admin || !admin.isAdmin) {
+      return res.status(403).json({
+        success: false,
+        message: 'Unauthorized: Admin access required'
+      });
+    }
+    
+    const PaymentTransaction = require('../models/Transaction');
+    
+    // Get all users with completed co-founder transactions
+    const uniqueUserIds = await PaymentTransaction.distinct('userId', {
+      type: 'co-founder',
+      status: 'completed'
+    });
+    
+    // Find users who have transactions but are inactive or banned
+    const inactiveUsers = await User.find({
+      _id: { $in: uniqueUserIds },
+      $or: [
+        { 'status.isActive': { $ne: true } },
+        { isBanned: true }
+      ]
+    }).select('name userName status isBanned');
+    
+    if (inactiveUsers.length === 0) {
+      return res.json({
+        success: true,
+        message: 'All co-founder users are already active',
+        inactiveUsers: []
+      });
+    }
+    
+    // Update inactive users to be active
+    const updateResult = await User.updateMany(
+      {
+        _id: { $in: inactiveUsers.map(u => u._id) }
+      },
+      {
+        $set: {
+          'status.isActive': true,
+          isBanned: false
+        }
+      }
+    );
+    
+    res.json({
+      success: true,
+      message: `Fixed ${updateResult.modifiedCount} inactive co-founder users`,
+      inactiveUsers: inactiveUsers.map(u => ({
+        id: u._id,
+        name: u.name,
+        userName: u.userName,
+        wasActive: u.status?.isActive,
+        wasBanned: u.isBanned
+      })),
+      updateResult
+    });
+    
+  } catch (error) {
+    console.error('Error fixing inactive users:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fix inactive users',
+      error: error.message
+    });
+  }
+};

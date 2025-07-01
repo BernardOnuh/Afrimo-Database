@@ -2148,9 +2148,393 @@ router.get('/filter/shares', async (req, res) => {
  *           example: "2024-01-15T10:30:00Z"
  */
 
+// Add these Swagger-documented routes to your leaderboardRoutes.js file
+
+/**
+ * @swagger
+ * /leaderboard/cofounder/diagnose:
+ *   get:
+ *     summary: Diagnose co-founder leaderboard data issues (detailed analysis)
+ *     tags: [Admin Leaderboard]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Diagnostic data retrieved successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 diagnostics:
+ *                   type: object
+ *                   properties:
+ *                     allTransactions:
+ *                       type: object
+ *                       properties:
+ *                         total:
+ *                           type: integer
+ *                           example: 4
+ *                         byStatus:
+ *                           type: object
+ *                           properties:
+ *                             completed:
+ *                               type: integer
+ *                               example: 4
+ *                             pending:
+ *                               type: integer
+ *                               example: 0
+ *                         details:
+ *                           type: array
+ *                           items:
+ *                             type: object
+ *                             properties:
+ *                               transactionId:
+ *                                 type: string
+ *                                 example: "CFD-763891B9-803881"
+ *                               userId:
+ *                                 type: string
+ *                                 example: "684d9767aa52779c928af87d"
+ *                               userName:
+ *                                 type: string
+ *                                 example: "blacklight"
+ *                               shares:
+ *                                 type: integer
+ *                                 example: 1
+ *                               status:
+ *                                 type: string
+ *                                 example: "completed"
+ *                     collectionInfo:
+ *                       type: object
+ *                       properties:
+ *                         transactionCollections:
+ *                           type: array
+ *                           items:
+ *                             type: string
+ *                           example: ["transactions", "paymenttransactions"]
+ *                     completedByUser:
+ *                       type: object
+ *                       properties:
+ *                         userCount:
+ *                           type: integer
+ *                           example: 4
+ *                         totalShares:
+ *                           type: integer
+ *                           example: 4
+ *                         users:
+ *                           type: array
+ *                           items:
+ *                             type: object
+ *                             properties:
+ *                               userId:
+ *                                 type: string
+ *                               userName:
+ *                                 type: string
+ *                               totalShares:
+ *                                 type: integer
+ *                 summary:
+ *                   type: object
+ *                   properties:
+ *                     totalTransactions:
+ *                       type: integer
+ *                       example: 4
+ *                     completedTransactions:
+ *                       type: integer
+ *                       example: 4
+ *                     uniqueUsersWithCompletedTransactions:
+ *                       type: integer
+ *                       example: 4
+ *                     shouldShowInLeaderboard:
+ *                       type: integer
+ *                       example: 4
+ *       500:
+ *         description: Server error
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ */
 router.get('/cofounder/diagnose', leaderboardController.diagnoseCofounderDataDetailed);
 
+/**
+ * @swagger
+ * /leaderboard/cofounder/status-diagnostic:
+ *   get:
+ *     summary: Check user status for co-founder transaction holders
+ *     tags: [Admin Leaderboard]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: User status analysis retrieved successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 analysis:
+ *                   type: object
+ *                   properties:
+ *                     totalUsersWithTransactions:
+ *                       type: integer
+ *                       example: 4
+ *                     userFilterResults:
+ *                       type: array
+ *                       items:
+ *                         type: object
+ *                         properties:
+ *                           _id:
+ *                             type: string
+ *                             example: "684d9767aa52779c928af87d"
+ *                           name:
+ *                             type: string
+ *                             example: "Elston"
+ *                           userName:
+ *                             type: string
+ *                             example: "blacklight"
+ *                           status:
+ *                             type: object
+ *                             properties:
+ *                               isActive:
+ *                                 type: boolean
+ *                                 example: true
+ *                               isBanned:
+ *                                 type: boolean
+ *                                 example: false
+ *                           passesFilter:
+ *                             type: boolean
+ *                             example: true
+ *                           reason:
+ *                             type: string
+ *                             example: "Passes all filters"
+ *                     summary:
+ *                       type: object
+ *                       properties:
+ *                         usersPassingFilter:
+ *                           type: integer
+ *                           example: 2
+ *                         usersFailingFilter:
+ *                           type: integer
+ *                           example: 2
+ *                         reasonsForFailure:
+ *                           type: array
+ *                           items:
+ *                             type: object
+ *                             properties:
+ *                               user:
+ *                                 type: string
+ *                               reason:
+ *                                 type: string
+ *       500:
+ *         description: Server error
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ */
+router.get('/cofounder/status-diagnostic', leaderboardController.diagnoseCofounderUserStatus);
 
+/**
+ * @swagger
+ * /leaderboard/cofounder/debug:
+ *   get:
+ *     summary: Get co-founder leaderboard in debug mode (shows all users regardless of status)
+ *     tags: [Admin Leaderboard]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *           minimum: 1
+ *           maximum: 100
+ *           default: 50
+ *         description: Number of results to return
+ *     responses:
+ *       200:
+ *         description: Debug co-founder leaderboard retrieved successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 debug:
+ *                   type: boolean
+ *                   example: true
+ *                 data:
+ *                   type: array
+ *                   items:
+ *                     type: object
+ *                     properties:
+ *                       _id:
+ *                         type: string
+ *                         example: "684d9767aa52779c928af87d"
+ *                       name:
+ *                         type: string
+ *                         example: "Elston"
+ *                       userName:
+ *                         type: string
+ *                         example: "blacklight"
+ *                       totalCofounderShares:
+ *                         type: integer
+ *                         example: 1
+ *                       totalEarnings:
+ *                         type: number
+ *                         example: 18000
+ *                       equivalentRegularShares:
+ *                         type: integer
+ *                         example: 29
+ *                       rank:
+ *                         type: integer
+ *                         example: 1
+ *                       status:
+ *                         type: object
+ *                         properties:
+ *                           isActive:
+ *                             type: boolean
+ *                             example: true
+ *                       isBanned:
+ *                         type: boolean
+ *                         example: false
+ *                       wouldPassNormalFilter:
+ *                         type: boolean
+ *                         example: true
+ *                       transactionCount:
+ *                         type: integer
+ *                         example: 1
+ *                       transactionDetails:
+ *                         type: array
+ *                         items:
+ *                           type: object
+ *                           properties:
+ *                             shares:
+ *                               type: integer
+ *                             amount:
+ *                               type: number
+ *                             status:
+ *                               type: string
+ *                             transactionId:
+ *                               type: string
+ *                 analysis:
+ *                   type: object
+ *                   properties:
+ *                     totalFound:
+ *                       type: integer
+ *                       example: 4
+ *                     activeCount:
+ *                       type: integer
+ *                       example: 2
+ *                     inactiveCount:
+ *                       type: integer
+ *                       example: 2
+ *                     inactiveUsers:
+ *                       type: array
+ *                       items:
+ *                         type: object
+ *                         properties:
+ *                           _id:
+ *                             type: string
+ *                           name:
+ *                             type: string
+ *                           userName:
+ *                             type: string
+ *                           isActive:
+ *                             type: boolean
+ *                           isBanned:
+ *                             type: boolean
+ *                           totalShares:
+ *                             type: integer
+ *                           reason:
+ *                             type: string
+ *                             example: "Not active"
+ *                 pagination:
+ *                   $ref: '#/components/schemas/PaginationInfo'
+ *                 filter:
+ *                   type: string
+ *                   example: "cofounder-debug"
+ *       500:
+ *         description: Server error
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ */
+router.get('/cofounder/debug', leaderboardController.getCofounderLeaderboardDebug);
 
+/**
+ * @swagger
+ * /leaderboard/cofounder/fix-inactive:
+ *   post:
+ *     summary: Fix inactive co-founder users (Admin only - activates banned/inactive users who have co-founder transactions)
+ *     tags: [Admin Leaderboard]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Inactive users fixed successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *                   example: "Fixed 2 inactive co-founder users"
+ *                 inactiveUsers:
+ *                   type: array
+ *                   items:
+ *                     type: object
+ *                     properties:
+ *                       id:
+ *                         type: string
+ *                         example: "67ebd9c087ef30c1fcfced84"
+ *                       name:
+ *                         type: string
+ *                         example: "John Doe"
+ *                       userName:
+ *                         type: string
+ *                         example: "johndoe"
+ *                       wasActive:
+ *                         type: boolean
+ *                         example: false
+ *                       wasBanned:
+ *                         type: boolean
+ *                         example: false
+ *                 updateResult:
+ *                   type: object
+ *                   properties:
+ *                     modifiedCount:
+ *                       type: integer
+ *                       example: 2
+ *                     matchedCount:
+ *                       type: integer
+ *                       example: 2
+ *       403:
+ *         description: Admin access required
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ *       500:
+ *         description: Server error
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ */
+router.post('/cofounder/fix-inactive', protect, restrictTo('admin'), leaderboardController.fixInactiveCofounderUsers);
 
 module.exports = router;
