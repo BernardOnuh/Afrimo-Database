@@ -34,24 +34,565 @@ try {
   };
 }
 
+/**
+ * @swagger
+ * components:
+ *   schemas:
+ *     LeaderboardUser:
+ *       type: object
+ *       properties:
+ *         _id:
+ *           type: string
+ *           description: User's unique identifier
+ *           example: "507f1f77bcf86cd799439011"
+ *         name:
+ *           type: string
+ *           description: User's full name
+ *           example: "John Doe"
+ *         userName:
+ *           type: string
+ *           description: User's username
+ *           example: "johndoe"
+ *         totalShares:
+ *           type: number
+ *           description: Total number of regular shares owned
+ *           example: 150
+ *         totalCofounderShares:
+ *           type: number
+ *           description: Total number of cofounder shares owned
+ *           example: 50
+ *         combinedShares:
+ *           type: number
+ *           description: Total of all shares (regular + cofounder)
+ *           example: 200
+ *         referralCount:
+ *           type: number
+ *           description: Number of users referred
+ *           example: 25
+ *         totalEarnings:
+ *           type: number
+ *           description: Total earnings from all sources
+ *           example: 5000
+ *         currentBalance:
+ *           type: number
+ *           description: Current available balance (earnings minus withdrawals)
+ *           example: 3500
+ *         withdrawalAmount:
+ *           type: number
+ *           description: Total amount withdrawn
+ *           example: 1500
+ *         pendingWithdrawalsAmount:
+ *           type: number
+ *           description: Total amount in pending withdrawals
+ *           example: 0
+ *         processingWithdrawalsAmount:
+ *           type: number
+ *           description: Total amount in processing withdrawals
+ *           example: 0
+ *         totalSpent:
+ *           type: number
+ *           description: Total amount spent on shares
+ *           example: 15000
+ *         createdAt:
+ *           type: string
+ *           format: date-time
+ *           description: Account creation date
+ *           example: "2024-01-15T10:30:00Z"
+ *
+ *     LocationLeaderboardUser:
+ *       type: object
+ *       properties:
+ *         _id:
+ *           type: string
+ *           description: User's unique identifier
+ *           example: "507f1f77bcf86cd799439011"
+ *         rank:
+ *           type: integer
+ *           description: User's rank in this leaderboard
+ *           example: 1
+ *         name:
+ *           type: string
+ *           description: User's full name
+ *           example: "John Doe"
+ *         userName:
+ *           type: string
+ *           description: User's username
+ *           example: "johndoe"
+ *         totalEarnings:
+ *           type: number
+ *           description: Total earnings from all sources
+ *           example: 5000.00
+ *         availableBalance:
+ *           type: number
+ *           description: Current available balance
+ *           example: 3500.00
+ *         totalShares:
+ *           type: number
+ *           description: Total number of shares owned
+ *           example: 150
+ *         location:
+ *           type: object
+ *           properties:
+ *             country:
+ *               type: string
+ *               example: "Nigeria"
+ *             state:
+ *               type: string
+ *               example: "Lagos"
+ *             city:
+ *               type: string
+ *               example: "Ikeja"
+ *         status:
+ *           type: object
+ *           properties:
+ *             isActive:
+ *               type: boolean
+ *               example: true
+ *         createdAt:
+ *           type: string
+ *           format: date-time
+ *           description: Account creation date
+ *           example: "2024-01-15T10:30:00Z"
+ *     
+ *     LocationStats:
+ *       type: object
+ *       properties:
+ *         totalUsers:
+ *           type: integer
+ *           description: Total number of users in this location
+ *           example: 100
+ *         totalEarnings:
+ *           type: number
+ *           description: Combined earnings of all users in this location
+ *           example: 250000.00
+ *         averageEarnings:
+ *           type: number
+ *           description: Average earnings per user in this location
+ *           example: 2500.00
+ *         totalBalance:
+ *           type: number
+ *           description: Combined available balance of all users
+ *           example: 180000.00
+ *         maxEarnings:
+ *           type: number
+ *           description: Highest earnings by a single user in this location
+ *           example: 15000.00
+ *         minEarnings:
+ *           type: number
+ *           description: Lowest earnings by a user in this location
+ *           example: 0.00
+ *     
+ *     LocationFilters:
+ *       type: object
+ *       properties:
+ *         country:
+ *           type: string
+ *           nullable: true
+ *           example: "Nigeria"
+ *         state:
+ *           type: string
+ *           nullable: true
+ *           example: "Lagos"
+ *         city:
+ *           type: string
+ *           nullable: true
+ *           example: "Ikeja"
+ *         limit:
+ *           type: integer
+ *           example: 50
+ *         offset:
+ *           type: integer
+ *           example: 0
+ *         sortBy:
+ *           type: string
+ *           enum: [totalEarnings, availableBalance, totalShares, createdAt]
+ *           example: "totalEarnings"
+ *         sortOrder:
+ *           type: string
+ *           enum: [asc, desc]
+ *           example: "desc"
+ *         period:
+ *           type: string
+ *           enum: [all_time, daily, weekly, monthly, yearly]
+ *           example: "all_time"
+ *     
+ *     PaginationInfo:
+ *       type: object
+ *       properties:
+ *         currentPage:
+ *           type: integer
+ *           description: Current page number
+ *           example: 1
+ *         totalPages:
+ *           type: integer
+ *           description: Total number of pages
+ *           example: 5
+ *         totalItems:
+ *           type: integer
+ *           description: Total number of items across all pages
+ *           example: 100
+ *         hasNext:
+ *           type: boolean
+ *           description: Whether there are more pages after current
+ *           example: true
+ *         hasPrev:
+ *           type: boolean
+ *           description: Whether there are pages before current
+ *           example: false
+ *         limit:
+ *           type: integer
+ *           description: Number of items per page
+ *           example: 20
+ *     
+ *     VisibilitySettings:
+ *       type: object
+ *       properties:
+ *         showEarnings:
+ *           type: boolean
+ *           description: Whether earnings are visible in leaderboard
+ *           example: true
+ *         showAvailableBalance:
+ *           type: boolean
+ *           description: Whether available balance is visible in leaderboard
+ *           example: true
+ *         lastUpdated:
+ *           type: string
+ *           format: date-time
+ *           description: When settings were last updated
+ *           example: "2024-01-15T10:30:00Z"
+ *         updatedBy:
+ *           type: string
+ *           description: ID of admin who last updated settings
+ *           example: "507f1f77bcf86cd799439011"
+ *
+ *     VisibilityToggleRequest:
+ *       type: object
+ *       required:
+ *         - visible
+ *       properties:
+ *         visible:
+ *           type: boolean
+ *           description: Whether the field should be visible
+ *           example: true
+ *
+ *     SharesLeaderboardUser:
+ *       type: object
+ *       properties:
+ *         _id:
+ *           type: string
+ *           description: User's unique identifier
+ *           example: "507f1f77bcf86cd799439011"
+ *         rank:
+ *           type: integer
+ *           description: User's rank in this leaderboard
+ *           example: 1
+ *         name:
+ *           type: string
+ *           description: User's full name
+ *           example: "John Doe"
+ *         userName:
+ *           type: string
+ *           description: User's username
+ *           example: "johndoe"
+ *         regularShares:
+ *           type: number
+ *           description: Number of regular shares
+ *           example: 100
+ *         cofounderSharesTotal:
+ *           type: number
+ *           description: Number of cofounder shares
+ *           example: 50
+ *         combinedShares:
+ *           type: number
+ *           description: Total shares (regular + cofounder)
+ *           example: 150
+ *         totalEarnings:
+ *           type: number
+ *           description: Total earnings
+ *           example: 5000
+ *         filteredShares:
+ *           type: number
+ *           description: Shares count used for filtering/ranking
+ *           example: 150
+ *         shareBreakdown:
+ *           type: object
+ *           properties:
+ *             regular:
+ *               type: number
+ *               example: 100
+ *             cofounder:
+ *               type: number
+ *               example: 50
+ *             total:
+ *               type: number
+ *               example: 150
+ *         location:
+ *           type: object
+ *           properties:
+ *             state:
+ *               type: string
+ *               example: "Lagos"
+ *             city:
+ *               type: string
+ *               example: "Ikeja"
+ *         status:
+ *           type: object
+ *           properties:
+ *             isActive:
+ *               type: boolean
+ *               example: true
+ *         createdAt:
+ *           type: string
+ *           format: date-time
+ *           example: "2024-01-15T10:30:00Z"
+ *
+ *     SharesStatistics:
+ *       type: object
+ *       properties:
+ *         totalShares:
+ *           type: number
+ *           description: Total shares across all users
+ *           example: 10000
+ *         averageShares:
+ *           type: number
+ *           description: Average shares per user
+ *           example: 75.5
+ *         maxShares:
+ *           type: number
+ *           description: Highest share count
+ *           example: 500
+ *         minShares:
+ *           type: number
+ *           description: Lowest share count
+ *           example: 1
+ *         totalUsers:
+ *           type: integer
+ *           description: Number of users in result set
+ *           example: 100
+ *         totalEarnings:
+ *           type: number
+ *           description: Combined earnings of all users
+ *           example: 500000
+ *         averageEarnings:
+ *           type: number
+ *           description: Average earnings per user
+ *           example: 5000
+ *     
+ *     ErrorResponse:
+ *       type: object
+ *       properties:
+ *         success:
+ *           type: boolean
+ *           example: false
+ *         message:
+ *           type: string
+ *           description: Error message describing what went wrong
+ *           example: "Country parameter is required"
+ *         error:
+ *           type: string
+ *           description: Detailed error information (only in development mode)
+ *           example: "ValidationError: country is required"
+ *
+ *   securitySchemes:
+ *     bearerAuth:
+ *       type: http
+ *       scheme: bearer
+ *       bearerFormat: JWT
+ *
+ *   tags:
+ *     - name: Public Leaderboard
+ *       description: Public leaderboard endpoints for different categories and time periods
+ *     - name: Location Leaderboard
+ *       description: Location-based leaderboard filtering endpoints for country, state, and city
+ *     - name: Admin Leaderboard
+ *       description: Admin-only leaderboard management and visibility control endpoints
+ */
+
+// ====================
+// ADMIN VISIBILITY ROUTES
+// ====================
+
+/**
+ * @swagger
+ * /leaderboard/admin/visibility/settings:
+ *   get:
+ *     summary: Get current visibility settings for leaderboard
+ *     tags: [Admin Leaderboard]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Visibility settings retrieved successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 data:
+ *                   $ref: '#/components/schemas/VisibilitySettings'
+ *       401:
+ *         description: Authentication required
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ *       403:
+ *         description: Admin access required
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ *       500:
+ *         description: Server error
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ */
 router.get('/admin/visibility/settings',
   protect,
   restrictTo('admin'),
   leaderboardController.getVisibilitySettings
 );
 
+/**
+ * @swagger
+ * /leaderboard/admin/visibility/earnings:
+ *   post:
+ *     summary: Toggle earnings visibility in leaderboard
+ *     tags: [Admin Leaderboard]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             $ref: '#/components/schemas/VisibilityToggleRequest'
+ *     responses:
+ *       200:
+ *         description: Earnings visibility toggled successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *                   example: "Earnings visibility enabled"
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     showEarnings:
+ *                       type: boolean
+ *                       example: true
+ *                     showAvailableBalance:
+ *                       type: boolean
+ *                       example: true
+ *       400:
+ *         description: Invalid request body
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ *       401:
+ *         description: Authentication required
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ *       403:
+ *         description: Admin access required
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ *       500:
+ *         description: Server error
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ */
 router.post('/admin/visibility/earnings',
   protect,
   restrictTo('admin'),
   leaderboardController.toggleEarningsVisibility
 );
 
+/**
+ * @swagger
+ * /leaderboard/admin/visibility/balance:
+ *   post:
+ *     summary: Toggle balance visibility in leaderboard
+ *     tags: [Admin Leaderboard]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             $ref: '#/components/schemas/VisibilityToggleRequest'
+ *     responses:
+ *       200:
+ *         description: Balance visibility toggled successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *                   example: "Balance visibility enabled"
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     showEarnings:
+ *                       type: boolean
+ *                       example: true
+ *                     showAvailableBalance:
+ *                       type: boolean
+ *                       example: true
+ *       400:
+ *         description: Invalid request body
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ *       401:
+ *         description: Authentication required
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ *       403:
+ *         description: Admin access required
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ *       500:
+ *         description: Server error
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ */
 router.post('/admin/visibility/balance',
   protect,
   restrictTo('admin'),
   leaderboardController.toggleBalanceVisibility
 );
-
 
 router.use(applyVisibilityRules);
 /**
