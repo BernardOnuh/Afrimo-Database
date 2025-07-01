@@ -1065,14 +1065,20 @@ exports.getSpendingLeaderboard = async (req, res) => {
   }
 };
 
-// Fixed getCofounderLeaderboard function
+// Updated getCofounderLeaderboard function with dynamic collection detection
 exports.getCofounderLeaderboard = async (req, res) => {
   try {
     const limit = req.query.limit ? parseInt(req.query.limit) : 50;
     
     console.log('Getting cofounder leaderboard with limit:', limit);
     
-    // FIXED: Simplified aggregation pipeline focusing on completed transactions
+    // Get the actual collection name used by PaymentTransaction model
+    const PaymentTransaction = require('../models/Transaction'); // Adjust path as needed
+    const actualCollectionName = PaymentTransaction.collection.name;
+    
+    console.log('Using transaction collection:', actualCollectionName);
+    
+    // FIXED: Use the actual collection name from the model
     const pipeline = [
       // First, get all active users
       {
@@ -1082,10 +1088,10 @@ exports.getCofounderLeaderboard = async (req, res) => {
         }
       },
       
-      // Lookup completed co-founder transactions
+      // Lookup completed co-founder transactions using the correct collection name
       {
         $lookup: {
-          from: 'transactions', // Make sure this matches your actual collection name
+          from: actualCollectionName, // Use the actual collection name
           let: { userId: '$_id' },
           pipeline: [
             {
@@ -1138,6 +1144,7 @@ exports.getCofounderLeaderboard = async (req, res) => {
                 shares: '$$transaction.shares',
                 amount: '$$transaction.amount',
                 status: '$$transaction.status',
+                transactionId: '$$transaction.transactionId',
                 date: '$$transaction.createdAt'
               }
             }
@@ -1173,94 +1180,88 @@ exports.getCofounderLeaderboard = async (req, res) => {
           'location.state': 1,
           'location.city': 1,
           createdAt: 1,
-          // Calculate equivalent regular shares (assuming 1:29 ratio)
+          // Calculate equivalent regular shares (get ratio from CoFounderShare model)
           equivalentRegularShares: { 
-            $multiply: ['$totalCofounderShares', 29] 
+            $multiply: ['$totalCofounderShares', 29] // Default to 29, will be updated below
           },
-          // Debug info (remove in production)
-          transactionCount: 1,
-          transactionDetails: 1
+          // Debug info (only in development)
+          ...(process.env.NODE_ENV === 'development' && {
+            transactionCount: 1,
+            transactionDetails: 1
+          })
         }
       }
     ];
     
-    console.log('Executing fixed cofounder aggregation pipeline...');
+    console.log('Executing cofounder aggregation pipeline...');
     const cofounders = await User.aggregate(pipeline);
     
     console.log(`Found ${cofounders.length} cofounders with shares > 0`);
     
-    // Enhanced debug info
-    const debugInfo = await Promise.all([
-      // Check total completed co-founder transactions
-      User.aggregate([
-        {
-          $lookup: {
-            from: 'transactions',
-            let: { userId: '$_id' },
-            pipeline: [
-              {
-                $match: {
-                  $expr: {
-                    $and: [
-                      { $eq: ['$userId', '$$userId'] },
-                      { $eq: ['$type', 'co-founder'] },
-                      { $eq: ['$status', 'completed'] }
-                    ]
-                  }
-                }
-              }
-            ],
-            as: 'transactions'
-          }
-        },
-        {
-          $match: {
-            'transactions.0': { $exists: true } // Has at least one transaction
-          }
-        },
-        {
-          $project: {
-            name: 1,
-            userName: 1,
-            transactionCount: { $size: '$transactions' },
-            totalShares: { $sum: '$transactions.shares' }
-          }
-        }
-      ]),
-      
-      // Check collection names and structure
-      User.db.db.listCollections().toArray()
-    ]);
+    // Get the actual ratio from CoFounderShare model
+    let shareToRegularRatio = 29; // Default
+    try {
+      const CoFounderShare = require('../models/CoFounderShare');
+      const coFounderConfig = await CoFounderShare.findOne();
+      if (coFounderConfig && coFounderConfig.shareToRegularRatio) {
+        shareToRegularRatio = coFounderConfig.shareToRegularRatio;
+      }
+    } catch (error) {
+      console.log('Could not get ratio from CoFounderShare model, using default 29');
+    }
     
-    const usersWithTransactions = debugInfo[0];
-    const collections = debugInfo[1].map(c => c.name);
+    // Update equivalent regular shares with correct ratio
+    const cofoundersWithCorrectRatio = cofounders.map(user => ({
+      ...user,
+      equivalentRegularShares: user.totalCofounderShares * shareToRegularRatio
+    }));
     
-    console.log('Debug - Users with completed co-founder transactions:', usersWithTransactions);
-    console.log('Debug - Available collections:', collections);
+    // Enhanced debug info (only in development)
+    let debugInfo = {};
+    if (process.env.NODE_ENV === 'development') {
+      try {
+        // Check total completed co-founder transactions by querying the model directly
+        const totalCompletedTransactions = await PaymentTransaction.countDocuments({
+          type: 'co-founder',
+          status: 'completed'
+        });
+        
+        const uniqueUsersWithTransactions = await PaymentTransaction.distinct('userId', {
+          type: 'co-founder',
+          status: 'completed'
+        });
+        
+        debugInfo = {
+          actualCollectionName,
+          shareToRegularRatio,
+          totalCofoundersFound: cofounders.length,
+          totalCompletedTransactions,
+          uniqueUsersWithCompletedTransactions: uniqueUsersWithTransactions.length,
+          uniqueUserIds: uniqueUsersWithTransactions
+        };
+        
+        console.log('Debug info:', debugInfo);
+      } catch (debugError) {
+        console.error('Error collecting debug info:', debugError);
+      }
+    }
     
     res.json({
       success: true,
-      data: cofounders.map((user, index) => ({
+      data: cofoundersWithCorrectRatio.map((user, index) => ({
         ...user,
         rank: index + 1
       })),
       pagination: {
         currentPage: 1,
         totalPages: 1,
-        totalItems: cofounders.length,
+        totalItems: cofoundersWithCorrectRatio.length,
         hasNext: false,
         hasPrev: false,
         limit: limit
       },
       filter: 'cofounder',
-      debug: process.env.NODE_ENV === 'development' ? {
-        totalCofoundersFound: cofounders.length,
-        usersWithTransactions: usersWithTransactions.length,
-        transactionDetails: usersWithTransactions,
-        availableCollections: collections.filter(name => 
-          name.includes('transaction') || name.includes('cofounder')
-        )
-      } : undefined
+      ...(process.env.NODE_ENV === 'development' && { debug: debugInfo })
     });
     
   } catch (error) {
@@ -1537,6 +1538,191 @@ exports.diagnoseCofounderData = async (req, res) => {
   }
 };
 
+// Add this diagnostic function to your leaderboardController.js
+exports.diagnoseCofounderDataDetailed = async (req, res) => {
+  try {
+    const diagnostics = {};
+    
+    // 1. Check all co-founder transactions directly from PaymentTransaction model
+    const PaymentTransaction = require('../models/Transaction'); // Adjust path as needed
+    
+    const allCofounderTransactions = await PaymentTransaction.find({ 
+      type: 'co-founder' 
+    }).select('userId shares amount status createdAt transactionId')
+     .populate('userId', 'name userName')
+     .sort({ createdAt: -1 });
+    
+    diagnostics.allTransactions = {
+      total: allCofounderTransactions.length,
+      byStatus: allCofounderTransactions.reduce((acc, t) => {
+        acc[t.status] = (acc[t.status] || 0) + 1;
+        return acc;
+      }, {}),
+      details: allCofounderTransactions.map(t => ({
+        transactionId: t.transactionId,
+        userId: t.userId?._id,
+        userName: t.userId?.userName,
+        name: t.userId?.name,
+        shares: t.shares,
+        status: t.status,
+        date: t.createdAt
+      }))
+    };
+    
+    // 2. Check what collection name is actually used for transactions
+    const mongoose = require('mongoose');
+    const collections = await mongoose.connection.db.listCollections().toArray();
+    const transactionCollections = collections
+      .map(c => c.name)
+      .filter(name => name.toLowerCase().includes('transaction'));
+    
+    diagnostics.collectionInfo = {
+      allCollections: collections.map(c => c.name),
+      transactionCollections: transactionCollections
+    };
+    
+    // 3. Check the actual collection name used by PaymentTransaction model
+    const actualCollectionName = PaymentTransaction.collection.name;
+    diagnostics.paymentTransactionCollection = actualCollectionName;
+    
+    // 4. Test aggregation with the correct collection name
+    if (actualCollectionName) {
+      const testAggregation = await User.aggregate([
+        {
+          $match: {
+            'status.isActive': true
+          }
+        },
+        {
+          $lookup: {
+            from: actualCollectionName, // Use the actual collection name
+            let: { userId: '$_id' },
+            pipeline: [
+              {
+                $match: {
+                  $expr: {
+                    $and: [
+                      { $eq: ['$userId', '$$userId'] },
+                      { $eq: ['$type', 'co-founder'] },
+                      { $eq: ['$status', 'completed'] }
+                    ]
+                  }
+                }
+              }
+            ],
+            as: 'cofounderTransactions'
+          }
+        },
+        {
+          $addFields: {
+            totalCofounderShares: { $sum: '$cofounderTransactions.shares' },
+            transactionCount: { $size: '$cofounderTransactions' }
+          }
+        },
+        {
+          $match: {
+            totalCofounderShares: { $gt: 0 }
+          }
+        },
+        {
+          $project: {
+            name: 1,
+            userName: 1,
+            totalCofounderShares: 1,
+            transactionCount: 1,
+            transactionDetails: {
+              $map: {
+                input: '$cofounderTransactions',
+                as: 'transaction',
+                in: {
+                  shares: '$$transaction.shares',
+                  status: '$$transaction.status',
+                  transactionId: '$$transaction.transactionId'
+                }
+              }
+            }
+          }
+        }
+      ]);
+      
+      diagnostics.testAggregationWithCorrectCollection = {
+        resultCount: testAggregation.length,
+        results: testAggregation
+      };
+    }
+    
+    // 5. Check completed transactions grouped by user
+    const completedTransactions = await PaymentTransaction.aggregate([
+      {
+        $match: {
+          type: 'co-founder',
+          status: 'completed'
+        }
+      },
+      {
+        $group: {
+          _id: '$userId',
+          totalShares: { $sum: '$shares' },
+          totalAmount: { $sum: '$amount' },
+          transactionCount: { $sum: 1 },
+          transactions: {
+            $push: {
+              transactionId: '$transactionId',
+              shares: '$shares',
+              amount: '$amount',
+              date: '$createdAt'
+            }
+          }
+        }
+      },
+      {
+        $lookup: {
+          from: 'users',
+          localField: '_id',
+          foreignField: '_id',
+          as: 'user'
+        }
+      },
+      {
+        $project: {
+          userId: '$_id',
+          userName: { $arrayElemAt: ['$user.userName', 0] },
+          name: { $arrayElemAt: ['$user.name', 0] },
+          totalShares: 1,
+          totalAmount: 1,
+          transactionCount: 1,
+          transactions: 1
+        }
+      }
+    ]);
+    
+    diagnostics.completedByUser = {
+      userCount: completedTransactions.length,
+      totalShares: completedTransactions.reduce((sum, u) => sum + u.totalShares, 0),
+      users: completedTransactions
+    };
+    
+    res.json({
+      success: true,
+      diagnostics,
+      summary: {
+        totalTransactions: allCofounderTransactions.length,
+        completedTransactions: allCofounderTransactions.filter(t => t.status === 'completed').length,
+        uniqueUsersWithCompletedTransactions: completedTransactions.length,
+        actualCollectionName: actualCollectionName,
+        shouldShowInLeaderboard: completedTransactions.length
+      }
+    });
+    
+  } catch (error) {
+    console.error('Error in detailed diagnostics:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Diagnostics failed',
+      error: error.message
+    });
+  }
+};
 
 exports.getEarningsLeaderboard = async (req, res) => {
   try {

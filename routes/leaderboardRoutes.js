@@ -2148,6 +2148,7 @@ router.get('/filter/shares', async (req, res) => {
  *           example: "2024-01-15T10:30:00Z"
  */
 
+router.get('/cofounder/diagnose', leaderboardController.diagnoseCofounderDataDetailed);
 
 
 
