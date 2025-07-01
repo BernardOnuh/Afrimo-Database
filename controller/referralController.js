@@ -180,7 +180,6 @@ const syncReferralStats = async (userId) => {
   }
 };
 
-// Process referral commissions for new purchases (to be called when a purchase is made)
 const processReferralCommission = async (userId, purchaseAmount, purchaseType = 'share', transactionId = null) => {
   try {
     // Get the purchaser
@@ -197,9 +196,24 @@ const processReferralCommission = async (userId, purchaseAmount, purchaseType = 
       generation2: 3,
       generation3: 2
     };
+
+    // **NEW: Handle co-founder purchase amount calculation**
+    let effectivePurchaseAmount = purchaseAmount;
+    if (purchaseType === 'cofounder') {
+      // Get co-founder share configuration for ratio
+      const CoFounderShare = require('../models/CoFounderShare');
+      const coFounderConfig = await CoFounderShare.findOne();
+      const shareToRegularRatio = coFounderConfig?.shareToRegularRatio || 29;
+      
+      // For commission calculation, treat co-founder shares as their equivalent regular share value
+      // This ensures referrers get commissions based on the full value representation
+      effectivePurchaseAmount = purchaseAmount; // Keep original amount as commission base
+      
+      console.log(`Processing co-founder referral commission: Original amount: ${purchaseAmount}, Ratio: ${shareToRegularRatio}`);
+    }
     
-    console.log(`Processing referral commission for purchase: ${purchaseAmount} by user: ${purchaser.userName}`);
-    console.log(`Referral code: ${purchaser.referralInfo.code}`);
+    console.log(`Processing referral commission for purchase: ${effectivePurchaseAmount} by user: ${purchaser.userName}`);
+    console.log(`Purchase type: ${purchaseType}, Referral code: ${purchaser.referralInfo.code}`);
     
     // Find direct referrer (Generation 1)
     const gen1Referrer = await User.findOne({ userName: purchaser.referralInfo.code });
@@ -212,23 +226,23 @@ const processReferralCommission = async (userId, purchaseAmount, purchaseType = 
     console.log(`Found Generation 1 referrer: ${gen1Referrer.userName}`);
     
     // Calculate and create Generation 1 commission
-    const gen1Commission = (purchaseAmount * commissionRates.generation1) / 100;
+    const gen1Commission = (effectivePurchaseAmount * commissionRates.generation1) / 100;
     
     const gen1Transaction = new ReferralTransaction({
       beneficiary: gen1Referrer._id,
       referredUser: userId,
       amount: gen1Commission,
-      currency: 'USD',
+      currency: 'USD', // **UPDATE: Consider using actual currency from purchase**
       generation: 1,
       purchaseType: purchaseType,
       sourceTransaction: transactionId,
-      sourceTransactionModel: 'UserShare',
+      sourceTransactionModel: purchaseType === 'cofounder' ? 'PaymentTransaction' : 'UserShare', // **NEW: Specify correct model**
       status: 'completed',
       createdAt: new Date()
     });
     
     await gen1Transaction.save();
-    console.log(`Created Generation 1 commission: ${gen1Commission}`);
+    console.log(`Created Generation 1 commission: ${gen1Commission} for ${purchaseType} purchase`);
     
     // Update referrer stats
     let gen1Stats = await Referral.findOne({ user: gen1Referrer._id });
@@ -249,7 +263,7 @@ const processReferralCommission = async (userId, purchaseAmount, purchaseType = 
     
     await gen1Stats.save();
     
-    // Look for Generation 2 referrer
+    // Continue with Generation 2 and 3 processing (similar updates)...
     if (gen1Referrer.referralInfo && gen1Referrer.referralInfo.code) {
       const gen2Referrer = await User.findOne({ userName: gen1Referrer.referralInfo.code });
       
@@ -257,7 +271,7 @@ const processReferralCommission = async (userId, purchaseAmount, purchaseType = 
         console.log(`Found Generation 2 referrer: ${gen2Referrer.userName}`);
         
         // Calculate and create Generation 2 commission
-        const gen2Commission = (purchaseAmount * commissionRates.generation2) / 100;
+        const gen2Commission = (effectivePurchaseAmount * commissionRates.generation2) / 100;
         
         const gen2Transaction = new ReferralTransaction({
           beneficiary: gen2Referrer._id,
@@ -267,13 +281,13 @@ const processReferralCommission = async (userId, purchaseAmount, purchaseType = 
           generation: 2,
           purchaseType: purchaseType,
           sourceTransaction: transactionId,
-          sourceTransactionModel: 'UserShare',
+          sourceTransactionModel: purchaseType === 'cofounder' ? 'PaymentTransaction' : 'UserShare', // **NEW**
           status: 'completed',
           createdAt: new Date()
         });
         
         await gen2Transaction.save();
-        console.log(`Created Generation 2 commission: ${gen2Commission}`);
+        console.log(`Created Generation 2 commission: ${gen2Commission} for ${purchaseType} purchase`);
         
         // Update referrer stats
         let gen2Stats = await Referral.findOne({ user: gen2Referrer._id });

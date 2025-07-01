@@ -813,15 +813,14 @@ const adminVerifyWeb3Transaction = async (req, res) => {
                     const referralResult = await processReferralCommission(
                         transaction.userId,  // userId
                         transaction.amount,  // purchaseAmount
-                        'cofounder',        // purchaseType
-                        transaction._id     // transactionId
+                        'cofounder',        // Make sure this says 'cofounder'
+                        transaction._id     // transactionId (MongoDB ID)
                     );
                     
                     console.log('Referral commission process result:', referralResult);
                 }
             } catch (referralError) {
                 console.error('Error processing referral commissions:', referralError);
-                // Continue with the verification process despite referral error
             }
             
             // Notify user
@@ -1261,8 +1260,8 @@ const adminVerifyCoFounderManualPayment = async (req, res) => {
                 const referralResult = await processReferralCommission(
                     transaction.userId,
                     transaction.amount,
-                    'cofounder',
-                    transaction._id
+                    'cofounder', // Make sure this says 'cofounder'
+                    transaction._id  // Use transaction._id (MongoDB ID)
                 );
                 
                 console.log('Referral commission process result:', referralResult);
@@ -1377,7 +1376,36 @@ const adminCancelCoFounderManualPayment = async (req, res) => {
         transaction.status = 'pending';
         transaction.adminNotes = `CANCELLATION: ${cancelReason || 'Approved payment canceled by admin'}`;
         await transaction.save();
-        
+        try {
+            const rollbackResult = await rollbackReferralCommission(
+                transaction.userId,  // userId
+                transaction._id,     // transactionId (use MongoDB _id, not transactionId field)
+                transaction.amount,  // purchaseAmount
+                transaction.currency, // currency
+                'cofounder',        // purchaseType
+                'PaymentTransaction' // sourceModel (change this to PaymentTransaction)
+            );
+            
+            console.log('Referral commission rollback result:', rollbackResult);
+        } catch (referralError) {
+            console.error('Error rolling back referral commissions:', referralError);
+        }
+
+        try {
+            const rollbackResult = await rollbackReferralCommission(
+                transaction.userId,  // userId
+                transaction._id,     // transactionId (use MongoDB _id, not transactionId field)
+                transaction.amount,  // purchaseAmount
+                transaction.currency, // currency
+                'cofounder',        // purchaseType
+                'PaymentTransaction' // sourceModel (change this to PaymentTransaction)
+            );
+            
+            console.log('Referral commission rollback result:', rollbackResult);
+        } catch (referralError) {
+            console.error('Error rolling back referral commissions:', referralError);
+        }
+
         // Notify user
         const user = await User.findById(transaction.userId);
         if (user && user.email) {
@@ -1744,16 +1772,13 @@ const adminAddCoFounderShares = async (req, res) => {
         coFounderShare.sharesSold += parseInt(shares);
         await coFounderShare.save();
         
-        // Process referral commissions for admin-added shares
         try {
-            const user = await User.findById(userId);
-            
             if (user && user.referralInfo && user.referralInfo.code) {
                 const referralResult = await processReferralCommission(
                     userId,
-                    coFounderShare.pricing.priceNaira * parseInt(shares),
-                    'cofounder',
-                    transaction._id
+                    coFounderShare.pricing.priceNaira * parseInt(shares), // Use correct amount calculation
+                    'cofounder', // Make sure this says 'cofounder'
+                    transaction._id  // Use transaction._id
                 );
                 
                 console.log('Referral commission process result for admin-added shares:', referralResult);
@@ -1761,7 +1786,7 @@ const adminAddCoFounderShares = async (req, res) => {
         } catch (referralError) {
             console.error('Error processing referral commissions for admin-added shares:', referralError);
         }
-        
+
         // Notify user
         const user = await User.findById(userId);
         if (user && user.email) {

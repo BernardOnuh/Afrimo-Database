@@ -10,138 +10,32 @@ const SiteConfig = require('../models/SiteConfig');
 const COFOUNDER_TO_SHARES_RATIO = 29;
 
 /**
- * Process referral commissions for a transaction
+ * Process referral commissions for a transaction (Updated signature to match controller calls)
  * @param {string} userId - User ID who made the purchase 
- * @param {string} transactionId - Transaction ID
  * @param {number} amount - Transaction amount
- * @param {string} currency - Currency (naira or usdt)
  * @param {string} purchaseType - Type of purchase (share, cofounder, etc.)
- * @param {string} sourceModel - Source model for the transaction
+ * @param {string} transactionId - Transaction ID
  * @returns {object} - Processing result
  */
 const processReferralCommission = async (
   userId,
-  transactionId,
   amount,
-  currency,
-  purchaseType,
-  sourceModel
+  purchaseType = 'share', 
+  transactionId = null
 ) => {
   try {
-    // First check if transaction is completed
-    let transactionStatus = 'unknown';
-    let actualShares = 0;
-    let equivalentShares = 0;
-    
-    // Check transaction status and get share count based on sourceModel
-    if (sourceModel === 'UserShare') {
-      const userShare = await UserShare.findOne({
-        'transactions.transactionId': transactionId
-      });
-      
-      if (userShare) {
-        const transaction = userShare.transactions.find(
-          t => t.transactionId === transactionId || t.txHash === transactionId
-        );
-        
-        if (transaction) {
-          transactionStatus = transaction.status;
-          if (transaction.status !== 'completed') {
-            console.log(`Skipping referral processing for non-completed transaction: ${transactionId}`);
-            return {
-              success: false,
-              message: 'Transaction not completed, referral commission not processed'
-            };
-          }
-          
-          // For regular shares, 1:1 conversion
-          actualShares = transaction.shares || 0;
-          equivalentShares = actualShares;
-          
-        } else {
-          console.log(`Transaction not found in UserShare: ${transactionId}`);
-          return {
-            success: false,
-            message: 'Transaction not found in UserShare'
-          };
-        }
-      } else {
-        console.log(`UserShare record not found for transaction: ${transactionId}`);
-        return {
-          success: false,
-          message: 'UserShare record not found'
-        };
-      }
-    } else if (sourceModel === 'PaymentTransaction') {
-      const transaction = await PaymentTransaction.findById(transactionId);
-      
-      if (transaction) {
-        transactionStatus = transaction.status;
-        if (transaction.status !== 'completed') {
-          console.log(`Skipping referral processing for non-completed payment: ${transactionId}`);
-          return {
-            success: false,
-            message: 'Payment not completed, referral commission not processed'
-          };
-        }
-        
-        // For co-founder shares, apply conversion ratio
-        if (transaction.type === 'co-founder' || purchaseType === 'cofounder') {
-          actualShares = transaction.shares || 0;
-          equivalentShares = actualShares * COFOUNDER_TO_SHARES_RATIO;
-          
-          console.log(`[Referral] Co-founder conversion: ${actualShares} co-founder shares = ${equivalentShares} equivalent regular shares for commission calculation`);
-        } else {
-          // Regular transaction
-          actualShares = transaction.shares || 0;
-          equivalentShares = actualShares;
-        }
-        
-      } else {
-        console.log(`PaymentTransaction not found: ${transactionId}`);
-        return {
-          success: false,
-          message: 'PaymentTransaction not found'
-        };
-      }
+    // Get the purchaser
+    const purchaser = await User.findById(userId);
+    if (!purchaser || !purchaser.referralInfo || !purchaser.referralInfo.code) {
+      console.log('User has no referrer, skipping commission');
+      return { success: false, message: 'User has no referrer' };
     }
     
-    console.log(`Processing referral commission for ${sourceModel} transaction ${transactionId} with status ${transactionStatus}, ${actualShares} actual shares, ${equivalentShares} equivalent shares`);
-    
-    // Find the user who made the purchase
-    const user = await User.findById(userId);
-    
-    if (!user) {
-      return {
-        success: false,
-        message: 'User not found'
-      };
-    }
-    
-    // Check if user was referred 
-    if (!user.referralInfo || !user.referralInfo.code) {
-      return {
-        success: false,
-        message: 'User was not referred by anyone'
-      };
-    }
-    
-    // Find referrer (Gen 1)
-    const referrer = await User.findOne({ userName: user.referralInfo.code });
-    
-    if (!referrer) {
-      return {
-        success: false,
-        message: 'Referrer not found'
-      };
-    }
-    
-    // Get commission rates from site config
+    // Get site config for commission rates
     const siteConfig = await SiteConfig.getCurrentConfig();
     
     // Ensure commission rates exist and are set to the correct values
     if (!siteConfig.referralCommission) {
-      // Set default values if they don't exist
       siteConfig.referralCommission = {
         generation1: 15, // 15% for first generation
         generation2: 3,  // 3% for second generation
@@ -149,124 +43,175 @@ const processReferralCommission = async (
       };
       await siteConfig.save();
       console.log('Created default commission rates: 15%, 3%, 2%');
-    } else {
-      // Check if rates match expected values, update if needed
-      const expectedRates = {
-        generation1: 15,
-        generation2: 3,
-        generation3: 2
-      };
-      
-      let ratesChanged = false;
-      
-      if (siteConfig.referralCommission.generation1 !== expectedRates.generation1) {
-        siteConfig.referralCommission.generation1 = expectedRates.generation1;
-        ratesChanged = true;
-      }
-      
-      if (siteConfig.referralCommission.generation2 !== expectedRates.generation2) {
-        siteConfig.referralCommission.generation2 = expectedRates.generation2;
-        ratesChanged = true;
-      }
-      
-      if (siteConfig.referralCommission.generation3 !== expectedRates.generation3) {
-        siteConfig.referralCommission.generation3 = expectedRates.generation3;
-        ratesChanged = true;
-      }
-      
-      if (ratesChanged) {
-        await siteConfig.save();
-        console.log('Updated commission rates to: 15%, 3%, 2%');
-      }
     }
     
     const commissionRates = siteConfig.referralCommission;
+
+    // Handle co-founder purchase amount calculation
+    let effectivePurchaseAmount = amount;
+    let currency = 'USD'; // Default currency
     
-    console.log('Using commission rates:', commissionRates);
-    
-    // Process Gen 1 commission (direct referrer)
-    await processCommission(
-      referrer._id,
-      userId,
-      amount,
-      currency,
-      commissionRates.generation1,
-      1,
-      purchaseType,
-      transactionId,
-      sourceModel,
-      {
-        actualShares,
-        equivalentShares,
-        conversionRatio: COFOUNDER_TO_SHARES_RATIO
+    if (purchaseType === 'cofounder') {
+      // Get actual transaction to determine currency
+      const transaction = await PaymentTransaction.findById(transactionId);
+      if (transaction) {
+        currency = transaction.currency === 'naira' ? 'naira' : 'usdt';
+        
+        console.log(`Processing co-founder referral commission: Amount: ${amount}, Currency: ${currency}`);
       }
-    );
+    }
     
-    // Find Gen 2 referrer (who referred the referrer)
-    if (referrer.referralInfo && referrer.referralInfo.code) {
-      const gen2Referrer = await User.findOne({ userName: referrer.referralInfo.code });
+    console.log(`Processing referral commission for purchase: ${effectivePurchaseAmount} by user: ${purchaser.userName}`);
+    console.log(`Purchase type: ${purchaseType}, Referral code: ${purchaser.referralInfo.code}`);
+    
+    // Find direct referrer (Generation 1)
+    const gen1Referrer = await User.findOne({ userName: purchaser.referralInfo.code });
+    
+    if (!gen1Referrer) {
+      console.log(`Referrer with username ${purchaser.referralInfo.code} not found`);
+      return { success: false, message: 'Referrer not found' };
+    }
+    
+    console.log(`Found Generation 1 referrer: ${gen1Referrer.userName}`);
+    
+    // Calculate and create Generation 1 commission
+    const gen1Commission = (effectivePurchaseAmount * commissionRates.generation1) / 100;
+    
+    const gen1Transaction = new ReferralTransaction({
+      beneficiary: gen1Referrer._id,
+      referredUser: userId,
+      amount: gen1Commission,
+      currency: currency,
+      generation: 1,
+      purchaseType: purchaseType,
+      sourceTransaction: transactionId,
+      sourceTransactionModel: purchaseType === 'cofounder' ? 'PaymentTransaction' : 'UserShare',
+      status: 'completed',
+      createdAt: new Date()
+    });
+    
+    await gen1Transaction.save();
+    console.log(`Created Generation 1 commission: ${gen1Commission} for ${purchaseType} purchase`);
+    
+    // Update referrer stats
+    let gen1Stats = await Referral.findOne({ user: gen1Referrer._id });
+    
+    if (!gen1Stats) {
+      gen1Stats = new Referral({
+        user: gen1Referrer._id,
+        referredUsers: 1,
+        totalEarnings: gen1Commission,
+        generation1: { count: 1, earnings: gen1Commission },
+        generation2: { count: 0, earnings: 0 },
+        generation3: { count: 0, earnings: 0 }
+      });
+    } else {
+      gen1Stats.totalEarnings += gen1Commission;
+      gen1Stats.generation1.earnings += gen1Commission;
+    }
+    
+    await gen1Stats.save();
+    
+    // Look for Generation 2 referrer
+    if (gen1Referrer.referralInfo && gen1Referrer.referralInfo.code) {
+      const gen2Referrer = await User.findOne({ userName: gen1Referrer.referralInfo.code });
       
       if (gen2Referrer) {
-        await processCommission(
-          gen2Referrer._id,
-          userId,
-          amount,
-          currency,
-          commissionRates.generation2,
-          2,
-          purchaseType,
-          transactionId,
-          sourceModel,
-          {
-            actualShares,
-            equivalentShares,
-            conversionRatio: COFOUNDER_TO_SHARES_RATIO
-          }
-        );
+        console.log(`Found Generation 2 referrer: ${gen2Referrer.userName}`);
         
-        // Find Gen 3 referrer
+        // Calculate and create Generation 2 commission
+        const gen2Commission = (effectivePurchaseAmount * commissionRates.generation2) / 100;
+        
+        const gen2Transaction = new ReferralTransaction({
+          beneficiary: gen2Referrer._id,
+          referredUser: userId,
+          amount: gen2Commission,
+          currency: currency,
+          generation: 2,
+          purchaseType: purchaseType,
+          sourceTransaction: transactionId,
+          sourceTransactionModel: purchaseType === 'cofounder' ? 'PaymentTransaction' : 'UserShare',
+          status: 'completed',
+          createdAt: new Date()
+        });
+        
+        await gen2Transaction.save();
+        console.log(`Created Generation 2 commission: ${gen2Commission} for ${purchaseType} purchase`);
+        
+        // Update gen2 stats
+        let gen2Stats = await Referral.findOne({ user: gen2Referrer._id });
+        
+        if (!gen2Stats) {
+          gen2Stats = new Referral({
+            user: gen2Referrer._id,
+            referredUsers: 0,
+            totalEarnings: gen2Commission,
+            generation1: { count: 0, earnings: 0 },
+            generation2: { count: 1, earnings: gen2Commission },
+            generation3: { count: 0, earnings: 0 }
+          });
+        } else {
+          gen2Stats.totalEarnings += gen2Commission;
+          gen2Stats.generation2.earnings += gen2Commission;
+          gen2Stats.generation2.count += 1;
+        }
+        
+        await gen2Stats.save();
+        
+        // Look for Generation 3 referrer
         if (gen2Referrer.referralInfo && gen2Referrer.referralInfo.code) {
           const gen3Referrer = await User.findOne({ userName: gen2Referrer.referralInfo.code });
           
           if (gen3Referrer) {
-            await processCommission(
-              gen3Referrer._id,
-              userId,
-              amount,
-              currency,
-              commissionRates.generation3,
-              3,
-              purchaseType,
-              transactionId,
-              sourceModel,
-              {
-                actualShares,
-                equivalentShares,
-                conversionRatio: COFOUNDER_TO_SHARES_RATIO
-              }
-            );
+            console.log(`Found Generation 3 referrer: ${gen3Referrer.userName}`);
+            
+            // Calculate and create Generation 3 commission
+            const gen3Commission = (effectivePurchaseAmount * commissionRates.generation3) / 100;
+            
+            const gen3Transaction = new ReferralTransaction({
+              beneficiary: gen3Referrer._id,
+              referredUser: userId,
+              amount: gen3Commission,
+              currency: currency,
+              generation: 3,
+              purchaseType: purchaseType,
+              sourceTransaction: transactionId,
+              sourceTransactionModel: purchaseType === 'cofounder' ? 'PaymentTransaction' : 'UserShare',
+              status: 'completed',
+              createdAt: new Date()
+            });
+            
+            await gen3Transaction.save();
+            console.log(`Created Generation 3 commission: ${gen3Commission} for ${purchaseType} purchase`);
+            
+            // Update gen3 stats
+            let gen3Stats = await Referral.findOne({ user: gen3Referrer._id });
+            
+            if (!gen3Stats) {
+              gen3Stats = new Referral({
+                user: gen3Referrer._id,
+                referredUsers: 0,
+                totalEarnings: gen3Commission,
+                generation1: { count: 0, earnings: 0 },
+                generation2: { count: 0, earnings: 0 },
+                generation3: { count: 1, earnings: gen3Commission }
+              });
+            } else {
+              gen3Stats.totalEarnings += gen3Commission;
+              gen3Stats.generation3.earnings += gen3Commission;
+              gen3Stats.generation3.count += 1;
+            }
+            
+            await gen3Stats.save();
           }
         }
       }
     }
     
-    return {
-      success: true,
-      message: 'Referral commissions processed successfully',
-      conversionDetails: {
-        actualShares,
-        equivalentShares,
-        conversionRatio: COFOUNDER_TO_SHARES_RATIO,
-        purchaseType
-      }
-    };
+    return { success: true };
   } catch (error) {
     console.error('Error processing referral commission:', error);
-    return {
-      success: false,
-      message: 'Error processing referral commission',
-      error: error.message
-    };
+    return { success: false, message: error.message };
   }
 };
 
@@ -413,7 +358,7 @@ const processNewUserReferral = async (userId) => {
 };
 
 /**
- * Process commission for a single referrer (Updated with share conversion info)
+ * Process commission for a single referrer (Legacy function - keeping for compatibility)
  * @param {string} beneficiaryId - Referrer ID who receives the commission
  * @param {string} referredUserId - User who made the purchase
  * @param {number} amount - Transaction amount
@@ -781,68 +726,64 @@ const syncReferralStats = async (userId) => {
 };
 
 /**
- * Rollback referral commissions for a canceled transaction
+ * Rollback referral commissions for a canceled transaction (Updated signature)
  * @param {string} userId - The user ID who made the purchase
  * @param {string} transactionId - The transaction ID
  * @param {number} amount - The transaction amount
  * @param {string} currency - The currency used (naira or usdt)
- * @param {string} purchaseType - The type of transaction (share, etc.)
+ * @param {string} purchaseType - The type of transaction (share, cofounder, etc.)
  * @param {string} sourceModel - The source model name
  * @returns {Promise<Object>} - Result of the rollback operation
  */
 const rollbackReferralCommission = async (userId, transactionId, amount, currency, purchaseType, sourceModel) => {
   try {
-    // Check if user exists and was referred
-    const user = await User.findById(userId);
+    console.log(`Rolling back referral commissions for transaction: ${transactionId}`);
     
-    if (!user || !user.referralInfo || !user.referralInfo.code) {
-      return {
-        success: true,
-        message: 'No referral to rollback'
-      };
-    }
-    
-    // Find the referral transactions that need to be rolled back
+    // Find all referral transactions for this source transaction
     const referralTransactions = await ReferralTransaction.find({
       sourceTransaction: transactionId,
       sourceTransactionModel: sourceModel,
       status: 'completed'
     });
     
-    if (!referralTransactions || referralTransactions.length === 0) {
-      return {
-        success: true,
-        message: 'No referral transactions found for this transaction'
-      };
-    }
+    console.log(`Found ${referralTransactions.length} referral transactions to rollback`);
     
-    console.log(`Found ${referralTransactions.length} referral transactions to rollback for transaction ${transactionId}`);
-    
-    // For each referral transaction, rollback the commission
-    for (const referralTx of referralTransactions) {
-      // Mark the transaction as rolled back
-      referralTx.status = 'rolled_back';
-      referralTx.notes = `Rolled back due to transaction cancellation on ${new Date().toISOString()}`;
-      await referralTx.save();
-      
+    // Process each referral transaction
+    for (const refTx of referralTransactions) {
       // Update referral stats for the beneficiary
-      await updateReferralStatsAfterRollback(
-        referralTx.beneficiary,
-        referralTx.amount,
-        referralTx.generation
-      );
+      const referralStats = await Referral.findOne({ user: refTx.beneficiary });
+      
+      if (referralStats) {
+        // Subtract earnings
+        referralStats.totalEarnings = Math.max(0, referralStats.totalEarnings - refTx.amount);
+        
+        // Subtract from generation-specific earnings
+        const generationKey = `generation${refTx.generation}`;
+        if (referralStats[generationKey]) {
+          referralStats[generationKey].earnings = Math.max(0, 
+            referralStats[generationKey].earnings - refTx.amount
+          );
+        }
+        
+        await referralStats.save();
+      }
+      
+      // Mark referral transaction as rolled back
+      refTx.status = 'rolled_back';
+      refTx.rolledBackAt = new Date();
+      await refTx.save();
     }
     
     return {
       success: true,
-      message: `Successfully rolled back ${referralTransactions.length} referral commission(s)`,
-      rollbackCount: referralTransactions.length
+      message: `Rolled back ${referralTransactions.length} referral commissions`,
+      rolledBackCount: referralTransactions.length
     };
   } catch (error) {
-    console.error('Error rolling back referral commission:', error);
+    console.error('Error rolling back referral commissions:', error);
     return {
       success: false,
-      message: `Failed to rollback referral commission: ${error.message}`
+      message: error.message
     };
   }
 };
@@ -901,6 +842,6 @@ module.exports = {
   calculateTotalReferredUsers,
   rollbackReferralCommission,
   updateReferralStatsAfterRollback,
-  getUserTotalShares, // NEW: Added this function
-  COFOUNDER_TO_SHARES_RATIO // NEW: Export the conversion ratio
+  getUserTotalShares,
+  COFOUNDER_TO_SHARES_RATIO
 };
