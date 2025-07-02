@@ -239,15 +239,15 @@ exports.calculatePurchase = async (req, res) => {
 };
 
 // Initiate PayStack payment
-exports.initiatePaystackPayment = async (req, res) => {
+exports.initiateCentiivPayment = async (req, res) => {
   try {
-    const { quantity, email } = req.body;
+    const { quantity, email, customerName } = req.body;
     const userId = req.user.id; // From auth middleware
     
-    if (!quantity || !email) {
+    if (!quantity || !email || !customerName) {
       return res.status(400).json({
         success: false,
-        message: 'Please provide quantity and email'
+        message: 'Please provide quantity, email, and customer name'
       });
     }
     
@@ -265,67 +265,83 @@ exports.initiatePaystackPayment = async (req, res) => {
     // Generate transaction ID
     const transactionId = generateTransactionId();
     
-    // Create PayStack request
-    const paystackRequest = {
-      email,
-      amount: purchaseDetails.totalPrice * 100, // Convert to kobo
-      reference: transactionId,
-      callback_url: `${process.env.FRONTEND_URL}/payment/verify?txref=${transactionId}`,
+    // Create Centiiv order request
+    const centiivRequest = {
+      reminderInterval: 7, // Send reminder after 7 days
+      customerEmail: email,
+      customerName: customerName,
+      dueDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0], // 30 days from now
+      subject: `AfriMobile Share Purchase - ${purchaseDetails.totalShares} Shares`,
+      products: [
+        {
+          name: `AfriMobile Shares (${purchaseDetails.totalShares} shares)`,
+          qty: 1,
+          price: purchaseDetails.totalPrice
+        }
+      ],
+      // Custom metadata for tracking (if Centiiv supports it)
       metadata: {
         userId,
+        transactionId,
         shares: purchaseDetails.totalShares,
-        tierBreakdown: purchaseDetails.tierBreakdown,
-        transactionId
+        tierBreakdown: purchaseDetails.tierBreakdown
       }
     };
     
-    // Call PayStack API
-    const paystackResponse = await axios.post(
-      'https://api.paystack.co/transaction/initialize',
-      paystackRequest,
+    // Call Centiiv API
+    const centiivResponse = await axios.post(
+      'https://api.centiiv.com/api/v1/order',
+      centiivRequest,
       {
         headers: {
-          'Authorization': `Bearer ${process.env.PAYSTACK_SECRET_KEY}`,
+          'Accept': 'application/json',
+          'Authorization': `Bearer ${process.env.CENTIIV_API_KEY}`, // Add this to your .env file
           'Content-Type': 'application/json'
         }
       }
     );
     
-    if (!paystackResponse.data.status) {
-      throw new Error('PayStack initialization failed');
+    if (!centiivResponse.data || !centiivResponse.data.id) {
+      throw new Error('Centiiv order creation failed');
     }
     
-    // Record the pending transaction
+    // Record the pending transaction with Centiiv order ID
     await UserShare.addShares(userId, purchaseDetails.totalShares, {
       transactionId,
       shares: purchaseDetails.totalShares,
       pricePerShare: purchaseDetails.totalPrice / purchaseDetails.totalShares,
       currency: 'naira',
       totalAmount: purchaseDetails.totalPrice,
-      paymentMethod: 'paystack',
+      paymentMethod: 'centiiv',
       status: 'pending',
-      tierBreakdown: purchaseDetails.tierBreakdown
+      tierBreakdown: purchaseDetails.tierBreakdown,
+      centiivOrderId: centiivResponse.data.id, // Store Centiiv order ID
+      centiivInvoiceUrl: centiivResponse.data.invoiceUrl || null
     });
     
-    // Return success with payment URL
+    // Return success with invoice details
     res.status(200).json({
       success: true,
-      message: 'Payment initialized successfully',
+      message: 'Centiiv invoice created successfully',
       data: {
-        authorization_url: paystackResponse.data.data.authorization_url,
-        reference: transactionId,
-        amount: purchaseDetails.totalPrice
+        transactionId,
+        centiivOrderId: centiivResponse.data.id,
+        invoiceUrl: centiivResponse.data.invoiceUrl,
+        amount: purchaseDetails.totalPrice,
+        shares: purchaseDetails.totalShares,
+        dueDate: centiivRequest.dueDate
       }
     });
   } catch (error) {
-    console.error('Error initiating PayStack payment:', error);
+    console.error('Error initiating Centiiv payment:', error);
     res.status(500).json({
       success: false,
-      message: 'Failed to initiate payment',
+      message: 'Failed to initiate Centiiv payment',
       error: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
 };
+
 
 // Verify PayStack payment
 exports.verifyPaystackPayment = async (req, res) => {
@@ -3246,6 +3262,369 @@ exports.getTransactionComparison = async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Failed to get transaction comparison',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+};
+
+// Webhook handler for Centiiv payment notifications
+exports.handleCentiivWebhook = async (req, res) => {
+  try {
+    // Centiiv webhook payload structure (adjust based on their documentation)
+    const { orderId, status, amount, customerEmail, metadata } = req.body;
+    
+    // Verify webhook authenticity (implement based on Centiiv's webhook verification)
+    // This might involve checking a signature or secret
+    const webhookSecret = process.env.CENTIIV_WEBHOOK_SECRET;
+    if (webhookSecret) {
+      // Add signature verification logic here based on Centiiv's documentation
+      // Example: verify webhook signature in headers
+    }
+    
+    // Find the transaction by Centiiv order ID
+    const userShareRecord = await UserShare.findOne({
+      'transactions.centiivOrderId': orderId
+    });
+    
+    if (!userShareRecord) {
+      console.error(`Centiiv webhook: Transaction not found for order ID: ${orderId}`);
+      return res.status(404).json({
+        success: false,
+        message: 'Transaction not found'
+      });
+    }
+    
+    const transaction = userShareRecord.transactions.find(
+      t => t.centiivOrderId === orderId
+    );
+    
+    if (!transaction) {
+      console.error(`Centiiv webhook: Transaction details not found for order ID: ${orderId}`);
+      return res.status(404).json({
+        success: false,
+        message: 'Transaction details not found'
+      });
+    }
+    
+    // Map Centiiv status to our status
+    let newStatus = 'pending';
+    if (status === 'paid' || status === 'completed') {
+      newStatus = 'completed';
+    } else if (status === 'cancelled' || status === 'expired') {
+      newStatus = 'failed';
+    }
+    
+    // Update transaction status
+    await UserShare.updateTransactionStatus(
+      userShareRecord.user,
+      transaction.transactionId,
+      newStatus
+    );
+    
+    // If payment successful, update global share counts and process referrals
+    if (newStatus === 'completed') {
+      const shareConfig = await Share.getCurrentConfig();
+      shareConfig.sharesSold += transaction.shares;
+      
+      // Update tier sales
+      shareConfig.tierSales.tier1Sold += transaction.tierBreakdown.tier1;
+      shareConfig.tierSales.tier2Sold += transaction.tierBreakdown.tier2;
+      shareConfig.tierSales.tier3Sold += transaction.tierBreakdown.tier3;
+      
+      await shareConfig.save();
+      
+      // Process referral commissions
+      try {
+        const referralResult = await processReferralCommission(
+          userShareRecord.user,
+          transaction.totalAmount,
+          'share',
+          transaction.transactionId
+        );
+        console.log('Referral commission process result:', referralResult);
+      } catch (referralError) {
+        console.error('Error processing referral commissions:', referralError);
+      }
+      
+      // Get user details for notification
+      const user = await User.findById(userShareRecord.user);
+      
+      // Send confirmation email
+      if (user && user.email) {
+        try {
+          await sendEmail({
+            email: user.email,
+            subject: 'AfriMobile - Share Purchase Successful',
+            html: `
+              <h2>Share Purchase Confirmation</h2>
+              <p>Dear ${user.name},</p>
+              <p>Your purchase of ${transaction.shares} shares for ₦${transaction.totalAmount} has been completed successfully.</p>
+              <p>Transaction Reference: ${transaction.transactionId}</p>
+              <p>Centiiv Order ID: ${orderId}</p>
+              <p>Thank you for your investment in AfriMobile!</p>
+            `
+          });
+        } catch (emailError) {
+          console.error('Failed to send purchase confirmation email:', emailError);
+        }
+      }
+    }
+    
+    // Respond to Centiiv webhook
+    res.status(200).json({
+      success: true,
+      message: 'Webhook processed successfully'
+    });
+    
+  } catch (error) {
+    console.error('Error processing Centiiv webhook:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to process webhook'
+    });
+  }
+};
+
+// Get Centiiv order status (for manual verification)
+exports.getCentiivOrderStatus = async (req, res) => {
+  try {
+    const { orderId } = req.params;
+    const adminId = req.user.id;
+    
+    // Check if admin
+    const admin = await User.findById(adminId);
+    if (!admin || !admin.isAdmin) {
+      return res.status(403).json({
+        success: false,
+        message: 'Unauthorized: Admin access required'
+      });
+    }
+    
+    // Call Centiiv API to get order status
+    const centiivResponse = await axios.get(
+      `https://api.centiiv.com/api/v1/order/${orderId}`,
+      {
+        headers: {
+          'Accept': 'application/json',
+          'Authorization': `Bearer ${process.env.CENTIIV_API_KEY}`
+        }
+      }
+    );
+    
+    res.status(200).json({
+      success: true,
+      orderStatus: centiivResponse.data
+    });
+    
+  } catch (error) {
+    console.error('Error fetching Centiiv order status:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch order status',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+};
+
+// Admin: Manually verify Centiiv payment
+exports.adminVerifyCentiivPayment = async (req, res) => {
+  try {
+    const { transactionId, approved, adminNote } = req.body;
+    const adminId = req.user.id;
+    
+    // Check if admin
+    const admin = await User.findById(adminId);
+    if (!admin || !admin.isAdmin) {
+      return res.status(403).json({
+        success: false,
+        message: 'Unauthorized: Admin access required'
+      });
+    }
+    
+    // Find the transaction
+    const userShareRecord = await UserShare.findOne({
+      'transactions.transactionId': transactionId
+    });
+    
+    if (!userShareRecord) {
+      return res.status(400).json({
+        success: false,
+        message: 'Transaction not found'
+      });
+    }
+    
+    const transaction = userShareRecord.transactions.find(
+      t => t.transactionId === transactionId && t.paymentMethod === 'centiiv'
+    );
+    
+    if (!transaction) {
+      return res.status(400).json({
+        success: false,
+        message: 'Centiiv transaction details not found'
+      });
+    }
+    
+    if (transaction.status !== 'pending') {
+      return res.status(400).json({
+        success: false,
+        message: `Transaction already ${transaction.status}`
+      });
+    }
+    
+    const newStatus = approved ? 'completed' : 'failed';
+    
+    // Update transaction status
+    await UserShare.updateTransactionStatus(
+      userShareRecord.user,
+      transactionId,
+      newStatus,
+      adminNote
+    );
+    
+    // If approved, update global share counts and process referrals
+    if (approved) {
+      const shareConfig = await Share.getCurrentConfig();
+      shareConfig.sharesSold += transaction.shares;
+      
+      // Update tier sales
+      shareConfig.tierSales.tier1Sold += transaction.tierBreakdown.tier1;
+      shareConfig.tierSales.tier2Sold += transaction.tierBreakdown.tier2;
+      shareConfig.tierSales.tier3Sold += transaction.tierBreakdown.tier3;
+      
+      await shareConfig.save();
+      
+      // Process referral commissions
+      try {
+        const referralResult = await processReferralCommission(
+          userShareRecord.user,
+          transaction.totalAmount,
+          'share',
+          transactionId
+        );
+        console.log('Referral commission process result:', referralResult);
+      } catch (referralError) {
+        console.error('Error processing referral commissions:', referralError);
+      }
+    }
+    
+    // Notify user
+    const user = await User.findById(userShareRecord.user);
+    if (user && user.email) {
+      try {
+        await sendEmail({
+          email: user.email,
+          subject: `AfriMobile - Centiiv Payment ${approved ? 'Approved' : 'Declined'}`,
+          html: `
+            <h2>Share Purchase ${approved ? 'Confirmation' : 'Update'}</h2>
+            <p>Dear ${user.name},</p>
+            <p>Your purchase of ${transaction.shares} shares for ₦${transaction.totalAmount} has been ${approved ? 'verified and completed' : 'declined'}.</p>
+            <p>Transaction Reference: ${transactionId}</p>
+            ${approved ? 
+              `<p>Thank you for your investment in AfriMobile!</p>` : 
+              `<p>Please contact support if you have any questions.</p>`
+            }
+            ${adminNote ? `<p>Note: ${adminNote}</p>` : ''}
+          `
+        });
+      } catch (emailError) {
+        console.error('Failed to send purchase notification email:', emailError);
+      }
+    }
+    
+    res.status(200).json({
+      success: true,
+      message: `Centiiv payment ${approved ? 'approved' : 'declined'} successfully`,
+      status: newStatus
+    });
+    
+  } catch (error) {
+    console.error('Error verifying Centiiv payment:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to verify Centiiv payment',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+};
+
+// Get all Centiiv transactions (Admin)
+exports.adminGetCentiivTransactions = async (req, res) => {
+  try {
+    const adminId = req.user.id;
+    
+    // Check if admin
+    const admin = await User.findById(adminId);
+    if (!admin || !admin.isAdmin) {
+      return res.status(403).json({
+        success: false,
+        message: 'Unauthorized: Admin access required'
+      });
+    }
+    
+    // Query parameters
+    const { status, page = 1, limit = 20 } = req.query;
+    const skip = (parseInt(page) - 1) * parseInt(limit);
+    
+    // Build query
+    const query = { 'transactions.paymentMethod': 'centiiv' };
+    if (status && ['pending', 'completed', 'failed'].includes(status)) {
+      query['transactions.status'] = status;
+    }
+    
+    // Get user shares with transactions
+    const userShares = await UserShare.find(query)
+      .skip(skip)
+      .limit(parseInt(limit))
+      .populate('user', 'name email phone');
+    
+    // Format response
+    const transactions = [];
+    for (const userShare of userShares) {
+      for (const transaction of userShare.transactions) {
+        // Only include Centiiv transactions matching status filter
+        if (transaction.paymentMethod !== 'centiiv' || 
+            (status && transaction.status !== status)) {
+          continue;
+        }
+        
+        transactions.push({
+          transactionId: transaction.transactionId,
+          centiivOrderId: transaction.centiivOrderId,
+          invoiceUrl: transaction.centiivInvoiceUrl,
+          user: {
+            id: userShare.user._id,
+            name: userShare.user.name,
+            email: userShare.user.email,
+            phone: userShare.user.phone
+          },
+          shares: transaction.shares,
+          pricePerShare: transaction.pricePerShare,
+          currency: transaction.currency,
+          totalAmount: transaction.totalAmount,
+          status: transaction.status,
+          date: transaction.createdAt,
+          adminNote: transaction.adminNote
+        });
+      }
+    }
+    
+    // Count total
+    const totalCount = await UserShare.countDocuments(query);
+    
+    res.status(200).json({
+      success: true,
+      transactions,
+      pagination: {
+        currentPage: parseInt(page),
+        totalPages: Math.ceil(totalCount / parseInt(limit)),
+        totalCount
+      }
+    });
+  } catch (error) {
+    console.error('Error fetching Centiiv transactions:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch Centiiv transactions',
       error: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }

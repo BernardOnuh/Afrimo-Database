@@ -39,6 +39,14 @@ const shareSchema = new mongoose.Schema({
     tier3Sold: { type: Number, default: 0 }
   },
   
+  // Centiiv configuration for payment processing
+  centiivConfig: {
+    enabled: { type: Boolean, default: true },
+    reminderInterval: { type: Number, default: 7 }, // days
+    defaultDueDays: { type: Number, default: 30 }, // days until payment due
+    lastOrderId: { type: String, default: null } // track last order for reference
+  },
+  
   // Last updated
   updatedAt: {
     type: Date,
@@ -68,6 +76,19 @@ shareSchema.statics.updatePricing = async function(tier, priceNaira, priceUSDT) 
     await config.save();
   }
   
+  return config;
+};
+
+// Update Centiiv configuration
+shareSchema.statics.updateCentiivConfig = async function(updates) {
+  const config = await this.getCurrentConfig();
+  
+  if (updates.enabled !== undefined) config.centiivConfig.enabled = updates.enabled;
+  if (updates.reminderInterval) config.centiivConfig.reminderInterval = updates.reminderInterval;
+  if (updates.defaultDueDays) config.centiivConfig.defaultDueDays = updates.defaultDueDays;
+  if (updates.lastOrderId) config.centiivConfig.lastOrderId = updates.lastOrderId;
+  
+  await config.save();
   return config;
 };
 
@@ -277,6 +298,31 @@ shareSchema.statics.calculatePurchase = async function(quantity, currency) {
   }
 };
 
+// Calculate purchase specifically for Centiiv payments
+shareSchema.statics.calculateCentiivPurchase = async function(quantity) {
+  const config = await this.getCurrentConfig();
+  
+  if (!config.centiivConfig.enabled) {
+    return {
+      success: false,
+      message: 'Centiiv payments are currently disabled'
+    };
+  }
+  
+  // Centiiv uses Naira by default
+  const purchaseDetails = await this.calculatePurchase(quantity, 'naira');
+  
+  if (purchaseDetails.success) {
+    // Add Centiiv-specific details
+    purchaseDetails.centiivDetails = {
+      reminderInterval: config.centiivConfig.reminderInterval,
+      dueDate: new Date(Date.now() + config.centiivConfig.defaultDueDays * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
+    };
+  }
+  
+  return purchaseDetails;
+};
+
 // ADDED: Helper method to get comprehensive share statistics
 shareSchema.statics.getComprehensiveStats = async function() {
   try {
@@ -302,7 +348,8 @@ shareSchema.statics.getComprehensiveStats = async function() {
       totalEffectiveSharesRemaining: totalEffectiveSharesRemaining,
       shareToRegularRatio: shareToRegularRatio,
       tierSales: shareConfig.tierSales,
-      currentPrices: shareConfig.currentPrices
+      currentPrices: shareConfig.currentPrices,
+      centiivConfig: shareConfig.centiivConfig
     };
   } catch (error) {
     console.error('Error getting comprehensive stats:', error);
@@ -349,6 +396,22 @@ shareSchema.statics.validateShareConsistency = async function() {
       message: 'Error validating consistency: ' + error.message
     };
   }
+};
+
+// Generate Centiiv order subject line
+shareSchema.statics.generateCentiivSubject = function(shares, customerName) {
+  return `AfriMobile Share Purchase - ${shares} Shares for ${customerName}`;
+};
+
+// Generate Centiiv product description
+shareSchema.statics.generateCentiivProduct = function(shares, tierBreakdown) {
+  let description = `AfriMobile Shares (${shares} total)`;
+  
+  if (tierBreakdown.tier1 > 0) description += ` - Tier 1: ${tierBreakdown.tier1}`;
+  if (tierBreakdown.tier2 > 0) description += ` - Tier 2: ${tierBreakdown.tier2}`;
+  if (tierBreakdown.tier3 > 0) description += ` - Tier 3: ${tierBreakdown.tier3}`;
+  
+  return description;
 };
 
 const Share = mongoose.model('Share', shareSchema);

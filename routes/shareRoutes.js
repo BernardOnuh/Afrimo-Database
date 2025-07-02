@@ -452,15 +452,14 @@ router.post('/calculate', shareController.calculatePurchase);
  */
 router.get('/payment-config', shareController.getPaymentConfig);
 
-// User routes (require authentication)
 
 /**
  * @swagger
- * /shares/paystack/initiate:
+ * /shares/centiiv/initiate:
  *   post:
  *     tags: [Shares - Payment]
- *     summary: Initiate Paystack payment
- *     description: Initialize a Paystack payment for share purchase
+ *     summary: Initiate Centiiv payment
+ *     description: Initialize a Centiiv invoice for share purchase
  *     security:
  *       - bearerAuth: []
  *     requestBody:
@@ -472,6 +471,7 @@ router.get('/payment-config', shareController.getPaymentConfig);
  *             required:
  *               - quantity
  *               - email
+ *               - customerName
  *             properties:
  *               quantity:
  *                 type: integer
@@ -482,10 +482,14 @@ router.get('/payment-config', shareController.getPaymentConfig);
  *                 type: string
  *                 format: email
  *                 example: "user@example.com"
- *                 description: User's email for Paystack
+ *                 description: Customer's email for invoice
+ *               customerName:
+ *                 type: string
+ *                 example: "John Doe"
+ *                 description: Customer's full name for invoice
  *     responses:
  *       200:
- *         description: Payment initialization successful
+ *         description: Centiiv invoice created successfully
  *         content:
  *           application/json:
  *             schema:
@@ -496,21 +500,37 @@ router.get('/payment-config', shareController.getPaymentConfig);
  *                   example: true
  *                 message:
  *                   type: string
- *                   example: "Payment initialized successfully"
+ *                   example: "Centiiv invoice created successfully"
  *                 data:
  *                   type: object
  *                   properties:
- *                     authorization_url:
- *                       type: string
- *                       example: "https://checkout.paystack.com/..."
- *                     reference:
+ *                     transactionId:
  *                       type: string
  *                       example: "TXN-A1B2-123456"
+ *                       description: Internal transaction reference
+ *                     centiivOrderId:
+ *                       type: string
+ *                       example: "ord_1234567890"
+ *                       description: Centiiv order ID
+ *                     invoiceUrl:
+ *                       type: string
+ *                       example: "https://invoice.centiiv.com/pay/ord_1234567890"
+ *                       description: URL to redirect user for payment
  *                     amount:
  *                       type: number
  *                       example: 50000
+ *                       description: Total amount in Naira
+ *                     shares:
+ *                       type: integer
+ *                       example: 50
+ *                       description: Number of shares purchased
+ *                     dueDate:
+ *                       type: string
+ *                       format: date
+ *                       example: "2025-08-08"
+ *                       description: Payment due date
  *       400:
- *         description: Bad Request - Invalid quantity or email
+ *         description: Bad Request - Invalid quantity, email, or customer name
  *         content:
  *           application/json:
  *             schema:
@@ -521,32 +541,52 @@ router.get('/payment-config', shareController.getPaymentConfig);
  *                   example: false
  *                 message:
  *                   type: string
- *                   example: "Please provide quantity and email"
+ *                   example: "Please provide quantity, email, and customer name"
  *       401:
  *         $ref: '#/components/responses/UnauthorizedError'
  *       500:
  *         $ref: '#/components/responses/ServerError'
  */
-router.post('/paystack/initiate', protect, shareController.initiatePaystackPayment);
+router.post('/centiiv/initiate', protect, shareController.initiateCentiivPayment);
 
 /**
  * @swagger
- * /shares/paystack/verify/{reference}:
- *   get:
+ * /shares/centiiv/webhook:
+ *   post:
  *     tags: [Shares - Payment]
- *     summary: Verify Paystack payment
- *     description: Verify and complete a Paystack payment transaction
- *     parameters:
- *       - in: path
- *         name: reference
- *         required: true
- *         schema:
- *           type: string
- *         description: Paystack payment reference
- *         example: "TXN-A1B2-123456"
+ *     summary: Centiiv webhook endpoint
+ *     description: Handle payment status updates from Centiiv (no authentication required)
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               orderId:
+ *                 type: string
+ *                 example: "ord_1234567890"
+ *                 description: Centiiv order ID
+ *               status:
+ *                 type: string
+ *                 enum: [paid, completed, cancelled, expired, pending]
+ *                 example: "paid"
+ *                 description: Payment status from Centiiv
+ *               amount:
+ *                 type: number
+ *                 example: 50000
+ *                 description: Payment amount
+ *               customerEmail:
+ *                 type: string
+ *                 format: email
+ *                 example: "user@example.com"
+ *                 description: Customer email
+ *               metadata:
+ *                 type: object
+ *                 description: Additional transaction metadata
  *     responses:
  *       200:
- *         description: Payment verification successful
+ *         description: Webhook processed successfully
  *         content:
  *           application/json:
  *             schema:
@@ -557,27 +597,308 @@ router.post('/paystack/initiate', protect, shareController.initiatePaystackPayme
  *                   example: true
  *                 message:
  *                   type: string
- *                   example: "Payment verified successfully"
- *                 data:
- *                   type: object
- *                   properties:
- *                     shares:
- *                       type: integer
- *                       example: 50
- *                     amount:
- *                       type: number
- *                       example: 50000
- *                     date:
- *                       type: string
- *                       format: date-time
- *       400:
- *         $ref: '#/components/responses/ValidationError'
+ *                   example: "Webhook processed successfully"
  *       404:
- *         $ref: '#/components/responses/NotFoundError'
+ *         description: Transaction not found
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: false
+ *                 message:
+ *                   type: string
+ *                   example: "Transaction not found"
  *       500:
  *         $ref: '#/components/responses/ServerError'
  */
-router.get('/paystack/verify/:reference', shareController.verifyPaystackPayment);
+router.post('/centiiv/webhook', shareController.handleCentiivWebhook); // No auth for webhooks
+
+/**
+ * @swagger
+ * /shares/admin/centiiv/order/{orderId}:
+ *   get:
+ *     tags: [Shares - Admin]
+ *     summary: Get Centiiv order status
+ *     description: Fetch the current status of a Centiiv order (admin only)
+ *     security:
+ *       - adminAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: orderId
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Centiiv order ID
+ *         example: "ord_1234567890"
+ *     responses:
+ *       200:
+ *         description: Order status retrieved successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 orderStatus:
+ *                   type: object
+ *                   properties:
+ *                     id:
+ *                       type: string
+ *                       example: "ord_1234567890"
+ *                     status:
+ *                       type: string
+ *                       example: "paid"
+ *                     amount:
+ *                       type: number
+ *                       example: 50000
+ *                     customerEmail:
+ *                       type: string
+ *                       example: "user@example.com"
+ *                     customerName:
+ *                       type: string
+ *                       example: "John Doe"
+ *                     dueDate:
+ *                       type: string
+ *                       format: date
+ *                       example: "2025-08-08"
+ *                     createdAt:
+ *                       type: string
+ *                       format: date-time
+ *                       example: "2025-07-02T10:30:00Z"
+ *                     paidAt:
+ *                       type: string
+ *                       format: date-time
+ *                       example: "2025-07-05T14:20:00Z"
+ *       401:
+ *         $ref: '#/components/responses/UnauthorizedError'
+ *       403:
+ *         $ref: '#/components/responses/ForbiddenError'
+ *       404:
+ *         description: Order not found
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: false
+ *                 message:
+ *                   type: string
+ *                   example: "Order not found"
+ *       500:
+ *         $ref: '#/components/responses/ServerError'
+ */
+router.get('/admin/centiiv/order/:orderId', protect, adminProtect, shareController.getCentiivOrderStatus);
+
+/**
+ * @swagger
+ * /shares/admin/centiiv/verify:
+ *   post:
+ *     tags: [Shares - Admin]
+ *     summary: Admin verify Centiiv payment
+ *     description: Manually verify a Centiiv payment transaction (admin only)
+ *     security:
+ *       - adminAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - transactionId
+ *               - approved
+ *             properties:
+ *               transactionId:
+ *                 type: string
+ *                 example: "TXN-A1B2-123456"
+ *                 description: Internal transaction ID
+ *               approved:
+ *                 type: boolean
+ *                 example: true
+ *                 description: Whether to approve or reject the transaction
+ *               adminNote:
+ *                 type: string
+ *                 example: "Payment verified through Centiiv dashboard"
+ *                 description: Admin note for the verification action
+ *     responses:
+ *       200:
+ *         description: Centiiv payment verification updated successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *                   example: "Centiiv payment approved successfully"
+ *                 status:
+ *                   type: string
+ *                   example: "completed"
+ *       400:
+ *         description: Bad Request - Transaction already processed or invalid
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: false
+ *                 message:
+ *                   type: string
+ *                   example: "Transaction already completed"
+ *       401:
+ *         $ref: '#/components/responses/UnauthorizedError'
+ *       403:
+ *         $ref: '#/components/responses/ForbiddenError'
+ *       404:
+ *         description: Transaction not found
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: false
+ *                 message:
+ *                   example: "Centiiv transaction details not found"
+ *       500:
+ *         $ref: '#/components/responses/ServerError'
+ */
+router.post('/admin/centiiv/verify', protect, adminProtect, shareController.adminVerifyCentiivPayment);
+
+/**
+ * @swagger
+ * /shares/admin/centiiv/transactions:
+ *   get:
+ *     tags: [Shares - Admin]
+ *     summary: Get Centiiv transactions
+ *     description: Get all Centiiv payment transactions with filtering options (admin only)
+ *     security:
+ *       - adminAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: page
+ *         schema:
+ *           type: integer
+ *           minimum: 1
+ *           default: 1
+ *         description: Page number for pagination
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *           minimum: 1
+ *           maximum: 100
+ *           default: 20
+ *         description: Number of transactions per page
+ *       - in: query
+ *         name: status
+ *         schema:
+ *           type: string
+ *           enum: [pending, completed, failed]
+ *         description: Filter by transaction status
+ *       - in: query
+ *         name: fromDate
+ *         schema:
+ *           type: string
+ *           format: date
+ *         description: Filter transactions from this date (YYYY-MM-DD)
+ *       - in: query
+ *         name: toDate
+ *         schema:
+ *           type: string
+ *           format: date
+ *         description: Filter transactions to this date (YYYY-MM-DD)
+ *     responses:
+ *       200:
+ *         description: Centiiv transactions retrieved successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 transactions:
+ *                   type: array
+ *                   items:
+ *                     type: object
+ *                     properties:
+ *                       transactionId:
+ *                         type: string
+ *                         example: "TXN-A1B2-123456"
+ *                       centiivOrderId:
+ *                         type: string
+ *                         example: "ord_1234567890"
+ *                       invoiceUrl:
+ *                         type: string
+ *                         example: "https://invoice.centiiv.com/pay/ord_1234567890"
+ *                       user:
+ *                         type: object
+ *                         properties:
+ *                           id:
+ *                             type: string
+ *                           name:
+ *                             type: string
+ *                           email:
+ *                             type: string
+ *                           phone:
+ *                             type: string
+ *                       shares:
+ *                         type: integer
+ *                         example: 50
+ *                       pricePerShare:
+ *                         type: number
+ *                         example: 1000
+ *                       currency:
+ *                         type: string
+ *                         example: "naira"
+ *                       totalAmount:
+ *                         type: number
+ *                         example: 50000
+ *                       status:
+ *                         type: string
+ *                         example: "completed"
+ *                       date:
+ *                         type: string
+ *                         format: date-time
+ *                         example: "2025-07-02T10:30:00Z"
+ *                       adminNote:
+ *                         type: string
+ *                         example: "Payment verified manually"
+ *                 pagination:
+ *                   type: object
+ *                   properties:
+ *                     currentPage:
+ *                       type: integer
+ *                       example: 1
+ *                     totalPages:
+ *                       type: integer
+ *                       example: 5
+ *                     totalCount:
+ *                       type: integer
+ *                       example: 89
+ *       401:
+ *         $ref: '#/components/responses/UnauthorizedError'
+ *       403:
+ *         $ref: '#/components/responses/ForbiddenError'
+ *       500:
+ *         $ref: '#/components/responses/ServerError'
+ */
+router.get('/admin/centiiv/transactions', protect, adminProtect, shareController.adminGetCentiivTransactions);
 
 /**
  * @swagger
