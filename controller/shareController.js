@@ -238,11 +238,15 @@ exports.calculatePurchase = async (req, res) => {
   }
 };
 
-// Initiate PayStack payment
+// Enhanced Centiiv controller with comprehensive error handling and logging
 exports.initiateCentiivPayment = async (req, res) => {
   try {
     const { quantity, email, customerName } = req.body;
-    const userId = req.user.id; // From auth middleware
+    const userId = req.user.id;
+    
+    console.log('🚀 [Centiiv] Payment initiation started:', {
+      userId, quantity, email, customerName
+    });
     
     if (!quantity || !email || !customerName) {
       return res.status(400).json({
@@ -251,8 +255,22 @@ exports.initiateCentiivPayment = async (req, res) => {
       });
     }
     
-    // Calculate purchase amount
+    // 🔴 HARDCODED API KEY FOR DEBUGGING - REMOVE BEFORE PRODUCTION
+    const apiKey = 'cnt-test_0798ce7a4a7878df089a7830fa7d348c';
+    const baseUrl = 'https://api.centiiv.com/api/v1';
+    
+    console.log('🔧 [Centiiv] Using hardcoded API key for debugging');
+    console.log('🔧 [Centiiv] API Key Preview:', apiKey.substring(0, 8) + '...');
+    console.log('🔧 [Centiiv] Base URL:', baseUrl);
+    
+    // Calculate purchase
     const purchaseDetails = await Share.calculatePurchase(parseInt(quantity), 'naira');
+    
+    console.log('💰 [Centiiv] Purchase details:', {
+      success: purchaseDetails.success,
+      totalPrice: purchaseDetails.totalPrice,
+      totalShares: purchaseDetails.totalShares
+    });
     
     if (!purchaseDetails.success) {
       return res.status(400).json({
@@ -264,13 +282,15 @@ exports.initiateCentiivPayment = async (req, res) => {
     
     // Generate transaction ID
     const transactionId = generateTransactionId();
+    console.log('🆔 [Centiiv] Transaction ID:', transactionId);
     
-    // Create Centiiv order request
+    // Create request payload
+    const dueDate = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
     const centiivRequest = {
-      reminderInterval: 7, // Send reminder after 7 days
+      reminderInterval: 7,
       customerEmail: email,
       customerName: customerName,
-      dueDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0], // 30 days from now
+      dueDate: dueDate,
       subject: `AfriMobile Share Purchase - ${purchaseDetails.totalShares} Shares`,
       products: [
         {
@@ -278,70 +298,222 @@ exports.initiateCentiivPayment = async (req, res) => {
           qty: 1,
           price: purchaseDetails.totalPrice
         }
-      ],
-      // Custom metadata for tracking (if Centiiv supports it)
-      metadata: {
-        userId,
-        transactionId,
-        shares: purchaseDetails.totalShares,
-        tierBreakdown: purchaseDetails.tierBreakdown
-      }
+      ]
     };
     
-    // Call Centiiv API
-    const centiivResponse = await axios.post(
-      'https://api.centiiv.com/api/v1/order',
-      centiivRequest,
-      {
-        headers: {
-          'Accept': 'application/json',
-          'Authorization': `Bearer ${process.env.CENTIIV_API_KEY}`, // Add this to your .env file
-          'Content-Type': 'application/json'
-        }
-      }
-    );
+    console.log('📦 [Centiiv] Request payload:', JSON.stringify(centiivRequest, null, 2));
     
-    if (!centiivResponse.data || !centiivResponse.data.id) {
-      throw new Error('Centiiv order creation failed');
+    // Make API call with hardcoded key
+    console.log('🌐 [Centiiv] Making API call to:', `${baseUrl}/order`);
+    
+    let centiivResponse;
+    try {
+      centiivResponse = await axios.post(
+        `${baseUrl}/order`,
+        centiivRequest,
+        {
+          headers: {
+            'accept': 'application/json',
+            'authorization': `Bearer ${apiKey}`,
+            'content-type': 'application/json'
+          },
+          timeout: 30000
+        }
+      );
+      
+      console.log('✅ [Centiiv] API call successful');
+      console.log('📊 [Centiiv] Response status:', centiivResponse.status);
+      console.log('📊 [Centiiv] Response data:', JSON.stringify(centiivResponse.data, null, 2));
+      
+    } catch (apiError) {
+      console.log('❌ [Centiiv] API call failed');
+      console.log('🔍 [Centiiv] Error message:', apiError.message);
+      console.log('🔍 [Centiiv] Error code:', apiError.code);
+      
+      if (apiError.response) {
+        console.log('🔍 [Centiiv] Error response status:', apiError.response.status);
+        console.log('🔍 [Centiiv] Error response data:', JSON.stringify(apiError.response.data, null, 2));
+      }
+      
+      return res.status(500).json({
+        success: false,
+        message: 'Centiiv API call failed',
+        error: {
+          message: apiError.message,
+          status: apiError.response?.status,
+          data: apiError.response?.data,
+          code: apiError.code
+        }
+      });
     }
     
-    // Record the pending transaction with Centiiv order ID
-    await UserShare.addShares(userId, purchaseDetails.totalShares, {
-      transactionId,
-      shares: purchaseDetails.totalShares,
-      pricePerShare: purchaseDetails.totalPrice / purchaseDetails.totalShares,
-      currency: 'naira',
-      totalAmount: purchaseDetails.totalPrice,
-      paymentMethod: 'centiiv',
-      status: 'pending',
-      tierBreakdown: purchaseDetails.tierBreakdown,
-      centiivOrderId: centiivResponse.data.id, // Store Centiiv order ID
-      centiivInvoiceUrl: centiivResponse.data.invoiceUrl || null
+    // Process response
+    if (!centiivResponse || !centiivResponse.data) {
+      console.log('❌ [Centiiv] Empty response');
+      return res.status(500).json({
+        success: false,
+        message: 'Empty response from Centiiv API'
+      });
+    }
+    
+    const orderData = centiivResponse.data;
+    const orderId = orderData.id || orderData.order_id || orderData.orderId;
+    const invoiceUrl = orderData.invoiceUrl || orderData.invoice_url || orderData.payment_url;
+    
+    console.log('🔍 [Centiiv] Extracted data:', {
+      orderId,
+      invoiceUrl,
+      allResponseKeys: Object.keys(orderData)
     });
     
-    // Return success with invoice details
+    if (!orderId) {
+      console.log('❌ [Centiiv] No order ID found in response');
+      console.log('📋 [Centiiv] Available response keys:', Object.keys(orderData));
+      return res.status(500).json({
+        success: false,
+        message: 'No order ID in Centiiv response',
+        responseData: orderData
+      });
+    }
+    
+    // Save to database
+    console.log('💾 [Centiiv] Saving to database...');
+    try {
+      await UserShare.addShares(userId, purchaseDetails.totalShares, {
+        transactionId,
+        shares: purchaseDetails.totalShares,
+        pricePerShare: purchaseDetails.totalPrice / purchaseDetails.totalShares,
+        currency: 'naira',
+        totalAmount: purchaseDetails.totalPrice,
+        paymentMethod: 'centiiv',
+        status: 'pending',
+        tierBreakdown: purchaseDetails.tierBreakdown,
+        centiivOrderId: orderId,
+        centiivInvoiceUrl: invoiceUrl || null
+      });
+      
+      console.log('✅ [Centiiv] Database save successful');
+      
+    } catch (dbError) {
+      console.log('❌ [Centiiv] Database save failed:', dbError.message);
+      return res.status(500).json({
+        success: false,
+        message: 'Failed to save transaction to database',
+        error: dbError.message
+      });
+    }
+    
+    // Success response
+    const responseData = {
+      transactionId,
+      centiivOrderId: orderId,
+      invoiceUrl: invoiceUrl || null,
+      amount: purchaseDetails.totalPrice,
+      shares: purchaseDetails.totalShares,
+      dueDate: dueDate
+    };
+    
+    console.log('🎉 [Centiiv] Success:', responseData);
+    
     res.status(200).json({
       success: true,
-      message: 'Centiiv invoice created successfully',
-      data: {
-        transactionId,
-        centiivOrderId: centiivResponse.data.id,
-        invoiceUrl: centiivResponse.data.invoiceUrl,
-        amount: purchaseDetails.totalPrice,
-        shares: purchaseDetails.totalShares,
-        dueDate: centiivRequest.dueDate
-      }
+      message: 'Centiiv invoice created successfully (using hardcoded API key)',
+      data: responseData
     });
+    
   } catch (error) {
-    console.error('Error initiating Centiiv payment:', error);
+    console.log('💥 [Centiiv] Unexpected error:', error.message);
+    console.log('🔍 [Centiiv] Error stack:', error.stack);
+    
     res.status(500).json({
       success: false,
       message: 'Failed to initiate Centiiv payment',
-      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+      error: {
+        message: error.message,
+        type: 'UNEXPECTED_ERROR'
+      }
     });
   }
 };
-
+// Add this simple test function to verify basic API connectivity
+exports.testCentiivBasic = async (req, res) => {
+  try {
+    console.log('🧪 [Centiiv Test] Starting basic connectivity test');
+    
+    const apiKey = process.env.CENTIIV_API_KEY;
+    const baseUrl = process.env.CENTIIV_BASE_URL || 'https://api.centiiv.com/api/v1';
+    
+    if (!apiKey) {
+      return res.status(400).json({
+        success: false,
+        message: 'CENTIIV_API_KEY not configured'
+      });
+    }
+    
+    console.log('🧪 [Centiiv Test] Using API key:', `${apiKey.substring(0, 8)}...`);
+    console.log('🧪 [Centiiv Test] Using base URL:', baseUrl);
+    
+    // Test with the exact same payload that worked in your curl
+    const testPayload = {
+      reminderInterval: 7,
+      customerEmail: "onuhbernard4@gmail.com",
+      customerName: "BernardOnuh",
+      dueDate: "2025-08-08",
+      subject: "Test Order",
+      products: [
+        {
+          name: "Test Product",
+          qty: 1,
+          price: 100
+        }
+      ]
+    };
+    
+    console.log('🧪 [Centiiv Test] Test payload:', JSON.stringify(testPayload, null, 2));
+    
+    const response = await axios.post(
+      `${baseUrl}/order`,
+      testPayload,
+      {
+        headers: {
+          'accept': 'application/json',
+          'authorization': `Bearer ${apiKey}`,
+          'content-type': 'application/json'
+        },
+        timeout: 30000
+      }
+    );
+    
+    console.log('✅ [Centiiv Test] Success!');
+    console.log('🧪 [Centiiv Test] Status:', response.status);
+    console.log('🧪 [Centiiv Test] Response:', JSON.stringify(response.data, null, 2));
+    
+    res.status(200).json({
+      success: true,
+      message: 'Centiiv API test successful',
+      testResponse: {
+        status: response.status,
+        data: response.data
+      }
+    });
+    
+  } catch (error) {
+    console.log('❌ [Centiiv Test] Failed');
+    console.log('🧪 [Centiiv Test] Error:', error.message);
+    console.log('🧪 [Centiiv Test] Status:', error.response?.status);
+    console.log('🧪 [Centiiv Test] Response:', JSON.stringify(error.response?.data, null, 2));
+    
+    res.status(500).json({
+      success: false,
+      message: 'Centiiv API test failed',
+      error: {
+        message: error.message,
+        status: error.response?.status,
+        data: error.response?.data
+      }
+    });
+  }
+};
 
 // Verify PayStack payment
 exports.verifyPaystackPayment = async (req, res) => {
