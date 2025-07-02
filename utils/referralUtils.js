@@ -17,203 +17,216 @@ const COFOUNDER_TO_SHARES_RATIO = 29;
  * @param {string} transactionId - Transaction ID
  * @returns {object} - Processing result
  */
-const processReferralCommission = async (
-  userId,
-  amount,
-  purchaseType = 'share', 
-  transactionId = null
-) => {
+const processReferralCommission = async (userId, purchaseAmount, purchaseType = 'share', transactionId = null) => {
   try {
+    console.log(`\n🎯 Processing referral commission for user: ${userId}`);
+    console.log(`💰 Purchase amount: ${purchaseAmount}, Type: ${purchaseType}`);
+    
     // Get the purchaser
     const purchaser = await User.findById(userId);
     if (!purchaser || !purchaser.referralInfo || !purchaser.referralInfo.code) {
-      console.log('User has no referrer, skipping commission');
+      console.log('❌ User has no referrer, skipping commission');
       return { success: false, message: 'User has no referrer' };
     }
     
+    console.log(`👤 Purchaser: ${purchaser.userName}, Referral code: ${purchaser.referralInfo.code}`);
+    
     // Get site config for commission rates
     const siteConfig = await SiteConfig.getCurrentConfig();
-    
-    // Ensure commission rates exist and are set to the correct values
-    if (!siteConfig.referralCommission) {
-      siteConfig.referralCommission = {
-        generation1: 15, // 15% for first generation
-        generation2: 3,  // 3% for second generation
-        generation3: 2   // 2% for third generation
-      };
-      await siteConfig.save();
-      console.log('Created default commission rates: 15%, 3%, 2%');
-    }
-    
-    const commissionRates = siteConfig.referralCommission;
+    const commissionRates = siteConfig.referralCommission || {
+      generation1: 15,
+      generation2: 3,
+      generation3: 2
+    };
 
-    // Handle co-founder purchase amount calculation
-    let effectivePurchaseAmount = amount;
-    let currency = 'USD'; // Default currency
+    console.log(`📊 Commission rates: Gen1: ${commissionRates.generation1}%, Gen2: ${commissionRates.generation2}%, Gen3: ${commissionRates.generation3}%`);
+
+    // Handle currency determination
+    let currency = 'naira'; // Default currency
     
     if (purchaseType === 'cofounder') {
-      // Get actual transaction to determine currency
-      const transaction = await PaymentTransaction.findById(transactionId);
-      if (transaction) {
-        currency = transaction.currency === 'naira' ? 'naira' : 'usdt';
-        
-        console.log(`Processing co-founder referral commission: Amount: ${amount}, Currency: ${currency}`);
+      try {
+        const PaymentTransaction = require('../models/Transaction');
+        const transaction = await PaymentTransaction.findById(transactionId);
+        if (transaction && transaction.currency) {
+          currency = transaction.currency;
+        }
+      } catch (error) {
+        console.log('⚠️  Could not determine currency from transaction, using default');
       }
     }
     
-    console.log(`Processing referral commission for purchase: ${effectivePurchaseAmount} by user: ${purchaser.userName}`);
-    console.log(`Purchase type: ${purchaseType}, Referral code: ${purchaser.referralInfo.code}`);
+    console.log(`💱 Currency: ${currency}`);
     
-    // Find direct referrer (Generation 1)
-    const gen1Referrer = await User.findOne({ userName: purchaser.referralInfo.code });
+    // Process up to 3 generations of referrals
+    let currentUser = purchaser;
+    let commissionsCreated = 0;
     
-    if (!gen1Referrer) {
-      console.log(`Referrer with username ${purchaser.referralInfo.code} not found`);
-      return { success: false, message: 'Referrer not found' };
-    }
-    
-    console.log(`Found Generation 1 referrer: ${gen1Referrer.userName}`);
-    
-    // Calculate and create Generation 1 commission
-    const gen1Commission = (effectivePurchaseAmount * commissionRates.generation1) / 100;
-    
-    const gen1Transaction = new ReferralTransaction({
-      beneficiary: gen1Referrer._id,
-      referredUser: userId,
-      amount: gen1Commission,
-      currency: currency,
-      generation: 1,
-      purchaseType: purchaseType,
-      sourceTransaction: transactionId,
-      sourceTransactionModel: purchaseType === 'cofounder' ? 'PaymentTransaction' : 'UserShare',
-      status: 'completed',
-      createdAt: new Date()
-    });
-    
-    await gen1Transaction.save();
-    console.log(`Created Generation 1 commission: ${gen1Commission} for ${purchaseType} purchase`);
-    
-    // Update referrer stats
-    let gen1Stats = await Referral.findOne({ user: gen1Referrer._id });
-    
-    if (!gen1Stats) {
-      gen1Stats = new Referral({
-        user: gen1Referrer._id,
-        referredUsers: 1,
-        totalEarnings: gen1Commission,
-        generation1: { count: 1, earnings: gen1Commission },
-        generation2: { count: 0, earnings: 0 },
-        generation3: { count: 0, earnings: 0 }
-      });
-    } else {
-      gen1Stats.totalEarnings += gen1Commission;
-      gen1Stats.generation1.earnings += gen1Commission;
-    }
-    
-    await gen1Stats.save();
-    
-    // Look for Generation 2 referrer
-    if (gen1Referrer.referralInfo && gen1Referrer.referralInfo.code) {
-      const gen2Referrer = await User.findOne({ userName: gen1Referrer.referralInfo.code });
-      
-      if (gen2Referrer) {
-        console.log(`Found Generation 2 referrer: ${gen2Referrer.userName}`);
+    for (let generation = 1; generation <= 3; generation++) {
+      try {
+        // Check if current user has a referrer
+        if (!currentUser.referralInfo || !currentUser.referralInfo.code) {
+          console.log(`⏹️  No referrer found for generation ${generation}, stopping`);
+          break;
+        }
         
-        // Calculate and create Generation 2 commission
-        const gen2Commission = (effectivePurchaseAmount * commissionRates.generation2) / 100;
+        // Find the referrer
+        const referrer = await User.findOne({ userName: currentUser.referralInfo.code });
         
-        const gen2Transaction = new ReferralTransaction({
-          beneficiary: gen2Referrer._id,
-          referredUser: userId,
-          amount: gen2Commission,
+        if (!referrer) {
+          console.log(`❌ Referrer not found: ${currentUser.referralInfo.code} (Generation ${generation})`);
+          break;
+        }
+        
+        console.log(`\n👥 Generation ${generation} referrer: ${referrer.userName} (ID: ${referrer._id})`);
+        
+        // Check if commission already exists to avoid duplicates
+        const existingCommission = await ReferralTransaction.findOne({
+          beneficiary: referrer._id,
+          referredUser: userId, // Always the original purchaser
+          sourceTransaction: transactionId,
+          sourceTransactionModel: purchaseType === 'cofounder' ? 'PaymentTransaction' : 'UserShare',
+          generation: generation,
+          status: 'completed'
+        });
+        
+        if (existingCommission) {
+          console.log(`⏭️  Commission already exists for Generation ${generation}, skipping`);
+          currentUser = referrer; // Move to next generation
+          continue;
+        }
+        
+        // Calculate commission
+        const commissionRate = commissionRates[`generation${generation}`];
+        const commissionAmount = (purchaseAmount * commissionRate) / 100;
+        
+        console.log(`💵 Calculating commission: ${purchaseAmount} × ${commissionRate}% = ${commissionAmount}`);
+        
+        // Create referral transaction
+        const referralTxData = {
+          beneficiary: referrer._id,
+          referredUser: userId, // IMPORTANT: Always the original purchaser, not the intermediate referrer
+          amount: commissionAmount,
           currency: currency,
-          generation: 2,
+          generation: generation,
           purchaseType: purchaseType,
           sourceTransaction: transactionId,
           sourceTransactionModel: purchaseType === 'cofounder' ? 'PaymentTransaction' : 'UserShare',
           status: 'completed',
-          createdAt: new Date()
-        });
+          createdAt: new Date(),
+          commissionDetails: {
+            baseAmount: purchaseAmount,
+            commissionRate: commissionRate,
+            calculatedAt: new Date(),
+            referrerUserName: referrer.userName,
+            purchaserUserName: purchaser.userName
+          }
+        };
         
-        await gen2Transaction.save();
-        console.log(`Created Generation 2 commission: ${gen2Commission} for ${purchaseType} purchase`);
-        
-        // Update gen2 stats
-        let gen2Stats = await Referral.findOne({ user: gen2Referrer._id });
-        
-        if (!gen2Stats) {
-          gen2Stats = new Referral({
-            user: gen2Referrer._id,
-            referredUsers: 0,
-            totalEarnings: gen2Commission,
-            generation1: { count: 0, earnings: 0 },
-            generation2: { count: 1, earnings: gen2Commission },
-            generation3: { count: 0, earnings: 0 }
-          });
-        } else {
-          gen2Stats.totalEarnings += gen2Commission;
-          gen2Stats.generation2.earnings += gen2Commission;
-          gen2Stats.generation2.count += 1;
-        }
-        
-        await gen2Stats.save();
-        
-        // Look for Generation 3 referrer
-        if (gen2Referrer.referralInfo && gen2Referrer.referralInfo.code) {
-          const gen3Referrer = await User.findOne({ userName: gen2Referrer.referralInfo.code });
-          
-          if (gen3Referrer) {
-            console.log(`Found Generation 3 referrer: ${gen3Referrer.userName}`);
-            
-            // Calculate and create Generation 3 commission
-            const gen3Commission = (effectivePurchaseAmount * commissionRates.generation3) / 100;
-            
-            const gen3Transaction = new ReferralTransaction({
-              beneficiary: gen3Referrer._id,
-              referredUser: userId,
-              amount: gen3Commission,
-              currency: currency,
-              generation: 3,
-              purchaseType: purchaseType,
-              sourceTransaction: transactionId,
-              sourceTransactionModel: purchaseType === 'cofounder' ? 'PaymentTransaction' : 'UserShare',
-              status: 'completed',
-              createdAt: new Date()
-            });
-            
-            await gen3Transaction.save();
-            console.log(`Created Generation 3 commission: ${gen3Commission} for ${purchaseType} purchase`);
-            
-            // Update gen3 stats
-            let gen3Stats = await Referral.findOne({ user: gen3Referrer._id });
-            
-            if (!gen3Stats) {
-              gen3Stats = new Referral({
-                user: gen3Referrer._id,
-                referredUsers: 0,
-                totalEarnings: gen3Commission,
-                generation1: { count: 0, earnings: 0 },
-                generation2: { count: 0, earnings: 0 },
-                generation3: { count: 1, earnings: gen3Commission }
-              });
-            } else {
-              gen3Stats.totalEarnings += gen3Commission;
-              gen3Stats.generation3.earnings += gen3Commission;
-              gen3Stats.generation3.count += 1;
+        // Add metadata for co-founder transactions
+        if (purchaseType === 'cofounder') {
+          try {
+            const PaymentTransaction = require('../models/Transaction');
+            const transaction = await PaymentTransaction.findById(transactionId);
+            if (transaction && transaction.shares) {
+              referralTxData.metadata = {
+                actualShares: transaction.shares,
+                equivalentShares: transaction.shares * 29,
+                conversionRatio: 29,
+                originalAmount: purchaseAmount,
+                commissionRate: commissionRate
+              };
             }
-            
-            await gen3Stats.save();
+          } catch (error) {
+            console.log('⚠️  Could not add co-founder metadata');
           }
         }
+        
+        const referralTransaction = new ReferralTransaction(referralTxData);
+        await referralTransaction.save();
+        
+        commissionsCreated++;
+        console.log(`✅ Created Generation ${generation} commission: ${commissionAmount} ${currency} for ${referrer.userName}`);
+        
+        // Update referrer stats immediately
+        await updateReferrerStats(referrer._id, commissionAmount, generation, userId);
+        
+        // Move to next generation - IMPORTANT: Use the referrer as the current user for next iteration
+        currentUser = referrer;
+        
+      } catch (generationError) {
+        console.error(`❌ Error processing generation ${generation}:`, generationError.message);
+        break; // Stop processing further generations if there's an error
       }
     }
     
-    return { success: true };
+    console.log(`\n🎉 Referral commission processing completed: ${commissionsCreated} commissions created`);
+    return { 
+      success: true, 
+      commissionsCreated: commissionsCreated,
+      message: `${commissionsCreated} referral commissions created`
+    };
+    
   } catch (error) {
-    console.error('Error processing referral commission:', error);
+    console.error('❌ Error processing referral commission:', error);
     return { success: false, message: error.message };
   }
 };
+
+/**
+ * Helper function to update referrer statistics
+ */
+async function updateReferrerStats(referrerId, commissionAmount, generation, referredUserId) {
+  try {
+    // Find or create referral stats
+    let referralStats = await Referral.findOne({ user: referrerId });
+    
+    if (!referralStats) {
+      referralStats = new Referral({
+        user: referrerId,
+        referredUsers: 0,
+        totalEarnings: 0,
+        generation1: { count: 0, earnings: 0 },
+        generation2: { count: 0, earnings: 0 },
+        generation3: { count: 0, earnings: 0 }
+      });
+    }
+    
+    // Update earnings
+    referralStats.totalEarnings += commissionAmount;
+    referralStats[`generation${generation}`].earnings += commissionAmount;
+    
+    // Update count only if this is the first transaction from this user for this generation
+    const existingTransactionCount = await ReferralTransaction.countDocuments({
+      beneficiary: referrerId,
+      referredUser: referredUserId,
+      generation: generation,
+      status: 'completed'
+    });
+    
+    if (existingTransactionCount === 1) { // This is the first transaction
+      referralStats[`generation${generation}`].count += 1;
+      
+      // Only update referredUsers count for generation 1
+      if (generation === 1) {
+        const totalUniqueGen1Users = await ReferralTransaction.distinct('referredUser', {
+          beneficiary: referrerId,
+          generation: 1,
+          status: 'completed'
+        });
+        referralStats.referredUsers = totalUniqueGen1Users.length;
+      }
+    }
+    
+    await referralStats.save();
+    console.log(`📊 Updated stats for ${referrerId}: Gen${generation} earnings: ${referralStats[`generation${generation}`].earnings}`);
+    
+  } catch (error) {
+    console.error('❌ Error updating referrer stats:', error);
+  
+  }
+}
+
 
 /**
  * Process new user referral (to update referral counts when a user signs up)

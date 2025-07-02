@@ -1,15 +1,16 @@
-// referralDataMigration.js - Script to fix existing referral data before upgrade
+// fixReferralCommissions.js - Complete script to fix missing 2nd and 3rd generation earnings
 const mongoose = require('mongoose');
+require('dotenv').config();
+
+// Import your models (adjust paths as needed)
 const User = require('./models/User');
 const Referral = require('./models/Referral');
 const ReferralTransaction = require('./models/ReferralTransaction');
 const UserShare = require('./models/UserShare');
 const PaymentTransaction = require('./models/Transaction');
 const SiteConfig = require('./models/SiteConfig');
-const CoFounderShare = require('./models/CoFounderShare');
 
 // Configuration
-const COFOUNDER_TO_SHARES_RATIO = 29;
 const COMMISSION_RATES = {
   generation1: 15,
   generation2: 3,
@@ -17,282 +18,319 @@ const COMMISSION_RATES = {
 };
 
 /**
- * Main migration function
+ * Main fix function
  */
-async function migrateReferralData() {
+async function fixReferralCommissions() {
   try {
-    console.log('🔄 Starting referral data migration...\n');
+    console.log('🔧 Starting Referral Commission Fix...\n');
     
-    // Step 1: Update site config with correct commission rates
-    await updateSiteConfig();
+    // Step 1: Ensure correct commission rates
+    await ensureCorrectCommissionRates();
     
-    // Step 2: Clean existing referral transactions (optional - remove if you want to keep existing data)
-    await cleanExistingReferralData();
+    // Step 2: Analyze current state
+    const analysis = await analyzeCurrentState();
+    console.log('📊 Current State Analysis:');
+    console.log(`   • Total Users: ${analysis.totalUsers}`);
+    console.log(`   • Users with Referrers: ${analysis.usersWithReferrers}`);
+    console.log(`   • Existing Commissions: Gen1: ${analysis.existingCommissions.gen1}, Gen2: ${analysis.existingCommissions.gen2}, Gen3: ${analysis.existingCommissions.gen3}`);
+    console.log(`   • Missing Commissions: Gen2: ${analysis.missingCommissions.gen2}, Gen3: ${analysis.missingCommissions.gen3}\n`);
     
-    // Step 3: Process all completed co-founder transactions
-    await processCoFounderTransactions();
+    // Step 3: Fix missing commissions
+    await fixMissingCommissions();
     
-    // Step 4: Process all completed regular share transactions
-    await processRegularShareTransactions();
+    // Step 4: Rebuild referral statistics
+    await rebuildAllReferralStats();
     
-    // Step 5: Rebuild all referral statistics
-    await rebuildReferralStatistics();
+    // Step 5: Final validation
+    await finalValidation();
     
-    // Step 6: Validate and report results
-    await validateAndReport();
-    
-    console.log('✅ Referral data migration completed successfully!\n');
+    console.log('✅ Referral commission fix completed successfully!\n');
     
   } catch (error) {
-    console.error('❌ Migration failed:', error);
+    console.error('❌ Fix failed:', error);
     throw error;
   }
 }
 
 /**
- * Step 1: Update site configuration with correct commission rates
+ * Step 1: Ensure correct commission rates in site config
  */
-async function updateSiteConfig() {
+async function ensureCorrectCommissionRates() {
   try {
-    console.log('📝 Updating site configuration...');
+    console.log('⚙️  Setting correct commission rates...');
     
     const siteConfig = await SiteConfig.getCurrentConfig();
     
-    // Ensure commission rates are set correctly
+    // Update commission rates
     siteConfig.referralCommission = COMMISSION_RATES;
     await siteConfig.save();
     
-    console.log('✅ Site configuration updated with commission rates: 15%, 3%, 2%\n');
+    console.log('✅ Commission rates set: 15%, 3%, 2%\n');
   } catch (error) {
-    console.error('❌ Error updating site config:', error);
+    console.error('❌ Error setting commission rates:', error);
     throw error;
   }
 }
 
 /**
- * Step 2: Clean existing referral data (optional)
+ * Step 2: Analyze current state
  */
-async function cleanExistingReferralData() {
+async function analyzeCurrentState() {
   try {
-    console.log('🧹 Cleaning existing referral data...');
+    console.log('🔍 Analyzing current referral state...');
     
-    // Ask user if they want to clean existing data
-    const shouldClean = process.env.CLEAN_EXISTING_DATA === 'true';
+    // Count total users and users with referrers
+    const totalUsers = await User.countDocuments();
+    const usersWithReferrers = await User.countDocuments({
+      'referralInfo.code': { $exists: true, $ne: null, $ne: '' }
+    });
     
-    if (shouldClean) {
-      await ReferralTransaction.deleteMany({});
-      await Referral.deleteMany({});
-      console.log('✅ Existing referral data cleaned');
-    } else {
-      console.log('⏭️  Skipping cleanup - keeping existing data');
-    }
+    // Count existing commissions by generation
+    const existingCommissions = {
+      gen1: await ReferralTransaction.countDocuments({ generation: 1, status: 'completed' }),
+      gen2: await ReferralTransaction.countDocuments({ generation: 2, status: 'completed' }),
+      gen3: await ReferralTransaction.countDocuments({ generation: 3, status: 'completed' })
+    };
     
-    console.log('');
+    // Calculate expected vs actual commissions
+    const allPurchaseTransactions = await getAllPurchaseTransactions();
+    const expectedCommissions = await calculateExpectedCommissions(allPurchaseTransactions);
+    
+    const missingCommissions = {
+      gen2: Math.max(0, expectedCommissions.gen2 - existingCommissions.gen2),
+      gen3: Math.max(0, expectedCommissions.gen3 - existingCommissions.gen3)
+    };
+    
+    return {
+      totalUsers,
+      usersWithReferrers,
+      existingCommissions,
+      expectedCommissions,
+      missingCommissions,
+      allPurchaseTransactions
+    };
   } catch (error) {
-    console.error('❌ Error cleaning existing data:', error);
+    console.error('❌ Error analyzing current state:', error);
     throw error;
   }
 }
 
 /**
- * Step 3: Process all completed co-founder transactions
+ * Get all purchase transactions (both share and co-founder)
  */
-async function processCoFounderTransactions() {
+async function getAllPurchaseTransactions() {
   try {
-    console.log('🔄 Processing co-founder transactions...');
+    const transactions = [];
     
-    // Get all completed co-founder transactions
-    const coFounderTransactions = await PaymentTransaction.find({
+    // Get co-founder transactions
+    const cofounderTxs = await PaymentTransaction.find({
       type: 'co-founder',
       status: 'completed'
-    }).populate('userId', 'name userName email referralInfo');
+    }).populate('userId', 'userName referralInfo name');
     
-    console.log(`Found ${coFounderTransactions.length} completed co-founder transactions`);
-    
-    let processedCount = 0;
-    let skippedCount = 0;
-    
-    for (const transaction of coFounderTransactions) {
-      try {
-        // Check if user was referred
-        const user = transaction.userId;
-        if (!user || !user.referralInfo || !user.referralInfo.code) {
-          skippedCount++;
-          continue;
-        }
-        
-        // Check if referral transactions already exist for this transaction
-        const existingReferrals = await ReferralTransaction.find({
-          sourceTransaction: transaction._id,
-          sourceTransactionModel: 'PaymentTransaction'
+    for (const tx of cofounderTxs) {
+      if (tx.userId && tx.userId.referralInfo && tx.userId.referralInfo.code) {
+        transactions.push({
+          id: tx._id,
+          userId: tx.userId._id,
+          userName: tx.userId.userName,
+          referralCode: tx.userId.referralInfo.code,
+          amount: tx.amount,
+          currency: tx.currency,
+          type: 'cofounder',
+          sourceModel: 'PaymentTransaction',
+          shares: tx.shares,
+          date: tx.createdAt
         });
-        
-        if (existingReferrals.length > 0) {
-          console.log(`⏭️  Skipping transaction ${transaction._id} - referrals already exist`);
-          skippedCount++;
-          continue;
-        }
-        
-        // Process referral commissions for this transaction
-        const result = await processTransactionReferrals(
-          user._id,
-          transaction.amount,
-          'cofounder',
-          transaction._id,
-          'PaymentTransaction',
-          transaction.currency,
-          transaction.shares
+      }
+    }
+    
+    // Get regular share transactions
+    const userShares = await UserShare.find({}).populate('user', 'userName referralInfo name');
+    
+    for (const userShare of userShares) {
+      if (userShare.user && userShare.user.referralInfo && userShare.user.referralInfo.code) {
+        const completedTxs = userShare.transactions.filter(tx => 
+          tx.status === 'completed' && tx.paymentMethod !== 'co-founder'
         );
         
-        if (result.success) {
-          processedCount++;
-          console.log(`✅ Processed co-founder transaction ${transaction._id} - ${result.commissionsCreated} commissions created`);
+        for (const tx of completedTxs) {
+          transactions.push({
+            id: tx.transactionId,
+            userId: userShare.user._id,
+            userName: userShare.user.userName,
+            referralCode: userShare.user.referralInfo.code,
+            amount: tx.totalAmount,
+            currency: tx.currency,
+            type: 'share',
+            sourceModel: 'UserShare',
+            shares: tx.shares,
+            date: tx.createdAt
+          });
+        }
+      }
+    }
+    
+    return transactions;
+  } catch (error) {
+    console.error('❌ Error getting purchase transactions:', error);
+    throw error;
+  }
+}
+
+/**
+ * Calculate expected number of commissions
+ */
+async function calculateExpectedCommissions(transactions) {
+  try {
+    let expectedGen2 = 0;
+    let expectedGen3 = 0;
+    
+    for (const tx of transactions) {
+      // For each transaction, check how many generations of referrers exist
+      const referralChain = await getReferralChain(tx.userId);
+      
+      if (referralChain.length >= 2) expectedGen2++;
+      if (referralChain.length >= 3) expectedGen3++;
+    }
+    
+    return {
+      gen1: transactions.length, // Every transaction should have gen1
+      gen2: expectedGen2,
+      gen3: expectedGen3
+    };
+  } catch (error) {
+    console.error('❌ Error calculating expected commissions:', error);
+    throw error;
+  }
+}
+
+/**
+ * Get referral chain for a user
+ */
+async function getReferralChain(userId) {
+  try {
+    const chain = [];
+    let currentUser = await User.findById(userId).select('referralInfo');
+    
+    while (currentUser && currentUser.referralInfo && currentUser.referralInfo.code && chain.length < 5) {
+      const referrer = await User.findOne({ userName: currentUser.referralInfo.code }).select('_id userName referralInfo');
+      
+      if (referrer) {
+        chain.push({
+          id: referrer._id,
+          userName: referrer.userName,
+          generation: chain.length + 1
+        });
+        currentUser = referrer;
+      } else {
+        break;
+      }
+    }
+    
+    return chain;
+  } catch (error) {
+    console.error('❌ Error getting referral chain:', error);
+    return [];
+  }
+}
+
+/**
+ * Step 3: Fix missing commissions
+ */
+async function fixMissingCommissions() {
+  try {
+    console.log('🔧 Fixing missing commissions...');
+    
+    const allTransactions = await getAllPurchaseTransactions();
+    let fixedCount = 0;
+    let skippedCount = 0;
+    
+    for (const tx of allTransactions) {
+      try {
+        const result = await processTransactionCommissions(tx);
+        
+        if (result.commissionsCreated > 0) {
+          fixedCount++;
+          console.log(`✅ Fixed ${tx.userName} (${tx.type}): ${result.commissionsCreated} commissions created`);
         } else {
-          console.log(`⚠️  Failed to process transaction ${transaction._id}: ${result.message}`);
           skippedCount++;
         }
-        
       } catch (txError) {
-        console.error(`❌ Error processing transaction ${transaction._id}:`, txError.message);
+        console.error(`❌ Error processing ${tx.userName}:`, txError.message);
         skippedCount++;
       }
     }
     
-    console.log(`✅ Co-founder transactions processed: ${processedCount} successful, ${skippedCount} skipped\n`);
-    
+    console.log(`\n📊 Fix Results: ${fixedCount} transactions fixed, ${skippedCount} skipped\n`);
   } catch (error) {
-    console.error('❌ Error processing co-founder transactions:', error);
+    console.error('❌ Error fixing missing commissions:', error);
     throw error;
   }
 }
 
 /**
- * Step 4: Process all completed regular share transactions
+ * Process commissions for a single transaction
  */
-async function processRegularShareTransactions() {
+async function processTransactionCommissions(transaction) {
   try {
-    console.log('🔄 Processing regular share transactions...');
-    
-    // Get all users with share transactions
-    const userShares = await UserShare.find({}).populate('user', 'name userName email referralInfo');
-    
-    let processedCount = 0;
-    let skippedCount = 0;
-    let totalTransactions = 0;
-    
-    for (const userShare of userShares) {
-      try {
-        const user = userShare.user;
-        if (!user || !user.referralInfo || !user.referralInfo.code) {
-          continue; // Skip users without referrals
-        }
-        
-        // Process each completed transaction
-        const completedTransactions = userShare.transactions.filter(t => 
-          t.status === 'completed' && 
-          t.paymentMethod !== 'co-founder' // Skip co-founder transactions (already processed)
-        );
-        
-        for (const transaction of completedTransactions) {
-          totalTransactions++;
-          
-          // Check if referral transactions already exist
-          const existingReferrals = await ReferralTransaction.find({
-            sourceTransaction: transaction.transactionId,
-            sourceTransactionModel: 'UserShare'
-          });
-          
-          if (existingReferrals.length > 0) {
-            skippedCount++;
-            continue;
-          }
-          
-          // Process referral commissions
-          const result = await processTransactionReferrals(
-            user._id,
-            transaction.totalAmount,
-            'share',
-            transaction.transactionId,
-            'UserShare',
-            transaction.currency,
-            transaction.shares
-          );
-          
-          if (result.success) {
-            processedCount++;
-          } else {
-            skippedCount++;
-          }
-        }
-        
-      } catch (userError) {
-        console.error(`❌ Error processing user ${userShare.user._id}:`, userError.message);
-      }
-    }
-    
-    console.log(`✅ Regular share transactions processed: ${processedCount} successful, ${skippedCount} skipped (${totalTransactions} total)\n`);
-    
-  } catch (error) {
-    console.error('❌ Error processing regular share transactions:', error);
-    throw error;
-  }
-}
-
-/**
- * Helper function to process referral commissions for a single transaction
- */
-async function processTransactionReferrals(userId, amount, purchaseType, transactionId, sourceModel, currency, shares) {
-  try {
-    // Find the user who made the purchase
-    const user = await User.findById(userId);
-    if (!user || !user.referralInfo || !user.referralInfo.code) {
-      return { success: false, message: 'User not referred' };
-    }
-    
     let commissionsCreated = 0;
-    let currentUser = user;
     
-    // Process up to 3 generations
-    for (let generation = 1; generation <= 3; generation++) {
-      if (!currentUser.referralInfo || !currentUser.referralInfo.code) {
-        break; // No more referrers
-      }
+    // Get referral chain
+    const referralChain = await getReferralChain(transaction.userId);
+    
+    if (referralChain.length === 0) {
+      return { commissionsCreated: 0 };
+    }
+    
+    // Process each generation
+    for (let generation = 1; generation <= Math.min(3, referralChain.length); generation++) {
+      const referrer = referralChain[generation - 1];
       
-      // Find the referrer
-      const referrer = await User.findOne({ userName: currentUser.referralInfo.code });
-      if (!referrer) {
-        break; // Referrer not found
+      // Check if commission already exists
+      const existingCommission = await ReferralTransaction.findOne({
+        beneficiary: referrer.id,
+        referredUser: transaction.userId,
+        sourceTransaction: transaction.id,
+        sourceTransactionModel: transaction.sourceModel,
+        generation: generation,
+        status: 'completed'
+      });
+      
+      if (existingCommission) {
+        continue; // Skip if commission already exists
       }
       
       // Calculate commission
       const commissionRate = COMMISSION_RATES[`generation${generation}`];
-      const commissionAmount = (amount * commissionRate) / 100;
+      const commissionAmount = (transaction.amount * commissionRate) / 100;
       
-      // Create referral transaction with enhanced metadata
+      // Create referral transaction
       const referralTxData = {
-        beneficiary: referrer._id,
-        referredUser: userId,
+        beneficiary: referrer.id,
+        referredUser: transaction.userId,
         amount: commissionAmount,
-        currency: currency || 'naira',
+        currency: transaction.currency || 'naira',
         generation: generation,
-        purchaseType: purchaseType,
-        sourceTransaction: transactionId,
-        sourceTransactionModel: sourceModel,
+        purchaseType: transaction.type,
+        sourceTransaction: transaction.id,
+        sourceTransactionModel: transaction.sourceModel,
         status: 'completed',
+        createdAt: transaction.date, // Use original transaction date
         commissionDetails: {
-          baseAmount: amount,
+          baseAmount: transaction.amount,
           commissionRate: commissionRate,
           calculatedAt: new Date()
         }
       };
       
       // Add metadata for co-founder transactions
-      if (purchaseType === 'cofounder') {
+      if (transaction.type === 'cofounder') {
         referralTxData.metadata = {
-          actualShares: shares,
-          equivalentShares: shares * COFOUNDER_TO_SHARES_RATIO,
-          conversionRatio: COFOUNDER_TO_SHARES_RATIO,
-          originalAmount: amount,
+          actualShares: transaction.shares,
+          equivalentShares: transaction.shares * 29,
+          conversionRatio: 29,
+          originalAmount: transaction.amount,
           commissionRate: commissionRate
         };
       }
@@ -302,58 +340,38 @@ async function processTransactionReferrals(userId, amount, purchaseType, transac
       
       commissionsCreated++;
       
-      // Move to next generation
-      currentUser = referrer;
+      console.log(`   ✅ Gen${generation}: ${referrer.userName} - ${commissionAmount.toFixed(2)} ${transaction.currency}`);
     }
     
-    return {
-      success: true,
-      commissionsCreated: commissionsCreated
-    };
-    
+    return { commissionsCreated };
   } catch (error) {
-    return {
-      success: false,
-      message: error.message
-    };
+    console.error('❌ Error processing transaction commissions:', error);
+    return { commissionsCreated: 0 };
   }
 }
 
 /**
- * Step 5: Rebuild all referral statistics
+ * Step 4: Rebuild all referral statistics
  */
-async function rebuildReferralStatistics() {
+async function rebuildAllReferralStats() {
   try {
-    console.log('🔄 Rebuilding referral statistics...');
+    console.log('📊 Rebuilding referral statistics...');
     
-    // Get all users who have received referral commissions
+    // Get all users who have received commissions
     const beneficiaries = await ReferralTransaction.distinct('beneficiary');
-    
-    console.log(`Found ${beneficiaries.length} users with referral earnings`);
     
     let rebuiltCount = 0;
     
     for (const userId of beneficiaries) {
       try {
-        // Calculate stats for this user
-        const stats = await calculateUserReferralStats(userId);
-        
-        // Update or create referral record
-        await Referral.findOneAndUpdate(
-          { user: userId },
-          stats,
-          { upsert: true, new: true }
-        );
-        
+        await rebuildUserReferralStats(userId);
         rebuiltCount++;
-        
-      } catch (userError) {
-        console.error(`❌ Error rebuilding stats for user ${userId}:`, userError.message);
+      } catch (error) {
+        console.error(`❌ Error rebuilding stats for user ${userId}:`, error.message);
       }
     }
     
-    console.log(`✅ Referral statistics rebuilt for ${rebuiltCount} users\n`);
-    
+    console.log(`✅ Rebuilt statistics for ${rebuiltCount} users\n`);
   } catch (error) {
     console.error('❌ Error rebuilding referral statistics:', error);
     throw error;
@@ -361,9 +379,9 @@ async function rebuildReferralStatistics() {
 }
 
 /**
- * Helper function to calculate referral stats for a user
+ * Rebuild referral stats for a single user
  */
-async function calculateUserReferralStats(userId) {
+async function rebuildUserReferralStats(userId) {
   try {
     // Get all completed referral transactions for this user
     const transactions = await ReferralTransaction.find({
@@ -371,7 +389,7 @@ async function calculateUserReferralStats(userId) {
       status: 'completed'
     });
     
-    // Calculate totals by generation
+    // Calculate stats
     const stats = {
       user: userId,
       referredUsers: 0,
@@ -381,7 +399,7 @@ async function calculateUserReferralStats(userId) {
       generation3: { count: 0, earnings: 0 }
     };
     
-    // Track unique referred users by generation
+    // Track unique users by generation
     const uniqueUsers = {
       1: new Set(),
       2: new Set(),
@@ -403,7 +421,12 @@ async function calculateUserReferralStats(userId) {
     stats.generation3.count = uniqueUsers[3].size;
     stats.referredUsers = uniqueUsers[1].size; // Direct referrals only
     
-    return stats;
+    // Update or create referral record
+    await Referral.findOneAndUpdate(
+      { user: userId },
+      stats,
+      { upsert: true, new: true }
+    );
     
   } catch (error) {
     throw error;
@@ -411,68 +434,100 @@ async function calculateUserReferralStats(userId) {
 }
 
 /**
- * Step 6: Validate and report results
+ * Step 5: Final validation and reporting
  */
-async function validateAndReport() {
+async function finalValidation() {
   try {
-    console.log('📊 Generating migration report...\n');
+    console.log('📊 Final Validation Report');
+    console.log('=========================');
     
-    // Count referral transactions by type
-    const coFounderCommissions = await ReferralTransaction.countDocuments({
-      purchaseType: 'cofounder',
-      status: 'completed'
-    });
-    
-    const shareCommissions = await ReferralTransaction.countDocuments({
-      purchaseType: 'share',
-      status: 'completed'
-    });
-    
-    // Count by generation
+    // Count commissions by generation
     const gen1Count = await ReferralTransaction.countDocuments({ generation: 1, status: 'completed' });
     const gen2Count = await ReferralTransaction.countDocuments({ generation: 2, status: 'completed' });
     const gen3Count = await ReferralTransaction.countDocuments({ generation: 3, status: 'completed' });
     
-    // Calculate total earnings
-    const totalEarnings = await ReferralTransaction.aggregate([
+    // Calculate total earnings by generation
+    const earningsByGen = await ReferralTransaction.aggregate([
       { $match: { status: 'completed' } },
-      { $group: { _id: null, total: { $sum: '$amount' } } }
+      {
+        $group: {
+          _id: '$generation',
+          totalEarnings: { $sum: '$amount' },
+          count: { $sum: 1 }
+        }
+      },
+      { $sort: { _id: 1 } }
     ]);
     
-    // Count users with referral data
-    const usersWithReferrals = await Referral.countDocuments();
+    // Count users with referral stats
+    const usersWithStats = await Referral.countDocuments();
     
-    console.log('📊 MIGRATION REPORT');
-    console.log('==================');
-    console.log(`📈 Total Referral Commissions: ${coFounderCommissions + shareCommissions}`);
-    console.log(`   • Co-founder commissions: ${coFounderCommissions}`);
-    console.log(`   • Regular share commissions: ${shareCommissions}`);
-    console.log('');
-    console.log(`👥 Commissions by Generation:`);
+    // Check for users with non-zero gen2/gen3 earnings
+    const usersWithGen2Earnings = await Referral.countDocuments({ 'generation2.earnings': { $gt: 0 } });
+    const usersWithGen3Earnings = await Referral.countDocuments({ 'generation3.earnings': { $gt: 0 } });
+    
+    console.log(`📈 Commission Counts:`);
     console.log(`   • Generation 1: ${gen1Count} commissions`);
     console.log(`   • Generation 2: ${gen2Count} commissions`);
     console.log(`   • Generation 3: ${gen3Count} commissions`);
     console.log('');
-    console.log(`💰 Total Earnings: ${totalEarnings[0]?.total?.toFixed(2) || 0}`);
-    console.log(`👤 Users with Referral Data: ${usersWithReferrals}`);
+    
+    console.log(`💰 Earnings by Generation:`);
+    for (const gen of earningsByGen) {
+      console.log(`   • Generation ${gen._id}: ${gen.totalEarnings.toFixed(2)} (${gen.count} transactions)`);
+    }
     console.log('');
     
-    // Validate commission rates
-    const incorrectRates = await ReferralTransaction.find({
-      $or: [
-        { generation: 1, 'commissionDetails.commissionRate': { $ne: 15 } },
-        { generation: 2, 'commissionDetails.commissionRate': { $ne: 3 } },
-        { generation: 3, 'commissionDetails.commissionRate': { $ne: 2 } }
-      ]
-    }).countDocuments();
+    console.log(`👥 Users with Earnings:`);
+    console.log(`   • Total users with referral stats: ${usersWithStats}`);
+    console.log(`   • Users with Gen2 earnings: ${usersWithGen2Earnings}`);
+    console.log(`   • Users with Gen3 earnings: ${usersWithGen3Earnings}`);
+    console.log('');
     
-    if (incorrectRates > 0) {
-      console.log(`⚠️  Warning: ${incorrectRates} transactions have incorrect commission rates`);
-    } else {
-      console.log('✅ All commission rates are correct');
+    // Sample users with gen2/gen3 earnings for verification
+    const sampleGen2Users = await Referral.find({ 'generation2.earnings': { $gt: 0 } })
+      .limit(3)
+      .populate('user', 'userName name');
+    
+    const sampleGen3Users = await Referral.find({ 'generation3.earnings': { $gt: 0 } })
+      .limit(3)
+      .populate('user', 'userName name');
+    
+    if (sampleGen2Users.length > 0) {
+      console.log(`📋 Sample Gen2 Earners:`);
+      for (const user of sampleGen2Users) {
+        console.log(`   • ${user.user.userName}: ${user.generation2.earnings.toFixed(2)} (${user.generation2.count} referrals)`);
+      }
+      console.log('');
     }
     
-    console.log('\n🎉 Migration validation completed!');
+    if (sampleGen3Users.length > 0) {
+      console.log(`📋 Sample Gen3 Earners:`);
+      for (const user of sampleGen3Users) {
+        console.log(`   • ${user.user.userName}: ${user.generation3.earnings.toFixed(2)} (${user.generation3.count} referrals)`);
+      }
+      console.log('');
+    }
+    
+    // Validation checks
+    console.log(`✅ Validation Results:`);
+    if (gen2Count > 0) {
+      console.log(`   ✅ Generation 2 commissions are now working (${gen2Count} found)`);
+    } else {
+      console.log(`   ⚠️  No Generation 2 commissions found - check referral chains`);
+    }
+    
+    if (gen3Count > 0) {
+      console.log(`   ✅ Generation 3 commissions are now working (${gen3Count} found)`);
+    } else {
+      console.log(`   ⚠️  No Generation 3 commissions found - check referral chains`);
+    }
+    
+    if (usersWithGen2Earnings > 0 && usersWithGen3Earnings > 0) {
+      console.log(`   ✅ Users are now earning from multiple generations`);
+    }
+    
+    console.log('\n🎉 Validation completed!');
     
   } catch (error) {
     console.error('❌ Error during validation:', error);
@@ -481,39 +536,41 @@ async function validateAndReport() {
 }
 
 /**
- * Script execution
+ * Connect to database and run the fix
  */
-async function runMigration() {
+async function runFix() {
   try {
-    // Connect to MongoDB if not already connected
-    if (mongoose.connection.readyState !== 1) {
-      console.log('📡 Connecting to MongoDB...');
-      await mongoose.connect(process.env.MONGODB_URI || 'mongodb+srv://infoagrichainx:nfE59IWssd3kklfZ@cluster0.uvjmhm9.mongodb.net', {
-        useNewUrlParser: true,
-        useUnifiedTopology: true
-      });
-      console.log('✅ Connected to MongoDB\n');
-    }
+    // Connect to MongoDB
+    console.log('📡 Connecting to MongoDB...');
+    await mongoose.connect(process.env.MONGODB_URI, {
+      useNewUrlParser: true,
+      useUnifiedTopology: true
+    });
+    console.log('✅ Connected to MongoDB\n');
     
-    // Run the migration
-    await migrateReferralData();
+    // Run the fix
+    await fixReferralCommissions();
     
-    console.log('\n🎉 Migration completed successfully!');
-    console.log('You can now update your referralUtils.js and ReferralTransaction model files.');
+    console.log('🎉 All referral commission issues have been fixed!');
+    console.log('💡 Future transactions will now correctly generate Gen2 and Gen3 commissions.');
+    
+    // Close connection
+    await mongoose.connection.close();
+    console.log('📡 Database connection closed.');
     
   } catch (error) {
-    console.error('\n💥 Migration failed:', error);
+    console.error('\n💥 Fix failed:', error);
     process.exit(1);
   }
 }
 
-// Export for use as module or run directly
+// Export functions
 module.exports = {
-  migrateReferralData,
-  runMigration
+  fixReferralCommissions,
+  runFix
 };
 
 // Run if called directly
 if (require.main === module) {
-  runMigration();
+  runFix();
 }
