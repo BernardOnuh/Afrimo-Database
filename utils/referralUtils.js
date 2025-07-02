@@ -1,35 +1,48 @@
-// referralUtils.js - Updated to handle co-founder share conversion with existing system
+// referralUtils.js - COMPLETE FIXED VERSION for co-founder share conversion with existing system
 const User = require('../models/User');
 const Referral = require('../models/Referral');
 const ReferralTransaction = require('../models/ReferralTransaction');
 const UserShare = require('../models/UserShare');
 const PaymentTransaction = require('../models/Transaction');
 const SiteConfig = require('../models/SiteConfig');
+const CoFounderShare = require('../models/CoFounderShare');
 
 // CONFIGURATION: 1 Co-founder share = 29 regular shares
 const COFOUNDER_TO_SHARES_RATIO = 29;
 
 /**
- * Process referral commissions for a transaction (Updated signature to match controller calls)
+ * Process referral commissions for a transaction (FIXED for co-founder shares)
  * @param {string} userId - User ID who made the purchase 
- * @param {number} amount - Transaction amount
+ * @param {number} purchaseAmount - Transaction amount
  * @param {string} purchaseType - Type of purchase (share, cofounder, etc.)
- * @param {string} transactionId - Transaction ID
+ * @param {string} transactionId - Transaction ID (MongoDB ObjectId)
  * @returns {object} - Processing result
  */
 const processReferralCommission = async (userId, purchaseAmount, purchaseType = 'share', transactionId = null) => {
   try {
-    console.log(`\n🎯 Processing referral commission for user: ${userId}`);
-    console.log(`💰 Purchase amount: ${purchaseAmount}, Type: ${purchaseType}`);
+    console.log(`\n🎯 [FIXED] Processing referral commission for user: ${userId}`);
+    console.log(`💰 Purchase amount: ${purchaseAmount}, Type: ${purchaseType}, Transaction: ${transactionId}`);
+    
+    // Input validation
+    if (!userId || !purchaseAmount || !transactionId) {
+      console.log('❌ Missing required parameters for referral processing');
+      return { success: false, message: 'Missing required parameters' };
+    }
     
     // Get the purchaser
     const purchaser = await User.findById(userId);
-    if (!purchaser || !purchaser.referralInfo || !purchaser.referralInfo.code) {
+    if (!purchaser) {
+      console.log('❌ Purchaser not found');
+      return { success: false, message: 'Purchaser not found' };
+    }
+    
+    // Check if user has a referrer
+    if (!purchaser.referralInfo || !purchaser.referralInfo.code) {
       console.log('❌ User has no referrer, skipping commission');
       return { success: false, message: 'User has no referrer' };
     }
     
-    console.log(`👤 Purchaser: ${purchaser.userName}, Referral code: ${purchaser.referralInfo.code}`);
+    console.log(`👤 Purchaser: ${purchaser.userName}, Referred by: ${purchaser.referralInfo.code}`);
     
     // Get site config for commission rates
     const siteConfig = await SiteConfig.getCurrentConfig();
@@ -41,26 +54,48 @@ const processReferralCommission = async (userId, purchaseAmount, purchaseType = 
 
     console.log(`📊 Commission rates: Gen1: ${commissionRates.generation1}%, Gen2: ${commissionRates.generation2}%, Gen3: ${commissionRates.generation3}%`);
 
-    // Handle currency determination
+    // FIXED: Determine currency and source model based on purchase type
     let currency = 'naira'; // Default currency
+    let sourceModel = 'UserShare'; // Default source model
     
     if (purchaseType === 'cofounder') {
+      sourceModel = 'PaymentTransaction';
+      
       try {
-        const PaymentTransaction = require('../models/Transaction');
+        // FIXED: Find the transaction to get currency info
         const transaction = await PaymentTransaction.findById(transactionId);
         if (transaction && transaction.currency) {
           currency = transaction.currency;
+          console.log(`💱 Found currency from transaction: ${currency}`);
         }
       } catch (error) {
-        console.log('⚠️  Could not determine currency from transaction, using default');
+        console.log('⚠️  Could not determine currency from transaction, using default naira');
       }
     }
     
-    console.log(`💱 Currency: ${currency}`);
+    console.log(`💱 Using currency: ${currency}, Source model: ${sourceModel}`);
+    
+    // FIXED: Check for existing commissions to prevent duplicates
+    const existingCommissions = await ReferralTransaction.find({
+      referredUser: userId,
+      sourceTransaction: transactionId,
+      sourceTransactionModel: sourceModel,
+      status: 'completed'
+    });
+    
+    if (existingCommissions.length > 0) {
+      console.log(`⏭️  Commissions already processed for this transaction (${existingCommissions.length} found)`);
+      return { 
+        success: false, 
+        message: 'Commissions already processed for this transaction',
+        existingCommissions: existingCommissions.length
+      };
+    }
     
     // Process up to 3 generations of referrals
     let currentUser = purchaser;
     let commissionsCreated = 0;
+    const createdCommissions = [];
     
     for (let generation = 1; generation <= 3; generation++) {
       try {
@@ -80,17 +115,17 @@ const processReferralCommission = async (userId, purchaseAmount, purchaseType = 
         
         console.log(`\n👥 Generation ${generation} referrer: ${referrer.userName} (ID: ${referrer._id})`);
         
-        // Check if commission already exists to avoid duplicates
-        const existingCommission = await ReferralTransaction.findOne({
+        // FIXED: Double-check for existing commission for this specific generation
+        const existingGenCommission = await ReferralTransaction.findOne({
           beneficiary: referrer._id,
           referredUser: userId, // Always the original purchaser
           sourceTransaction: transactionId,
-          sourceTransactionModel: purchaseType === 'cofounder' ? 'PaymentTransaction' : 'UserShare',
+          sourceTransactionModel: sourceModel,
           generation: generation,
           status: 'completed'
         });
         
-        if (existingCommission) {
+        if (existingGenCommission) {
           console.log(`⏭️  Commission already exists for Generation ${generation}, skipping`);
           currentUser = referrer; // Move to next generation
           continue;
@@ -98,20 +133,26 @@ const processReferralCommission = async (userId, purchaseAmount, purchaseType = 
         
         // Calculate commission
         const commissionRate = commissionRates[`generation${generation}`];
+        if (!commissionRate || commissionRate <= 0) {
+          console.log(`⏭️  No commission rate for generation ${generation}, skipping`);
+          currentUser = referrer;
+          continue;
+        }
+        
         const commissionAmount = (purchaseAmount * commissionRate) / 100;
         
-        console.log(`💵 Calculating commission: ${purchaseAmount} × ${commissionRate}% = ${commissionAmount}`);
+        console.log(`💵 Gen ${generation} calculation: ${purchaseAmount} × ${commissionRate}% = ${commissionAmount}`);
         
-        // Create referral transaction
+        // FIXED: Enhanced referral transaction data
         const referralTxData = {
           beneficiary: referrer._id,
-          referredUser: userId, // IMPORTANT: Always the original purchaser, not the intermediate referrer
+          referredUser: userId, // IMPORTANT: Always the original purchaser
           amount: commissionAmount,
           currency: currency,
           generation: generation,
           purchaseType: purchaseType,
           sourceTransaction: transactionId,
-          sourceTransactionModel: purchaseType === 'cofounder' ? 'PaymentTransaction' : 'UserShare',
+          sourceTransactionModel: sourceModel,
           status: 'completed',
           createdAt: new Date(),
           commissionDetails: {
@@ -119,37 +160,59 @@ const processReferralCommission = async (userId, purchaseAmount, purchaseType = 
             commissionRate: commissionRate,
             calculatedAt: new Date(),
             referrerUserName: referrer.userName,
-            purchaserUserName: purchaser.userName
+            purchaserUserName: purchaser.userName,
+            generationChain: `Gen${generation}: ${referrer.userName}`
           }
         };
         
-        // Add metadata for co-founder transactions
+        // FIXED: Add enhanced metadata for co-founder transactions
         if (purchaseType === 'cofounder') {
           try {
-            const PaymentTransaction = require('../models/Transaction');
             const transaction = await PaymentTransaction.findById(transactionId);
             if (transaction && transaction.shares) {
+              const coFounderShare = await CoFounderShare.findOne();
+              const shareToRegularRatio = coFounderShare?.shareToRegularRatio || 29;
+              
               referralTxData.metadata = {
-                actualShares: transaction.shares,
-                equivalentShares: transaction.shares * 29,
-                conversionRatio: 29,
+                coFounderShares: transaction.shares,
+                equivalentRegularShares: transaction.shares * shareToRegularRatio,
+                shareToRegularRatio: shareToRegularRatio,
                 originalAmount: purchaseAmount,
-                commissionRate: commissionRate
+                commissionRate: commissionRate,
+                transactionType: 'co-founder',
+                paymentMethod: transaction.paymentMethod || 'unknown'
               };
+              
+              console.log(`🔄 Co-founder metadata: ${transaction.shares} co-founder shares = ${transaction.shares * shareToRegularRatio} regular shares`);
             }
-          } catch (error) {
-            console.log('⚠️  Could not add co-founder metadata');
+          } catch (metadataError) {
+            console.log('⚠️  Could not add co-founder metadata:', metadataError.message);
           }
         }
         
+        // Create referral transaction
         const referralTransaction = new ReferralTransaction(referralTxData);
         await referralTransaction.save();
         
         commissionsCreated++;
+        createdCommissions.push({
+          generation,
+          beneficiary: referrer.userName,
+          amount: commissionAmount,
+          currency,
+          transactionId: referralTransaction._id
+        });
+        
         console.log(`✅ Created Generation ${generation} commission: ${commissionAmount} ${currency} for ${referrer.userName}`);
         
-        // Update referrer stats immediately
-        await updateReferrerStats(referrer._id, commissionAmount, generation, userId);
+        // FIXED: Update referrer stats immediately with better error handling
+        try {
+          await updateReferrerStats(referrer._id, commissionAmount, generation, userId);
+          console.log(`📊 Updated stats for ${referrer.userName} (Gen ${generation})`);
+        } catch (statsError) {
+          console.error(`❌ Error updating stats for ${referrer.userName}:`, statsError.message);
+          // Continue processing even if stats update fails
+        }
         
         // Move to next generation - IMPORTANT: Use the referrer as the current user for next iteration
         currentUser = referrer;
@@ -160,24 +223,37 @@ const processReferralCommission = async (userId, purchaseAmount, purchaseType = 
       }
     }
     
-    console.log(`\n🎉 Referral commission processing completed: ${commissionsCreated} commissions created`);
+    console.log(`\n🎉 [FIXED] Referral commission processing completed: ${commissionsCreated} commissions created`);
+    
+    // FIXED: Return detailed success response
     return { 
       success: true, 
       commissionsCreated: commissionsCreated,
-      message: `${commissionsCreated} referral commissions created`
+      commissions: createdCommissions,
+      message: `${commissionsCreated} referral commissions created successfully`,
+      transactionId: transactionId,
+      purchaseType: purchaseType,
+      totalAmount: purchaseAmount,
+      currency: currency
     };
     
   } catch (error) {
-    console.error('❌ Error processing referral commission:', error);
-    return { success: false, message: error.message };
+    console.error('❌ [FIXED] Error processing referral commission:', error);
+    return { 
+      success: false, 
+      message: error.message,
+      error: process.env.NODE_ENV === 'development' ? error.stack : undefined
+    };
   }
 };
 
 /**
- * Helper function to update referrer statistics
+ * FIXED: Helper function to update referrer statistics
  */
 async function updateReferrerStats(referrerId, commissionAmount, generation, referredUserId) {
   try {
+    console.log(`📊 [FIXED] Updating stats for referrer ${referrerId}, Gen ${generation}`);
+    
     // Find or create referral stats
     let referralStats = await Referral.findOne({ user: referrerId });
     
@@ -192,11 +268,11 @@ async function updateReferrerStats(referrerId, commissionAmount, generation, ref
       });
     }
     
-    // Update earnings
+    // FIXED: Always update earnings
     referralStats.totalEarnings += commissionAmount;
     referralStats[`generation${generation}`].earnings += commissionAmount;
     
-    // Update count only if this is the first transaction from this user for this generation
+    // FIXED: Update count logic - only increment if this is a new user for this generation
     const existingTransactionCount = await ReferralTransaction.countDocuments({
       beneficiary: referrerId,
       referredUser: referredUserId,
@@ -204,29 +280,34 @@ async function updateReferrerStats(referrerId, commissionAmount, generation, ref
       status: 'completed'
     });
     
+    // If this is the first transaction from this user for this generation, increment count
     if (existingTransactionCount === 1) { // This is the first transaction
       referralStats[`generation${generation}`].count += 1;
+      console.log(`📈 Incremented Gen${generation} count for ${referrerId} (new user)`);
       
-      // Only update referredUsers count for generation 1
+      // FIXED: Only update referredUsers count for generation 1 (direct referrals)
       if (generation === 1) {
+        // Get total unique generation 1 users
         const totalUniqueGen1Users = await ReferralTransaction.distinct('referredUser', {
           beneficiary: referrerId,
           generation: 1,
           status: 'completed'
         });
         referralStats.referredUsers = totalUniqueGen1Users.length;
+        console.log(`📈 Updated total referred users for ${referrerId}: ${referralStats.referredUsers}`);
       }
+    } else {
+      console.log(`📊 Existing user transaction for Gen${generation} - only updating earnings`);
     }
     
     await referralStats.save();
-    console.log(`📊 Updated stats for ${referrerId}: Gen${generation} earnings: ${referralStats[`generation${generation}`].earnings}`);
+    console.log(`✅ Updated stats for ${referrerId}: Gen${generation} earnings: ${referralStats[`generation${generation}`].earnings}`);
     
   } catch (error) {
     console.error('❌ Error updating referrer stats:', error);
-  
+    throw error; // Rethrow to handle in calling function
   }
 }
-
 
 /**
  * Process new user referral (to update referral counts when a user signs up)
@@ -739,9 +820,9 @@ const syncReferralStats = async (userId) => {
 };
 
 /**
- * Rollback referral commissions for a canceled transaction (Updated signature)
+ * FIXED: Rollback referral commissions for a canceled transaction
  * @param {string} userId - The user ID who made the purchase
- * @param {string} transactionId - The transaction ID
+ * @param {string} transactionId - The transaction ID (MongoDB ObjectId)
  * @param {number} amount - The transaction amount
  * @param {string} currency - The currency used (naira or usdt)
  * @param {string} purchaseType - The type of transaction (share, cofounder, etc.)
@@ -750,53 +831,94 @@ const syncReferralStats = async (userId) => {
  */
 const rollbackReferralCommission = async (userId, transactionId, amount, currency, purchaseType, sourceModel) => {
   try {
-    console.log(`Rolling back referral commissions for transaction: ${transactionId}`);
+    console.log(`\n🔄 [FIXED] Rolling back referral commissions for transaction: ${transactionId}`);
+    console.log(`👤 User: ${userId}, Type: ${purchaseType}, Amount: ${amount} ${currency}`);
+    
+    // FIXED: Determine correct source model
+    const correctSourceModel = purchaseType === 'cofounder' ? 'PaymentTransaction' : sourceModel;
     
     // Find all referral transactions for this source transaction
     const referralTransactions = await ReferralTransaction.find({
+      referredUser: userId, // FIXED: Use referredUser instead of sourceTransaction
       sourceTransaction: transactionId,
-      sourceTransactionModel: sourceModel,
+      sourceTransactionModel: correctSourceModel,
       status: 'completed'
     });
     
-    console.log(`Found ${referralTransactions.length} referral transactions to rollback`);
+    console.log(`📋 Found ${referralTransactions.length} referral transactions to rollback`);
+    
+    if (referralTransactions.length === 0) {
+      console.log('⚠️  No referral transactions found to rollback');
+      return {
+        success: true,
+        message: 'No referral transactions found to rollback',
+        rolledBackCount: 0
+      };
+    }
+    
+    let rolledBackCount = 0;
     
     // Process each referral transaction
     for (const refTx of referralTransactions) {
-      // Update referral stats for the beneficiary
-      const referralStats = await Referral.findOne({ user: refTx.beneficiary });
-      
-      if (referralStats) {
-        // Subtract earnings
-        referralStats.totalEarnings = Math.max(0, referralStats.totalEarnings - refTx.amount);
+      try {
+        console.log(`🔄 Rolling back Gen${refTx.generation} commission: ${refTx.amount} ${refTx.currency} for beneficiary ${refTx.beneficiary}`);
         
-        // Subtract from generation-specific earnings
-        const generationKey = `generation${refTx.generation}`;
-        if (referralStats[generationKey]) {
-          referralStats[generationKey].earnings = Math.max(0, 
-            referralStats[generationKey].earnings - refTx.amount
-          );
+        // Update referral stats for the beneficiary
+        const referralStats = await Referral.findOne({ user: refTx.beneficiary });
+        
+        if (referralStats) {
+          // FIXED: Subtract earnings with safety checks
+          const oldTotalEarnings = referralStats.totalEarnings;
+          const oldGenEarnings = referralStats[`generation${refTx.generation}`].earnings;
+          
+          referralStats.totalEarnings = Math.max(0, referralStats.totalEarnings - refTx.amount);
+          
+          // Subtract from generation-specific earnings
+          const generationKey = `generation${refTx.generation}`;
+          if (referralStats[generationKey]) {
+            referralStats[generationKey].earnings = Math.max(0, 
+              referralStats[generationKey].earnings - refTx.amount
+            );
+          }
+          
+          await referralStats.save();
+          
+          console.log(`📉 Updated beneficiary ${refTx.beneficiary} stats:`);
+          console.log(`   Total earnings: ${oldTotalEarnings} → ${referralStats.totalEarnings}`);
+          console.log(`   Gen${refTx.generation} earnings: ${oldGenEarnings} → ${referralStats[generationKey].earnings}`);
+        } else {
+          console.log(`⚠️  No referral stats found for beneficiary ${refTx.beneficiary}`);
         }
         
-        await referralStats.save();
+        // FIXED: Mark referral transaction as rolled back (don't delete, preserve audit trail)
+        refTx.status = 'rolled_back';
+        refTx.rolledBackAt = new Date();
+        refTx.rollbackReason = `Transaction ${transactionId} was canceled or reversed`;
+        await refTx.save();
+        
+        rolledBackCount++;
+        console.log(`✅ Rolled back referral transaction ${refTx._id}`);
+        
+      } catch (refTxError) {
+        console.error(`❌ Error rolling back individual referral transaction ${refTx._id}:`, refTxError.message);
+        // Continue with other transactions even if one fails
       }
-      
-      // Mark referral transaction as rolled back
-      refTx.status = 'rolled_back';
-      refTx.rolledBackAt = new Date();
-      await refTx.save();
     }
+    
+    console.log(`🎉 [FIXED] Rollback completed: ${rolledBackCount}/${referralTransactions.length} commissions rolled back`);
     
     return {
       success: true,
-      message: `Rolled back ${referralTransactions.length} referral commissions`,
-      rolledBackCount: referralTransactions.length
+      message: `Successfully rolled back ${rolledBackCount} referral commissions`,
+      rolledBackCount: rolledBackCount,
+      totalFound: referralTransactions.length
     };
   } catch (error) {
-    console.error('Error rolling back referral commissions:', error);
+    console.error('❌ [FIXED] Error rolling back referral commissions:', error);
     return {
       success: false,
-      message: error.message
+      message: error.message,
+      error: process.env.NODE_ENV === 'development' ? error.stack : undefined
     };
   }
 };
@@ -845,7 +967,260 @@ const updateReferralStatsAfterRollback = async (beneficiaryId, amount, generatio
   }
 };
 
-// Export functions (keeping all existing exports and adding new ones)
+/**
+ * FIXED: Debug function to check referral transaction data
+ * @param {string} userId - User ID to debug
+ * @param {string} transactionId - Transaction ID to debug
+ */
+const debugReferralData = async (userId, transactionId = null) => {
+  try {
+    console.log(`\n🔍 [DEBUG] Checking referral data for user: ${userId}`);
+    
+    // Check user exists and has referrer
+    const user = await User.findById(userId);
+    if (!user) {
+      console.log('❌ User not found');
+      return { error: 'User not found' };
+    }
+    
+    console.log(`👤 User: ${user.userName}, Email: ${user.email}`);
+    console.log(`🔗 Referral code: ${user.referralInfo?.code || 'None'}`);
+    
+    // Find referrer chain
+    let currentUser = user;
+    const referrerChain = [];
+    
+    for (let gen = 1; gen <= 3; gen++) {
+      if (!currentUser.referralInfo?.code) break;
+      
+      const referrer = await User.findOne({ userName: currentUser.referralInfo.code });
+      if (!referrer) break;
+      
+      referrerChain.push({
+        generation: gen,
+        userName: referrer.userName,
+        userId: referrer._id,
+        email: referrer.email
+      });
+      
+      currentUser = referrer;
+    }
+    
+    console.log(`📊 Referrer chain (${referrerChain.length} levels):`, referrerChain);
+    
+    // Check existing referral transactions
+    const query = { referredUser: userId };
+    if (transactionId) {
+      query.sourceTransaction = transactionId;
+    }
+    
+    const existingReferrals = await ReferralTransaction.find(query).sort({ createdAt: -1 });
+    console.log(`📋 Existing referral transactions: ${existingReferrals.length}`);
+    
+    existingReferrals.forEach((rt, index) => {
+      console.log(`   ${index + 1}. Gen${rt.generation}, Amount: ${rt.amount} ${rt.currency}, Status: ${rt.status}, Beneficiary: ${rt.beneficiary}`);
+    });
+    
+    // Check co-founder transactions
+    if (transactionId) {
+      const coFounderTx = await PaymentTransaction.findById(transactionId);
+      if (coFounderTx) {
+        console.log(`💰 Co-founder transaction details:`);
+        console.log(`   Shares: ${coFounderTx.shares}, Amount: ${coFounderTx.amount} ${coFounderTx.currency}`);
+        console.log(`   Status: ${coFounderTx.status}, Payment method: ${coFounderTx.paymentMethod}`);
+      }
+    }
+    
+    // Check site config
+    const siteConfig = await SiteConfig.getCurrentConfig();
+    console.log(`⚙️  Commission rates:`, siteConfig.referralCommission);
+    
+    return {
+      user: {
+        userName: user.userName,
+        hasReferrer: !!user.referralInfo?.code,
+        referrerCode: user.referralInfo?.code
+      },
+      referrerChain,
+      existingReferrals: existingReferrals.length,
+      commissionRates: siteConfig.referralCommission,
+      transactions: existingReferrals.map(rt => ({
+        generation: rt.generation,
+        amount: rt.amount,
+        currency: rt.currency,
+        status: rt.status,
+        createdAt: rt.createdAt
+      }))
+    };
+    
+  } catch (error) {
+    console.error('❌ [DEBUG] Error in debug function:', error);
+    return { error: error.message };
+  }
+};
+
+/**
+ * FIXED: Test referral processing function (for debugging)
+ * @param {string} userId - User ID to test
+ * @param {number} amount - Test amount
+ * @param {string} purchaseType - Purchase type to test
+ */
+const testReferralProcessing = async (userId, amount = 1000, purchaseType = 'cofounder') => {
+  try {
+    console.log(`\n🧪 [TEST] Testing referral processing for user: ${userId}`);
+    console.log(`💰 Test amount: ${amount}, Type: ${purchaseType}`);
+    
+    // Create a mock transaction for testing
+    const mockTransaction = {
+      _id: 'test_' + Date.now(),
+      userId: userId,
+      amount: amount,
+      currency: 'naira',
+      shares: purchaseType === 'cofounder' ? Math.floor(amount / 1000) : 0,
+      type: purchaseType,
+      status: 'completed'
+    };
+    
+    console.log(`🎯 Mock transaction created:`, mockTransaction);
+    
+    // Test the referral processing
+    const result = await processReferralCommission(
+      userId,
+      amount,
+      purchaseType,
+      mockTransaction._id
+    );
+    
+    console.log(`📋 Test result:`, result);
+    
+    return {
+      success: true,
+      testResult: result,
+      mockTransaction: mockTransaction
+    };
+    
+  } catch (error) {
+    console.error('❌ [TEST] Error in test function:', error);
+    return { 
+      success: false, 
+      error: error.message 
+    };
+  }
+};
+
+/**
+ * Get comprehensive referral statistics for a user
+ * @param {string} userId - User ID
+ */
+const getComprehensiveReferralStats = async (userId) => {
+  try {
+    // Get basic referral stats
+    const referralStats = await Referral.findOne({ user: userId });
+    
+    // Get all referral transactions (as beneficiary)
+    const referralTransactions = await ReferralTransaction.find({
+      beneficiary: userId,
+      status: 'completed'
+    }).sort({ createdAt: -1 });
+    
+    // Get user's share information
+    const shareInfo = await getUserTotalShares(userId);
+    
+    // Calculate earnings by purchase type
+    const earningsByType = await ReferralTransaction.aggregate([
+      {
+        $match: {
+          beneficiary: userId,
+          status: 'completed'
+        }
+      },
+      {
+        $group: {
+          _id: '$purchaseType',
+          totalEarnings: { $sum: '$amount' },
+          transactionCount: { $sum: 1 }
+        }
+      }
+    ]);
+    
+    // Get referred users details
+    const referredUsers = await ReferralTransaction.aggregate([
+      {
+        $match: {
+          beneficiary: userId,
+          generation: 1,
+          status: 'completed'
+        }
+      },
+      {
+        $group: {
+          _id: '$referredUser',
+          totalSpent: { $sum: '$commissionDetails.baseAmount' },
+          transactionCount: { $sum: 1 },
+          firstTransaction: { $min: '$createdAt' },
+          lastTransaction: { $max: '$createdAt' }
+        }
+      },
+      {
+        $lookup: {
+          from: 'users',
+          localField: '_id',
+          foreignField: '_id',
+          as: 'userInfo'
+        }
+      }
+    ]);
+    
+    return {
+      success: true,
+      stats: {
+        basic: referralStats || {
+          referredUsers: 0,
+          totalEarnings: 0,
+          generation1: { count: 0, earnings: 0 },
+          generation2: { count: 0, earnings: 0 },
+          generation3: { count: 0, earnings: 0 }
+        },
+        transactions: {
+          total: referralTransactions.length,
+          recent: referralTransactions.slice(0, 10),
+          byGeneration: {
+            gen1: referralTransactions.filter(t => t.generation === 1).length,
+            gen2: referralTransactions.filter(t => t.generation === 2).length,
+            gen3: referralTransactions.filter(t => t.generation === 3).length
+          }
+        },
+        earningsByType: earningsByType.reduce((acc, item) => {
+          acc[item._id] = {
+            earnings: item.totalEarnings,
+            transactions: item.transactionCount
+          };
+          return acc;
+        }, {}),
+        referredUsers: referredUsers.map(user => ({
+          userId: user._id,
+          userName: user.userInfo[0]?.userName || 'Unknown',
+          email: user.userInfo[0]?.email || 'Unknown',
+          totalSpent: user.totalSpent,
+          transactionCount: user.transactionCount,
+          firstTransaction: user.firstTransaction,
+          lastTransaction: user.lastTransaction
+        })),
+        shareInfo: shareInfo
+      }
+    };
+    
+  } catch (error) {
+    console.error('Error getting comprehensive referral stats:', error);
+    return {
+      success: false,
+      message: 'Failed to get comprehensive referral stats',
+      error: error.message
+    };
+  }
+};
+
+// FIXED: Export all functions including new debug and test functions
 module.exports = {
   processReferralCommission,
   processNewUserReferral,
@@ -856,5 +1231,8 @@ module.exports = {
   rollbackReferralCommission,
   updateReferralStatsAfterRollback,
   getUserTotalShares,
+  debugReferralData, // NEW: Debug function
+  testReferralProcessing, // NEW: Test function
+  getComprehensiveReferralStats, // NEW: Comprehensive stats function
   COFOUNDER_TO_SHARES_RATIO
 };
