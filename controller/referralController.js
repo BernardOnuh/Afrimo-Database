@@ -1078,6 +1078,209 @@ const syncUserReferralData = async (req, res) => {
   }
 };
 
+// NEW: Fix wrong balances function
+const fixWrongBalances = async (req, res) => {
+  try {
+    if (!req.user.isAdmin) {
+      return res.status(403).json({
+        success: false,
+        message: 'Unauthorized: Admin access required'
+      });
+    }
+
+    console.log('🔧 Starting balance fix process...');
+    
+    // Get all users with referral data
+    const referrals = await Referral.find().populate('user', 'userName email');
+    
+    let fixedCount = 0;
+    let errorCount = 0;
+    const results = [];
+
+    for (const referral of referrals) {
+      try {
+        const userId = referral.user._id;
+        const userName = referral.user.userName;
+        
+        console.log(`Fixing balances for ${userName}...`);
+        
+        // Store old values
+        const oldStats = {
+          totalEarnings: referral.totalEarnings,
+          generation1: { ...referral.generation1 },
+          generation2: { ...referral.generation2 },
+          generation3: { ...referral.generation3 }
+        };
+
+        // Recalculate actual earnings from transactions
+        const actualEarnings = await ReferralTransaction.aggregate([
+          {
+            $match: {
+              beneficiary: userId,
+              status: 'completed'
+            }
+          },
+          {
+            $group: {
+              _id: '$generation',
+              totalEarnings: { $sum: '$amount' },
+              transactionCount: { $sum: 1 }
+            }
+          }
+        ]);
+
+        // Recalculate counts (unique referred users per generation)
+        const gen1Count = await ReferralTransaction.distinct('referredUser', {
+          beneficiary: userId,
+          generation: 1,
+          status: 'completed'
+        });
+
+        const gen2Count = await ReferralTransaction.distinct('referredUser', {
+          beneficiary: userId,
+          generation: 2,
+          status: 'completed'
+        });
+
+        const gen3Count = await ReferralTransaction.distinct('referredUser', {
+          beneficiary: userId,
+          generation: 3,
+          status: 'completed'
+        });
+
+        // Calculate new values
+        const newStats = {
+          generation1: { count: gen1Count.length, earnings: 0 },
+          generation2: { count: gen2Count.length, earnings: 0 },
+          generation3: { count: gen3Count.length, earnings: 0 },
+          totalEarnings: 0
+        };
+
+        // Map earnings by generation
+        actualEarnings.forEach(earning => {
+          newStats[`generation${earning._id}`].earnings = earning.totalEarnings;
+          newStats.totalEarnings += earning.totalEarnings;
+        });
+
+        // Check if there are differences
+        const hasChanges = (
+          oldStats.totalEarnings !== newStats.totalEarnings ||
+          oldStats.generation1.earnings !== newStats.generation1.earnings ||
+          oldStats.generation1.count !== newStats.generation1.count ||
+          oldStats.generation2.earnings !== newStats.generation2.earnings ||
+          oldStats.generation2.count !== newStats.generation2.count ||
+          oldStats.generation3.earnings !== newStats.generation3.earnings ||
+          oldStats.generation3.count !== newStats.generation3.count
+        );
+
+        if (hasChanges) {
+          // Update the referral record
+          referral.totalEarnings = newStats.totalEarnings;
+          referral.referredUsers = gen1Count.length; // Direct referrals only
+          referral.generation1 = newStats.generation1;
+          referral.generation2 = newStats.generation2;
+          referral.generation3 = newStats.generation3;
+          
+          await referral.save();
+          
+          fixedCount++;
+          
+          results.push({
+            userName,
+            userId,
+            status: 'fixed',
+            changes: {
+              totalEarnings: {
+                old: oldStats.totalEarnings,
+                new: newStats.totalEarnings,
+                difference: newStats.totalEarnings - oldStats.totalEarnings
+              },
+              generation1: {
+                earnings: {
+                  old: oldStats.generation1.earnings,
+                  new: newStats.generation1.earnings,
+                  difference: newStats.generation1.earnings - oldStats.generation1.earnings
+                },
+                count: {
+                  old: oldStats.generation1.count,
+                  new: newStats.generation1.count,
+                  difference: newStats.generation1.count - oldStats.generation1.count
+                }
+              },
+              generation2: {
+                earnings: {
+                  old: oldStats.generation2.earnings,
+                  new: newStats.generation2.earnings,
+                  difference: newStats.generation2.earnings - oldStats.generation2.earnings
+                },
+                count: {
+                  old: oldStats.generation2.count,
+                  new: newStats.generation2.count,
+                  difference: newStats.generation2.count - oldStats.generation2.count
+                }
+              },
+              generation3: {
+                earnings: {
+                  old: oldStats.generation3.earnings,
+                  new: newStats.generation3.earnings,
+                  difference: newStats.generation3.earnings - oldStats.generation3.earnings
+                },
+                count: {
+                  old: oldStats.generation3.count,
+                  new: newStats.generation3.count,
+                  difference: newStats.generation3.count - oldStats.generation3.count
+                }
+              }
+            }
+          });
+          
+          console.log(`✅ Fixed balances for ${userName}`);
+        } else {
+          results.push({
+            userName,
+            userId,
+            status: 'no_changes_needed'
+          });
+          console.log(`✓ No changes needed for ${userName}`);
+        }
+        
+      } catch (userError) {
+        errorCount++;
+        console.error(`❌ Error fixing ${referral.user.userName}:`, userError.message);
+        
+        results.push({
+          userName: referral.user.userName,
+          userId: referral.user._id,
+          status: 'error',
+          error: userError.message
+        });
+      }
+    }
+
+    console.log(`🎉 Balance fix completed: ${fixedCount} fixed, ${errorCount} errors`);
+
+    res.status(200).json({
+      success: true,
+      message: `Balance fix completed: ${fixedCount} users fixed, ${errorCount} errors`,
+      summary: {
+        totalProcessed: referrals.length,
+        fixed: fixedCount,
+        noChangesNeeded: referrals.length - fixedCount - errorCount,
+        errors: errorCount
+      },
+      results: results
+    });
+
+  } catch (error) {
+    console.error('❌ Error in balance fix process:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fix balances',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+};
+
 // This function should be called in your user creation/registration process
 const processSignup = async (req, res, next) => {
   try {
@@ -1115,6 +1318,7 @@ module.exports = {
   generateCustomInviteLink,
   validateInviteLink,
   syncUserReferralData,
+  fixWrongBalances, // NEW: Added fix balances function
   // Export utility functions for use in other controllers
   syncReferralStats,
   processNewUserReferral,

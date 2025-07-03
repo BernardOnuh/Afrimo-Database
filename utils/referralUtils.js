@@ -75,20 +75,33 @@ const processReferralCommission = async (userId, purchaseAmount, purchaseType = 
     
     console.log(`💱 Using currency: ${currency}, Source model: ${sourceModel}`);
     
-    // FIXED: Check for existing commissions to prevent duplicates
+    // ENHANCED: Check for existing commissions to prevent duplicates
     const existingCommissions = await ReferralTransaction.find({
       referredUser: userId,
       sourceTransaction: transactionId,
       sourceTransactionModel: sourceModel,
-      status: 'completed'
+      status: { $in: ['completed', 'pending'] } // Check both completed and pending
     });
-    
+
     if (existingCommissions.length > 0) {
       console.log(`⏭️  Commissions already processed for this transaction (${existingCommissions.length} found)`);
+      
+      // Log details of existing commissions for debugging
+      existingCommissions.forEach(comm => {
+        console.log(`   - Gen${comm.generation}: ${comm.amount} ${comm.currency} to ${comm.beneficiary} (Status: ${comm.status})`);
+      });
+      
       return { 
         success: false, 
         message: 'Commissions already processed for this transaction',
-        existingCommissions: existingCommissions.length
+        existingCommissions: existingCommissions.map(c => ({
+          id: c._id,
+          generation: c.generation,
+          amount: c.amount,
+          currency: c.currency,
+          status: c.status,
+          beneficiary: c.beneficiary
+        }))
       };
     }
     
@@ -968,6 +981,121 @@ const updateReferralStatsAfterRollback = async (beneficiaryId, amount, generatio
 };
 
 /**
+ * NEW: Validate referral balances for a user
+ * @param {string} userId - User ID to validate
+ * @returns {object} Validation result
+ */
+const validateReferralBalances = async (userId) => {
+  try {
+    // Get referral stats
+    const referralStats = await Referral.findOne({ user: userId });
+    
+    if (!referralStats) {
+      return {
+        valid: true,
+        message: 'No referral stats found',
+        userId
+      };
+    }
+    
+    // Calculate actual earnings from transactions
+    const actualEarnings = await ReferralTransaction.aggregate([
+      {
+        $match: {
+          beneficiary: userId,
+          status: 'completed'
+        }
+      },
+      {
+        $group: {
+          _id: '$generation',
+          totalEarnings: { $sum: '$amount' },
+          uniqueUsers: { $addToSet: '$referredUser' }
+        }
+      }
+    ]);
+    
+    // Calculate actual totals
+    let actualTotal = 0;
+    const actualByGeneration = {
+      generation1: { earnings: 0, count: 0 },
+      generation2: { earnings: 0, count: 0 },
+      generation3: { earnings: 0, count: 0 }
+    };
+    
+    actualEarnings.forEach(gen => {
+      actualByGeneration[`generation${gen._id}`].earnings = gen.totalEarnings;
+      actualByGeneration[`generation${gen._id}`].count = gen.uniqueUsers.length;
+      actualTotal += gen.totalEarnings;
+    });
+    
+    // Compare with stored stats
+    const discrepancies = [];
+    
+    if (Math.abs(referralStats.totalEarnings - actualTotal) > 0.01) {
+      discrepancies.push({
+        field: 'totalEarnings',
+        stored: referralStats.totalEarnings,
+        actual: actualTotal,
+        difference: actualTotal - referralStats.totalEarnings
+      });
+    }
+    
+    // Check each generation
+    for (let gen = 1; gen <= 3; gen++) {
+      const genKey = `generation${gen}`;
+      const storedEarnings = referralStats[genKey].earnings;
+      const actualEarningsForGen = actualByGeneration[genKey].earnings;
+      const storedCount = referralStats[genKey].count;
+      const actualCountForGen = actualByGeneration[genKey].count;
+      
+      if (Math.abs(storedEarnings - actualEarningsForGen) > 0.01) {
+        discrepancies.push({
+          field: `${genKey}.earnings`,
+          stored: storedEarnings,
+          actual: actualEarningsForGen,
+          difference: actualEarningsForGen - storedEarnings
+        });
+      }
+      
+      if (storedCount !== actualCountForGen) {
+        discrepancies.push({
+          field: `${genKey}.count`,
+          stored: storedCount,
+          actual: actualCountForGen,
+          difference: actualCountForGen - storedCount
+        });
+      }
+    }
+    
+    return {
+      valid: discrepancies.length === 0,
+      discrepancies,
+      userId,
+      stored: {
+        totalEarnings: referralStats.totalEarnings,
+        generation1: referralStats.generation1,
+        generation2: referralStats.generation2,
+        generation3: referralStats.generation3
+      },
+      actual: {
+        totalEarnings: actualTotal,
+        generation1: actualByGeneration.generation1,
+        generation2: actualByGeneration.generation2,
+        generation3: actualByGeneration.generation3
+      }
+    };
+    
+  } catch (error) {
+    return {
+      valid: false,
+      error: error.message,
+      userId
+    };
+  }
+};
+
+/**
  * FIXED: Debug function to check referral transaction data
  * @param {string} userId - User ID to debug
  * @param {string} transactionId - Transaction ID to debug
@@ -1231,6 +1359,7 @@ module.exports = {
   rollbackReferralCommission,
   updateReferralStatsAfterRollback,
   getUserTotalShares,
+  validateReferralBalances, // NEW: Added validation function
   debugReferralData, // NEW: Debug function
   testReferralProcessing, // NEW: Test function
   getComprehensiveReferralStats, // NEW: Comprehensive stats function

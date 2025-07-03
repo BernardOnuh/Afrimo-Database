@@ -3,6 +3,9 @@ const router = express.Router();
 const referralController = require('../controller/referralController'); 
 const { protect, adminProtect } = require('../middleware/auth');  
 
+
+router.post('/admin/fix-balances', protect, adminProtect, referralController.fixWrongBalances);
+
 // User routes
 
 // Get referral code (username) and stats 
