@@ -631,7 +631,9 @@ router.get('/user/shares', protect, coFounderController.getUserCoFounderShares);
  */
 router.post('/manual/submit', 
   protect, 
-  coFounderPaymentUpload.single('paymentProof'), 
+  upload.single('paymentProof'),  // ← Use the 'upload' defined in your routes file
+  logUpload,
+  handleUploadError,
   coFounderController.submitCoFounderManualPayment
 );
 
