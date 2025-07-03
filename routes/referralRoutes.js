@@ -1,7 +1,7 @@
-const express = require('express');
-const router = express.Router();
-const referralController = require('../controller/referralController');
-const { protect, adminProtect } = require('../middleware/auth');
+const express = require('express'); 
+const router = express.Router(); 
+const referralController = require('../controller/referralController'); 
+const { protect, adminProtect } = require('../middleware/auth');  
 
 // Import the new audit utilities
 const { 
