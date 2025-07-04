@@ -1,4 +1,4 @@
-// models/Transaction.js
+// models/Transaction.js - UPDATED WITH SHARE SUPPORT
 const mongoose = require('mongoose');
 
 const TransactionSchema = new mongoose.Schema({
@@ -9,7 +9,7 @@ const TransactionSchema = new mongoose.Schema({
   },
   type: {
     type: String,
-    enum: ['paystack', 'crypto', 'web3', 'co-founder'], // Added 'co-founder' as valid type
+    enum: ['paystack', 'crypto', 'web3', 'co-founder', 'share'], // ✅ ADDED 'share' type
     required: true
   },
   
@@ -42,7 +42,8 @@ const TransactionSchema = new mongoose.Schema({
       'manual_cash', 
       'manual_other',
       'manual',
-      'co-founder' // For backward compatibility
+      'co-founder', // For backward compatibility
+      'centiiv'     // ✅ ADDED for Centiiv payments
     ],
     required: true
   },
@@ -58,6 +59,16 @@ const TransactionSchema = new mongoose.Schema({
   },
   // Keep paymentProofPath for backward compatibility
   paymentProofPath: {
+    type: String,
+    required: false
+  },
+  
+  // ✅ ADDED: Additional file metadata for better file handling
+  paymentProofFilename: {
+    type: String,
+    required: false
+  },
+  paymentProofOriginalName: {
     type: String,
     required: false
   },
@@ -79,6 +90,25 @@ const TransactionSchema = new mongoose.Schema({
       default: null,
       trim: true
     }
+  },
+  
+  // ✅ ADDED: Tier breakdown for share purchases
+  tierBreakdown: {
+    tier1: { type: Number, default: 0 },
+    tier2: { type: Number, default: 0 },
+    tier3: { type: Number, default: 0 }
+  },
+  
+  // ✅ ADDED: Centiiv payment fields
+  centiivOrderId: {
+    type: String,
+    required: false,
+    trim: true
+  },
+  centiivInvoiceUrl: {
+    type: String,
+    required: false,
+    trim: true
   },
   
   // ADDED: Admin verification and notes
@@ -163,6 +193,7 @@ TransactionSchema.index({ transactionId: 1 });
 TransactionSchema.index({ createdAt: -1 });
 TransactionSchema.index({ type: 1, status: 1 }); // Compound index for common queries
 TransactionSchema.index({ type: 1, paymentMethod: 1 }); // For manual payment queries
+TransactionSchema.index({ centiivOrderId: 1 }); // ✅ ADDED for Centiiv lookups
 
 // ADDED: Pre-save middleware to ensure updatedAt is set
 TransactionSchema.pre('save', function(next) {
@@ -188,11 +219,13 @@ TransactionSchema.methods.hasPaymentProof = function() {
   return !!(this.paymentProofPath && this.paymentProofPath.trim() !== '');
 };
 
-// ADDED: Instance method to get payment proof URL
+// ✅ UPDATED: Instance method to get payment proof URL
 TransactionSchema.methods.getPaymentProofUrl = function() {
   if (this.hasPaymentProof() && this.transactionId) {
     if (this.type === 'co-founder') {
       return `/cofounder/payment-proof/${this.transactionId}`;
+    } else if (this.type === 'share') {
+      return `/shares/payment-proof/${this.transactionId}`;
     }
     return `/payment-proof/${this.transactionId}`;
   }
@@ -215,6 +248,23 @@ TransactionSchema.statics.findCoFounderTransactions = function(conditions = {}) 
   });
 };
 
+// ✅ ADDED: Static method to find share transactions
+TransactionSchema.statics.findShareTransactions = function(conditions = {}) {
+  return this.find({
+    ...conditions,
+    type: 'share'
+  });
+};
+
+// ✅ ADDED: Static method to find share manual payments specifically
+TransactionSchema.statics.findShareManualPayments = function(conditions = {}) {
+  return this.find({
+    ...conditions,
+    type: 'share',
+    paymentMethod: { $regex: /^manual_/i }
+  });
+};
+
 // ADDED: Static method to find pending manual payments for admin review
 TransactionSchema.statics.findPendingManualPayments = function(transactionType = null) {
   const query = {
@@ -229,6 +279,21 @@ TransactionSchema.statics.findPendingManualPayments = function(transactionType =
   return this.find(query)
     .populate('userId', 'name email phone')
     .sort({ createdAt: -1 });
+};
+
+// ✅ ADDED: Static method to find Centiiv transactions
+TransactionSchema.statics.findCentiivTransactions = function(conditions = {}) {
+  return this.find({
+    ...conditions,
+    paymentMethod: 'centiiv'
+  });
+};
+
+// ✅ ADDED: Static method to find by Centiiv order ID
+TransactionSchema.statics.findByCentiivOrderId = function(orderId) {
+  return this.findOne({
+    centiivOrderId: orderId
+  });
 };
 
 // ADDED: Static method to get transaction statistics
@@ -266,6 +331,28 @@ TransactionSchema.statics.getTransactionStats = async function(type = null) {
   return stats;
 };
 
+// ✅ ADDED: Static method to get share purchase statistics
+TransactionSchema.statics.getSharePurchaseStats = async function() {
+  const stats = await this.aggregate([
+    { $match: { type: 'share', status: 'completed' } },
+    {
+      $group: {
+        _id: null,
+        totalShares: { $sum: '$shares' },
+        totalAmount: { $sum: '$amount' },
+        totalTransactions: { $sum: 1 },
+        tier1Shares: { $sum: '$tierBreakdown.tier1' },
+        tier2Shares: { $sum: '$tierBreakdown.tier2' },
+        tier3Shares: { $sum: '$tierBreakdown.tier3' },
+        avgAmount: { $avg: '$amount' },
+        avgShares: { $avg: '$shares' }
+      }
+    }
+  ]);
+  
+  return stats.length > 0 ? stats[0] : null;
+};
+
 // ADDED: Virtual for formatted amount display
 TransactionSchema.virtual('formattedAmount').get(function() {
   const symbol = this.currency === 'naira' ? '₦' : '$';
@@ -288,12 +375,37 @@ TransactionSchema.virtual('statusDisplay').get(function() {
   return statusMap[this.status] || { text: this.status, color: 'gray' };
 });
 
+// ✅ ADDED: Virtual for transaction type display
+TransactionSchema.virtual('typeDisplay').get(function() {
+  const typeMap = {
+    'paystack': 'Paystack',
+    'crypto': 'Cryptocurrency',
+    'web3': 'Web3 Wallet',
+    'co-founder': 'Co-Founder Share',
+    'share': 'Regular Share',
+    'centiiv': 'Centiiv Invoice'
+  };
+  
+  return typeMap[this.type] || this.type;
+});
+
+// ✅ ADDED: Virtual for shares display with type context
+TransactionSchema.virtual('sharesDisplay').get(function() {
+  if (this.type === 'co-founder') {
+    return `${this.shares} Co-Founder Share${this.shares !== 1 ? 's' : ''}`;
+  } else if (this.type === 'share') {
+    return `${this.shares} Regular Share${this.shares !== 1 ? 's' : ''}`;
+  }
+  return `${this.shares} Share${this.shares !== 1 ? 's' : ''}`;
+});
+
 // ADDED: Ensure virtual fields are serialized
 TransactionSchema.set('toJSON', { 
   virtuals: true,
   transform: function(doc, ret) {
     // Remove sensitive fields from JSON output
     delete ret.__v;
+    delete ret.paymentProofData; // Don't expose binary data in JSON
     return ret;
   }
 });
@@ -314,7 +426,30 @@ TransactionSchema.pre('validate', function(next) {
     return next(new Error('Manual payments require a transaction ID'));
   }
   
+  // ✅ ADDED: Validation for Centiiv transactions
+  if (this.paymentMethod === 'centiiv' && !this.centiivOrderId) {
+    return next(new Error('Centiiv payments require an order ID'));
+  }
+  
+  // ✅ ADDED: Validation for share transactions
+  if (this.type === 'share' && (!this.tierBreakdown || 
+      (this.tierBreakdown.tier1 + this.tierBreakdown.tier2 + this.tierBreakdown.tier3) !== this.shares)) {
+    return next(new Error('Share transactions require valid tier breakdown'));
+  }
+  
   next();
+});
+
+// ✅ ADDED: Post-save middleware for logging
+TransactionSchema.post('save', function(doc) {
+  console.log(`[Transaction] ${doc.type} transaction ${doc.transactionId} saved with status: ${doc.status}`);
+});
+
+// ✅ ADDED: Post-update middleware for logging
+TransactionSchema.post('findOneAndUpdate', function(doc) {
+  if (doc) {
+    console.log(`[Transaction] ${doc.type} transaction ${doc.transactionId} updated with status: ${doc.status}`);
+  }
 });
 
 const Transaction = mongoose.model('Transaction', TransactionSchema);

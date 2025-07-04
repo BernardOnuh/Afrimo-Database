@@ -8,12 +8,15 @@ const { ethers } = require('ethers');
 const { sendEmail } = require('../utils/emailService');
 const SiteConfig = require('../models/SiteConfig');
 const CoFounderShare = require('../models/CoFounderShare');
+const fs = require('fs');
+const path = require('path');
+const PaymentTransaction = require('../models/Transaction');
 const { processReferralCommission, rollbackReferralCommission } = require('../utils/referralUtils');
 
 // Generate a unique transaction ID
 const generateTransactionId = () => {
   return `TXN-${crypto.randomBytes(4).toString('hex').toUpperCase()}-${Date.now().toString().slice(-6)}`;
-};
+
 
 // Get current share pricing and availability
 exports.getShareInfo = async (req, res) => {
@@ -653,7 +656,7 @@ exports.verifyPaystackPayment = async (req, res) => {
       error: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
-};
+}
 
 // Get payment configuration (wallet addresses, supported cryptos)
 exports.getPaymentConfig = async (req, res) => {
@@ -673,6 +676,7 @@ exports.getPaymentConfig = async (req, res) => {
       error: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
+}
 };
 
 exports.updateCompanyWallet = async (req, res) => {
@@ -1194,44 +1198,78 @@ exports.getAllTransactions = async (req, res) => {
     }
     
     // Query parameters
-    const { status, page = 1, limit = 20 } = req.query;
+    const { status, page = 1, limit = 20, paymentMethod } = req.query;
     const skip = (parseInt(page) - 1) * parseInt(limit);
     
-    // Build query
-    const query = {};
-    if (status && ['pending', 'completed', 'failed'].includes(status)) {
-      query['transactions.status'] = status;
+    // ✅ FIXED: Also get transactions from PaymentTransaction model
+    let paymentTransactions = [];
+    if (!paymentMethod || paymentMethod.startsWith('manual_')) {
+      const paymentQuery = {
+        type: 'share',
+        ...(status && { status }),
+        ...(paymentMethod && { paymentMethod })
+      };
+      
+      paymentTransactions = await PaymentTransaction.find(paymentQuery)
+        .populate('userId', 'name email phone username')
+        .sort({ createdAt: -1 })
+        .limit(parseInt(limit));
     }
-    
-    // Get user shares with transactions
-    const userShares = await UserShare.find(query)
+
+    // Get user shares with transactions (existing logic)
+    const userShares = await UserShare.find({})
       .skip(skip)
       .limit(parseInt(limit))
       .populate('user', 'name email walletAddress');
-    
-    // Format response
+
+    // Combine and format transactions from both sources
     const transactions = [];
+    
+    // Add PaymentTransaction records
+    for (const paymentTx of paymentTransactions) {
+      if (status && paymentTx.status !== status) continue;
+      
+      transactions.push({
+        transactionId: paymentTx.transactionId,
+        user: {
+          id: paymentTx.userId._id,
+          name: paymentTx.userId.name,
+          username: paymentTx.userId.username,
+          email: paymentTx.userId.email,
+          phone: paymentTx.userId.phone
+        },
+        shares: paymentTx.shares,
+        pricePerShare: paymentTx.amount / paymentTx.shares,
+        currency: paymentTx.currency,
+        totalAmount: paymentTx.amount,
+        paymentMethod: paymentTx.paymentMethod.replace('manual_', ''),
+        status: paymentTx.status,
+        date: paymentTx.createdAt,
+        paymentProofUrl: `/shares/payment-proof/${paymentTx.transactionId}`,
+        manualPaymentDetails: paymentTx.manualPaymentDetails || {},
+        adminNote: paymentTx.adminNotes,
+        source: 'PaymentTransaction'
+      });
+    }
+    
+    // Add UserShare transactions (existing logic but with source indicator)
     for (const userShare of userShares) {
       for (const transaction of userShare.transactions) {
-        // Only include transactions matching status filter
-        if (status && transaction.status !== status) {
+        if (status && transaction.status !== status) continue;
+        
+        // Skip if this transaction is already included from PaymentTransaction
+        if (transactions.find(t => t.transactionId === transaction.transactionId)) {
           continue;
         }
         
-        // FIXED: Clean up payment method display
         let displayPaymentMethod = transaction.paymentMethod;
         if (transaction.paymentMethod.startsWith('manual_')) {
           displayPaymentMethod = transaction.paymentMethod.replace('manual_', '');
         }
         
-        // FIXED: Correct payment proof URL using static file serving
         let paymentProofUrl = null;
         if (transaction.paymentProofPath) {
-          // Extract just the filename from the path
-          const path = require('path');
-          const filename = path.basename(transaction.paymentProofPath);
-          // Use the static file serving endpoint
-          paymentProofUrl = `/uploads/payment-proofs/${filename}`;
+          paymentProofUrl = `/shares/payment-proof/${transaction.transactionId}`;
         }
         
         transactions.push({
@@ -1250,24 +1288,25 @@ exports.getAllTransactions = async (req, res) => {
           paymentMethod: displayPaymentMethod,
           status: transaction.status,
           date: transaction.createdAt,
-          paymentProofUrl: paymentProofUrl, // FIXED: Now points to static files
+          paymentProofUrl: paymentProofUrl,
           manualPaymentDetails: transaction.manualPaymentDetails || {},
           adminNote: transaction.adminNote,
-          txHash: transaction.txHash
+          txHash: transaction.txHash,
+          source: 'UserShare'
         });
       }
     }
     
-    // Count total
-    const totalCount = await UserShare.countDocuments(query);
+    // Sort by date
+    transactions.sort((a, b) => new Date(b.date) - new Date(a.date));
     
     res.status(200).json({
       success: true,
-      transactions,
+      transactions: transactions.slice(0, parseInt(limit)),
       pagination: {
         currentPage: parseInt(page),
-        totalPages: Math.ceil(totalCount / parseInt(limit)),
-        totalCount
+        totalPages: Math.ceil(transactions.length / parseInt(limit)),
+        totalCount: transactions.length
       }
     });
   } catch (error) {
@@ -1986,55 +2025,70 @@ exports.adminGetWeb3Transactions = async (req, res) => {
  */
 exports.submitManualPayment = async (req, res) => {
   try {
-    const { quantity, paymentMethod, bankName, accountName, reference, currency } = req.body;
+    console.log('[SHARES] Manual payment submission started');
+    console.log('[SHARES] req.body:', req.body);
+    console.log('[SHARES] req.file:', req.file);
+    
     const userId = req.user.id;
-    const paymentProofImage = req.file; // Uploaded file from multer middleware
+    const { quantity, currency, paymentMethod, bankName, accountName, reference } = req.body;
     
     // Validate required fields
-    if (!quantity || !paymentMethod || !paymentProofImage) {
+    if (!quantity || !currency || !paymentMethod) {
+      console.error('[SHARES] Missing required fields');
       return res.status(400).json({
         success: false,
-        message: 'Please provide quantity, payment method, and payment proof image'
+        message: 'Please provide quantity, currency, and payment method'
       });
     }
     
-    // Validate currency
-    if (!currency || !['naira', 'usdt'].includes(currency)) {
+    // Validate file upload
+    if (!req.file) {
+      console.error('[SHARES] No payment proof uploaded');
       return res.status(400).json({
         success: false,
-        message: 'Please provide a valid currency (naira or usdt)'
+        message: 'Please upload payment proof'
       });
     }
+    
+    // Verify file exists on disk
+    if (!fs.existsSync(req.file.path)) {
+      console.error('[SHARES] Uploaded file not found on disk:', req.file.path);
+      return res.status(400).json({
+        success: false,
+        message: 'File upload failed - file not saved'
+      });
+    }
+    
+    console.log('[SHARES] File upload verified:', req.file.path);
     
     // Calculate purchase details
     const purchaseDetails = await Share.calculatePurchase(parseInt(quantity), currency);
     
     if (!purchaseDetails.success) {
+      console.error('[SHARES] Share calculation failed:', purchaseDetails.message);
       return res.status(400).json({
         success: false,
-        message: 'Unable to process this purchase amount',
-        details: purchaseDetails
+        message: purchaseDetails.message
       });
     }
     
     // Generate transaction ID
     const transactionId = generateTransactionId();
     
-    // Save payment proof image to storage
-    // The file path is already provided by multer (req.file.path)
-    const paymentProofPath = paymentProofImage.path;
-    
-    // Record the transaction as "pending verification"
-    await UserShare.addShares(userId, purchaseDetails.totalShares, {
+    // ✅ FIXED: Create PaymentTransaction record (like co-founder)
+    const paymentTransaction = new PaymentTransaction({
+      userId,
       transactionId,
-      shares: purchaseDetails.totalShares,
-      pricePerShare: purchaseDetails.totalPrice / purchaseDetails.totalShares,
+      type: 'share',
+      shares: parseInt(quantity),
+      amount: purchaseDetails.totalPrice,
       currency,
-      totalAmount: purchaseDetails.totalPrice,
-      paymentMethod: `manual_${paymentMethod}`, // e.g., manual_bank_transfer
+      paymentMethod: `manual_${paymentMethod}`,
       status: 'pending',
+      paymentProofPath: req.file.path,
+      paymentProofFilename: req.file.filename,
+      paymentProofOriginalName: req.file.originalname,
       tierBreakdown: purchaseDetails.tierBreakdown,
-      paymentProofPath,
       manualPaymentDetails: {
         bankName: bankName || null,
         accountName: accountName || null,
@@ -2042,52 +2096,53 @@ exports.submitManualPayment = async (req, res) => {
       }
     });
     
-    // Get user details
-    const user = await User.findById(userId);
+    await paymentTransaction.save();
+    console.log('[SHARES] Payment transaction created:', transactionId);
     
-    // Notify admin about new manual payment
-    try {
-      const adminEmail = process.env.ADMIN_EMAIL || 'admin@afrimobile.com';
-      await sendEmail({
-        email: adminEmail,
-        subject: 'AfriMobile - New Manual Payment Requires Verification',
-        html: `
-          <h2>Manual Payment Verification Required</h2>
-          <p>A new manual payment has been submitted:</p>
-          <ul>
-            <li>User: ${user.name} (${user.email})</li>
-            <li>Transaction ID: ${transactionId}</li>
-            <li>Amount: ${currency === 'naira' ? '₦' : '$'}${purchaseDetails.totalPrice}</li>
-            <li>Shares: ${purchaseDetails.totalShares}</li>
-            <li>Payment Method: ${paymentMethod}</li>
-            ${bankName ? `<li>Bank Name: ${bankName}</li>` : ''}
-            ${accountName ? `<li>Account Name: ${accountName}</li>` : ''}
-            ${reference ? `<li>Reference/Receipt No: ${reference}</li>` : ''}
-          </ul>
-          <p>Please verify this payment in the admin dashboard.</p>
-        `
-      });
-    } catch (emailError) {
-      console.error('Failed to send admin notification:', emailError);
-    }
+    // Also create UserShare record for compatibility
+    await UserShare.addShares(userId, parseInt(quantity), {
+      transactionId,
+      shares: parseInt(quantity),
+      pricePerShare: purchaseDetails.totalPrice / parseInt(quantity),
+      currency,
+      totalAmount: purchaseDetails.totalPrice,
+      paymentMethod: `manual_${paymentMethod}`,
+      status: 'pending',
+      tierBreakdown: purchaseDetails.tierBreakdown
+    });
     
-    // Return success response
+    // Send success response
     res.status(200).json({
       success: true,
       message: 'Payment proof submitted successfully and awaiting verification',
       data: {
         transactionId,
-        shares: purchaseDetails.totalShares,
+        shares: parseInt(quantity),
         amount: purchaseDetails.totalPrice,
-        status: 'pending'
+        currency,
+        status: 'pending',
+        fileUrl: `/shares/payment-proof/${transactionId}`,
+        paymentMethod: `manual_${paymentMethod}`
       }
     });
+    
   } catch (error) {
-    console.error('Error submitting manual payment:', error);
+    console.error('[SHARES] Manual payment submission error:', error);
+    
+    // Clean up uploaded file if transaction creation failed
+    if (req.file && fs.existsSync(req.file.path)) {
+      try {
+        fs.unlinkSync(req.file.path);
+        console.log('[SHARES] Cleaned up uploaded file after error');
+      } catch (cleanupError) {
+        console.error('[SHARES] Error cleaning up file:', cleanupError);
+      }
+    }
+    
     res.status(500).json({
       success: false,
       message: 'Failed to submit manual payment',
-      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+      error: error.message
     });
   }
 };
@@ -2114,65 +2169,53 @@ exports.adminGetManualTransactions = async (req, res) => {
     const { status, page = 1, limit = 20 } = req.query;
     const skip = (parseInt(page) - 1) * parseInt(limit);
     
-    // Build query for manual payment methods
-    const query = {
-      'transactions.paymentMethod': { $regex: '^manual_' }
-    };
-    
-    if (status && ['pending', 'completed', 'failed'].includes(status)) {
-      query['transactions.status'] = status;
-    }
-    
-    // Get user shares with transactions
-    const userShares = await UserShare.find(query)
-      .skip(skip)
-      .limit(parseInt(limit))
-      .populate('user', 'name email phone');
-    
+    // ✅ FIXED: Get manual transactions from PaymentTransaction model
+    const paymentTransactions = await PaymentTransaction.find({
+      type: 'share',
+      paymentMethod: { $regex: '^manual_' },
+      ...(status && { status })
+    })
+    .populate('userId', 'name email phone username')
+    .sort({ createdAt: -1 })
+    .skip(skip)
+    .limit(parseInt(limit));
+
     // Format response
-    const transactions = [];
-    for (const userShare of userShares) {
-      for (const transaction of userShare.transactions) {
-        // Only include manual transactions matching status filter
-        if (!transaction.paymentMethod.startsWith('manual_') || 
-            (status && transaction.status !== status)) {
-          continue;
-        }
-        
-        // FIXED: Generate correct payment proof URL
-        let paymentProofUrl = null;
-        if (transaction.paymentProofPath) {
-          const path = require('path');
-          const filename = path.basename(transaction.paymentProofPath);
-          paymentProofUrl = `/uploads/payment-proofs/${filename}`;
-        }
-        
-        transactions.push({
-          transactionId: transaction.transactionId,
-          user: {
-            id: userShare.user._id,
-            name: userShare.user.name,
-            username: userShare.user.username,
-            email: userShare.user.email,
-            phone: userShare.user.phone
-          },
-          shares: transaction.shares,
-          pricePerShare: transaction.pricePerShare,
-          currency: transaction.currency,
-          totalAmount: transaction.totalAmount,
-          paymentMethod: transaction.paymentMethod.replace('manual_', ''),
-          status: transaction.status,
-          date: transaction.createdAt,
-          paymentProofUrl: paymentProofUrl, // FIXED: Correct URL
-          paymentProofPath: transaction.paymentProofPath, // Keep original path for admin
-          manualPaymentDetails: transaction.manualPaymentDetails || {},
-          adminNote: transaction.adminNote
-        });
+    const transactions = paymentTransactions.map(transaction => {
+      // Generate correct payment proof URL
+      let paymentProofUrl = null;
+      if (transaction.paymentProofPath) {
+        paymentProofUrl = `/shares/payment-proof/${transaction.transactionId}`;
       }
-    }
-    
+
+      return {
+        transactionId: transaction.transactionId,
+        user: {
+          id: transaction.userId._id,
+          name: transaction.userId.name,
+          username: transaction.userId.username,
+          email: transaction.userId.email,
+          phone: transaction.userId.phone
+        },
+        shares: transaction.shares,
+        pricePerShare: transaction.amount / transaction.shares,
+        currency: transaction.currency,
+        totalAmount: transaction.amount,
+        paymentMethod: transaction.paymentMethod.replace('manual_', ''),
+        status: transaction.status,
+        date: transaction.createdAt,
+        paymentProofUrl: paymentProofUrl,
+        manualPaymentDetails: transaction.manualPaymentDetails || {},
+        adminNote: transaction.adminNotes
+      };
+    });
+
     // Count total
-    const totalCount = await UserShare.countDocuments(query);
+    const totalCount = await PaymentTransaction.countDocuments({
+      type: 'share',
+      paymentMethod: { $regex: '^manual_' },
+      ...(status && { status })
+    });
     
     res.status(200).json({
       success: true,
@@ -2213,87 +2256,78 @@ exports.adminVerifyManualPayment = async (req, res) => {
       });
     }
     
-    // Find the transaction
+    // ✅ FIXED: Find and update in PaymentTransaction model
+    const paymentTransaction = await PaymentTransaction.findOne({
+      transactionId,
+      type: 'share',
+      paymentMethod: { $regex: '^manual_' }
+    });
+
+    if (!paymentTransaction) {
+      return res.status(404).json({
+        success: false,
+        message: 'Manual transaction not found'
+      });
+    }
+
+    if (paymentTransaction.status !== 'pending') {
+      return res.status(400).json({
+        success: false,
+        message: `Transaction already ${paymentTransaction.status}`
+      });
+    }
+
+    const newStatus = approved ? 'completed' : 'failed';
+
+    // Update PaymentTransaction
+    paymentTransaction.status = newStatus;
+    paymentTransaction.adminNotes = adminNote;
+    paymentTransaction.verifiedBy = adminId;
+    paymentTransaction.verifiedAt = new Date();
+    await paymentTransaction.save();
+
+    // Also update UserShare for compatibility
     const userShareRecord = await UserShare.findOne({
       'transactions.transactionId': transactionId
     });
-    
-    if (!userShareRecord) {
-      return res.status(404).json({
-        success: false,
-        message: 'Transaction not found'
-      });
+
+    if (userShareRecord) {
+      await UserShare.updateTransactionStatus(
+        userShareRecord.user,
+        transactionId,
+        newStatus,
+        adminNote
+      );
     }
-    
-    const transaction = userShareRecord.transactions.find(
-      t => t.transactionId === transactionId && t.paymentMethod.startsWith('manual_')
-    );
-    
-    if (!transaction) {
-      return res.status(404).json({
-        success: false,
-        message: 'Manual transaction details not found'
-      });
-    }
-    
-    if (transaction.status !== 'pending') {
-      return res.status(400).json({
-        success: false,
-        message: `Transaction already ${transaction.status}`
-      });
-    }
-    
-    const newStatus = approved ? 'completed' : 'failed';
-    
-    // Update transaction status
-    await UserShare.updateTransactionStatus(
-      userShareRecord.user,
-      transactionId,
-      newStatus,
-      adminNote
-    );
     
     // If approved, update global share counts and process referrals
     if (approved) {
       const shareConfig = await Share.getCurrentConfig();
-      shareConfig.sharesSold += transaction.shares;
+      shareConfig.sharesSold += paymentTransaction.shares;
       
       // Update tier sales
-      shareConfig.tierSales.tier1Sold += transaction.tierBreakdown.tier1 || 0;
-      shareConfig.tierSales.tier2Sold += transaction.tierBreakdown.tier2 || 0;
-      shareConfig.tierSales.tier3Sold += transaction.tierBreakdown.tier3 || 0;
+      shareConfig.tierSales.tier1Sold += paymentTransaction.tierBreakdown.tier1 || 0;
+      shareConfig.tierSales.tier2Sold += paymentTransaction.tierBreakdown.tier2 || 0;
+      shareConfig.tierSales.tier3Sold += paymentTransaction.tierBreakdown.tier3 || 0;
       
       await shareConfig.save();
       
-      // Process referral commissions ONLY for now-completed transactions
+      // Process referral commissions
       try {
-        // Get updated transaction to ensure it's been marked as completed
-        const updatedUserShare = await UserShare.findOne({
-          'transactions.transactionId': transactionId
-        });
-        
-        const updatedTransaction = updatedUserShare.transactions.find(
-          t => t.transactionId === transactionId
+        const referralResult = await processReferralCommission(
+          paymentTransaction.userId,
+          paymentTransaction.amount,
+          'share',
+          transactionId
         );
-        
-        if (updatedTransaction.status === 'completed') {
-          const referralResult = await processReferralCommission(
-            userShareRecord.user,    // userId
-            transaction.totalAmount, // purchaseAmount
-            'share',                // purchaseType
-            transactionId           // transactionId
-          );
-
-          console.log('Referral commission process result:', referralResult);
-        }
+        console.log('Referral commission process result:', referralResult);
       } catch (referralError) {
         console.error('Error processing referral commissions:', referralError);
-        // Continue with the verification process despite referral error
       }
     }
     
     // Notify user
-    const user = await User.findById(userShareRecord.user);
+    const user = await User.findById(paymentTransaction.userId);
     if (user && user.email) {
       try {
         await sendEmail({
@@ -2302,7 +2336,7 @@ exports.adminVerifyManualPayment = async (req, res) => {
           html: `
             <h2>Share Purchase ${approved ? 'Confirmation' : 'Update'}</h2>
             <p>Dear ${user.name},</p>
-            <p>Your purchase of ${transaction.shares} shares for ${transaction.currency === 'naira' ? '₦' : '$'}${transaction.totalAmount} has been ${approved ? 'verified and completed' : 'declined'}.</p>
+            <p>Your purchase of ${paymentTransaction.shares} shares for ${paymentTransaction.currency === 'naira' ? '₦' : '$'}${paymentTransaction.amount} has been ${approved ? 'verified and completed' : 'declined'}.</p>
             <p>Transaction Reference: ${transactionId}</p>
             ${approved ? 
               `<p>Thank you for your investment in AfriMobile!</p>` : 
@@ -2316,7 +2350,6 @@ exports.adminVerifyManualPayment = async (req, res) => {
       }
     }
     
-    // Return success
     res.status(200).json({
       success: true,
       message: `Manual payment ${approved ? 'approved' : 'declined'} successfully`,
@@ -2344,44 +2377,74 @@ exports.getPaymentProof = async (req, res) => {
     
     console.log(`[getPaymentProof] Request for transaction: ${transactionId} from user: ${userId}`);
     
-    // Find the transaction
-    const userShareRecord = await UserShare.findOne({
+    // ✅ FIXED: Look in both UserShare and PaymentTransaction
+    let transaction = null;
+    let userShareRecord = null;
+
+    // First check UserShare (for backward compatibility)
+    userShareRecord = await UserShare.findOne({
       'transactions.transactionId': transactionId
     });
-    
-    if (!userShareRecord) {
-      console.log(`[getPaymentProof] Transaction not found: ${transactionId}`);
+
+    if (userShareRecord) {
+      transaction = userShareRecord.transactions.find(
+        t => t.transactionId === transactionId
+      );
+    }
+
+    // If not found in UserShare, check PaymentTransaction
+    if (!transaction) {
+      const paymentTransaction = await PaymentTransaction.findOne({
+        transactionId,
+        type: 'share'
+      });
+      
+      if (paymentTransaction) {
+        transaction = paymentTransaction;
+        // Check if user owns this transaction
+        const user = await User.findById(userId);
+        if (!(user && (user.isAdmin || paymentTransaction.userId.toString() === userId))) {
+          console.error('[SHARES] Access denied - user does not own transaction');
+          return res.status(403).json({
+            success: false,
+            message: 'Access denied'
+          });
+        }
+      }
+    }
+
+    if (!transaction) {
+      console.error('[SHARES] Transaction not found:', transactionId);
       return res.status(404).json({
         success: false,
         message: 'Transaction not found'
       });
     }
-    
-    const transaction = userShareRecord.transactions.find(
-      t => t.transactionId === transactionId
-    );
-    
-    if (!transaction || !transaction.paymentProofPath) {
+
+    // Check if user is admin or transaction owner (for UserShare transactions)
+    if (userShareRecord) {
+      const user = await User.findById(userId);
+      if (!(user && (user.isAdmin || userShareRecord.user.toString() === userId))) {
+        console.log(`[getPaymentProof] Unauthorized access: ${userId}`);
+        return res.status(403).json({
+          success: false,
+          message: 'Unauthorized: You do not have permission to view this payment proof'
+        });
+      }
+    }
+
+    // Check if payment proof exists
+    if (!transaction.paymentProofPath) {
       console.log(`[getPaymentProof] Payment proof path not found for transaction: ${transactionId}`);
       return res.status(404).json({
         success: false,
         message: 'Payment proof path not found for this transaction'
       });
     }
-    
-    console.log(`[getPaymentProof] Original payment proof path: ${transaction.paymentProofPath}`);
-    
-    // Check if user is admin or transaction owner
-    const user = await User.findById(userId);
-    if (!(user && (user.isAdmin || userShareRecord.user.toString() === userId))) {
-      console.log(`[getPaymentProof] Unauthorized access: ${userId}`);
-      return res.status(403).json({
-        success: false,
-        message: 'Unauthorized: You do not have permission to view this payment proof'
-      });
-    }
 
-    // Check various possible file paths - special handling for render.com
+    console.log(`[getPaymentProof] Original payment proof path: ${transaction.paymentProofPath}`);
+
+    // ✅ ENHANCED: File path resolution for multiple environments
     const fs = require('fs');
     const path = require('path');
     
@@ -2475,9 +2538,17 @@ exports.getPaymentProof = async (req, res) => {
     
     console.log(`[getPaymentProof] Serving file with content type: ${contentType}`);
     
-    // Send the file
+    // Get file stats for headers
+    const stats = fs.statSync(validFilePath);
+    
+    // Set headers
     res.setHeader('Content-Type', contentType);
-    fs.createReadStream(validFilePath).pipe(res);
+    res.setHeader('Content-Length', stats.size);
+    res.setHeader('Content-Disposition', `inline; filename="${transaction.paymentProofOriginalName || path.basename(validFilePath)}"`);
+    
+    // Stream the file
+    const fileStream = fs.createReadStream(validFilePath);
+    fileStream.pipe(res);
     
   } catch (error) {
     console.error(`[getPaymentProof] Server error: ${error.message}`, error);
@@ -2488,6 +2559,7 @@ exports.getPaymentProof = async (req, res) => {
     });
   }
 };
+    
 
 /**
  * @desc    Admin: Cancel approved manual payment
