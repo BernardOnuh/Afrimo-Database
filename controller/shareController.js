@@ -4,19 +4,19 @@ const UserShare = require('../models/UserShare');
 const User = require('../models/User');
 const crypto = require('crypto');
 const axios = require('axios');
+const fs = require('fs');
+const path = require('path');
 const { ethers } = require('ethers');
 const { sendEmail } = require('../utils/emailService');
 const SiteConfig = require('../models/SiteConfig');
 const CoFounderShare = require('../models/CoFounderShare');
-const fs = require('fs');
-const path = require('path');
 const PaymentTransaction = require('../models/Transaction');
 const { processReferralCommission, rollbackReferralCommission } = require('../utils/referralUtils');
 
 // Generate a unique transaction ID
 const generateTransactionId = () => {
   return `TXN-${crypto.randomBytes(4).toString('hex').toUpperCase()}-${Date.now().toString().slice(-6)}`;
-
+};
 
 // Get current share pricing and availability
 exports.getShareInfo = async (req, res) => {
@@ -656,7 +656,7 @@ exports.verifyPaystackPayment = async (req, res) => {
       error: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
-}
+};
 
 // Get payment configuration (wallet addresses, supported cryptos)
 exports.getPaymentConfig = async (req, res) => {
@@ -676,7 +676,6 @@ exports.getPaymentConfig = async (req, res) => {
       error: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
-}
 };
 
 exports.updateCompanyWallet = async (req, res) => {
@@ -2146,7 +2145,6 @@ exports.submitManualPayment = async (req, res) => {
     });
   }
 };
-
 /**
  * @desc    Admin: Get all manual payment transactions
  * @route   GET /api/shares/admin/manual/transactions
@@ -2235,7 +2233,6 @@ exports.adminGetManualTransactions = async (req, res) => {
     });
   }
 };
-
 
 /**
  * @desc    Admin: Verify manual payment
@@ -2559,8 +2556,6 @@ exports.getPaymentProof = async (req, res) => {
     });
   }
 };
-    
-
 /**
  * @desc    Admin: Cancel approved manual payment
  * @route   POST /api/shares/admin/manual/cancel

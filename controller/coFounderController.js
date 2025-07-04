@@ -90,24 +90,29 @@ const calculateCoFounderPurchase = async (req, res) => {
 
 
 // Get payment configuration for co-founder shares
-exports.getPaymentConfig = async (req, res) => {
+const getPaymentConfig = async (req, res) => {
     try {
-      const config = await SiteConfig.getCurrentConfig();
-      
-      res.status(200).json({
-        success: true,
-        companyWalletAddress: config.companyWalletAddress,
-        supportedCryptos: config.supportedCryptos?.filter(crypto => crypto.enabled) || []
-      });
+        // Find current payment configuration
+        const paymentConfig = await PaymentConfig.getCurrentConfig();
+        
+        // Return payment configuration for co-founder shares
+        res.status(200).json({
+            success: true,
+            paymentConfig: {
+                companyWalletAddress: paymentConfig.companyWalletAddress,
+                acceptedCurrencies: paymentConfig.acceptedCurrencies,
+                paymentInstructions: paymentConfig.paymentInstructions
+            }
+        });
     } catch (error) {
-      console.error('Error fetching payment config:', error);
-      res.status(500).json({
-        success: false,
-        message: 'Failed to fetch payment configuration',
-        error: process.env.NODE_ENV === 'development' ? error.message : undefined
-      });
+        console.error('Error fetching payment configuration:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to fetch payment configuration',
+            error: process.env.NODE_ENV === 'development' ? error.message : undefined
+        });
     }
-  };
+};
 
 // Updated initiateCoFounderPaystackPayment function
 const initiateCoFounderPaystackPayment = async (req, res) => {
