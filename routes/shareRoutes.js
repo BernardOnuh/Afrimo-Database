@@ -4,107 +4,17 @@ const router = express.Router();
 const shareController = require('../controller/shareController');
 const { protect, adminProtect } = require('../middleware/auth');
 const { paymentProofUpload } = require('../config/multer');
-const multer = require('multer');
-const path = require('path');
-const fs = require('fs');
+const upload = require('../middleware/upload');
 
-// Configure multer for file uploads
-const storage = multer.diskStorage({
-  destination: function(req, file, cb) {
-    // For production (Render.com), store in a more persistent location
-    const uploadDir = process.env.NODE_ENV === 'production' 
-      ? path.join(process.cwd(), 'uploads', 'payment-proofs')
-      : 'uploads/payment-proofs';
-    
-    console.log(`[multer] Environment: ${process.env.NODE_ENV}`);
-    console.log(`[multer] Target upload directory: ${uploadDir}`);
-    
-    // Create directory if it doesn't exist
-    if (!fs.existsSync(uploadDir)) {
-      console.log(`[multer] Creating directory: ${uploadDir}`);
-      try {
-        fs.mkdirSync(uploadDir, { recursive: true });
-        console.log(`[multer] Directory created successfully`);
-      } catch (err) {
-        console.error(`[multer] Error creating directory: ${err.message}`);
-        return cb(err);
-      }
-    } else {
-      console.log(`[multer] Directory already exists: ${uploadDir}`);
-    }
-    
-    // Verify directory is writable
-    try {
-      fs.accessSync(uploadDir, fs.constants.W_OK);
-      console.log(`[multer] Directory is writable`);
-    } catch (err) {
-      console.error(`[multer] Directory is not writable: ${err.message}`);
-      return cb(new Error('Upload directory is not writable'));
-    }
-    
-    console.log(`[multer] Using upload directory: ${uploadDir}`);
-    cb(null, uploadDir);
-  },
-  filename: function(req, file, cb) {
-    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
-    const ext = path.extname(file.originalname);
-    const filename = 'payment-' + uniqueSuffix + ext;
-    
-    console.log(`[multer] Original filename: ${file.originalname}`);
-    console.log(`[multer] Generated filename: ${filename}`);
-    console.log(`[multer] File extension: ${ext}`);
-    console.log(`[multer] File MIME type: ${file.mimetype}`);
-    
-    cb(null, filename);
-  }
-});
-
-// Enhanced file filter for uploads with better logging
-const fileFilter = (req, file, cb) => {
-  console.log(`[multer] Processing file upload:`);
-  console.log(`[multer] - Original name: ${file.originalname}`);
-  console.log(`[multer] - MIME type: ${file.mimetype}`);
-  console.log(`[multer] - Field name: ${file.fieldname}`);
-  
-  if (file.mimetype.startsWith('image/')) {
-    console.log(`[multer] File accepted: ${file.originalname}`);
-    cb(null, true);
-  } else {
-    console.log(`[multer] File rejected: ${file.originalname} (not an image)`);
-    cb(new Error('Only image files are allowed'), false);
-  }
-};
-
-// Enhanced multer configuration with better error handling
-const upload = multer({
-  storage: storage,
-  fileFilter: fileFilter,
-  limits: {
-    fileSize: 5 * 1024 * 1024, // 5MB limit
-    files: 1 // Only allow 1 file per request
-  },
-  onError: function(err, next) {
-    console.error(`[multer] Upload error: ${err.message}`);
-    next(err);
-  }
-});
-
-// Add middleware to log successful uploads
 const logUpload = (req, res, next) => {
   if (req.file) {
-    console.log(`[upload-success] File uploaded successfully:`);
-    console.log(`[upload-success] - Path: ${req.file.path}`);
-    console.log(`[upload-success] - Filename: ${req.file.filename}`);
+    console.log(`[upload-success] ✅ File uploaded to memory successfully:`);
+    console.log(`[upload-success] - Original name: ${req.file.originalname}`);
+    console.log(`[upload-success] - Field name: ${req.file.fieldname}`);
     console.log(`[upload-success] - Size: ${req.file.size} bytes`);
     console.log(`[upload-success] - MIME type: ${req.file.mimetype}`);
-    
-    // Verify file was actually written
-    if (fs.existsSync(req.file.path)) {
-      const stats = fs.statSync(req.file.path);
-      console.log(`[upload-success] - File verified on disk: ${stats.size} bytes`);
-    } else {
-      console.error(`[upload-success] - WARNING: File not found on disk after upload!`);
-    }
+    console.log(`[upload-success] - Buffer length: ${req.file.buffer.length} bytes`);
+    console.log(`[upload-success] - Ready for MongoDB storage`);
   }
   next();
 };
@@ -1141,10 +1051,13 @@ router.get('/user/shares', protect, shareController.getUserShares);
 
 // Enhanced manual payment submission route with better error handling
 router.post('/manual/submit', 
-  protect, 
-  paymentProofUpload.single('paymentProof'), 
-  shareController.submitManualPayment
+  protect,                              // Auth middleware
+  upload.single('paymentProof'),        // ✅ YOUR upload middleware
+  logUpload,                           // Optional logging
+  handleUploadError,                   // Optional error handling
+  shareController.submitManualPayment  // Your controller
 );
+
 /*
  * @swagger
  * /shares/payment-proof/{transactionId}:
