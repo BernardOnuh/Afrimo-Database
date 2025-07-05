@@ -241,6 +241,7 @@ app.use('/api/cofounder', require('./routes/coFounderShareRoutes')); // Fixed to
 app.use('/api/project', require('./routes/projectRoutes'));
 app.use('/api/leaderboard', require('./routes/leaderboardRoutes'));
 app.use('/api/referral', require('./routes/referralRoutes'));
+app.use('/api/admin/referrals', require('./routes/adminReferralRoutes'));
 app.use('/api/payment', require('./routes/paymentRoutes'));
 app.use('/api/withdrawal', require('./routes/withdrawalRoutes'));
 app.use('/api/exchange-rates', require('./routes/exchangeRateRoutes'));
