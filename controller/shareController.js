@@ -2015,10 +2015,8 @@ exports.adminGetWeb3Transactions = async (req, res) => {
   }
 };
 
-// Add these functions to the shareController.js file
-
 /**
- * @desc    Submit manual payment proof
+ * @desc    Submit manual payment proof - Fixed for Render.com
  * @route   POST /api/shares/manual/submit
  * @access  Private (User)
  */
@@ -2026,7 +2024,14 @@ exports.submitManualPayment = async (req, res) => {
   try {
     console.log('[SHARES] Manual payment submission started');
     console.log('[SHARES] req.body:', req.body);
-    console.log('[SHARES] req.file:', req.file);
+    console.log('[SHARES] req.file:', req.file ? {
+      originalname: req.file.originalname,
+      mimetype: req.file.mimetype,
+      size: req.file.size,
+      filename: req.file.filename,
+      path: req.file.path,
+      destination: req.file.destination
+    } : 'No file');
     
     const userId = req.user.id;
     const { quantity, currency, paymentMethod, bankName, accountName, reference } = req.body;
@@ -2036,7 +2041,8 @@ exports.submitManualPayment = async (req, res) => {
       console.error('[SHARES] Missing required fields');
       return res.status(400).json({
         success: false,
-        message: 'Please provide quantity, currency, and payment method'
+        message: 'Please provide quantity, currency, and payment method',
+        error: 'MISSING_FIELDS'
       });
     }
     
@@ -2045,20 +2051,87 @@ exports.submitManualPayment = async (req, res) => {
       console.error('[SHARES] No payment proof uploaded');
       return res.status(400).json({
         success: false,
-        message: 'Please upload payment proof'
+        message: 'Please upload payment proof',
+        error: 'MISSING_FILE'
       });
     }
     
-    // Verify file exists on disk
-    if (!fs.existsSync(req.file.path)) {
-      console.error('[SHARES] Uploaded file not found on disk:', req.file.path);
+    // ✅ ENHANCED: Multiple file path validation for different environments
+    let validFilePath = null;
+    const fs = require('fs');
+    
+    // Check if file exists - try multiple possible paths
+    const pathsToCheck = [];
+    
+    if (req.file.path) {
+      pathsToCheck.push(req.file.path);
+    }
+    
+    // If we have buffer but no valid path (memory storage fallback)
+    if (req.file.buffer && !req.file.path) {
+      console.log('[SHARES] File is in memory buffer, saving to disk...');
+      
+      const path = require('path');
+      const uploadDir = process.env.NODE_ENV === 'production' 
+        ? '/tmp/uploads/payment-proofs' 
+        : path.join(process.cwd(), 'uploads', 'payment-proofs');
+      
+      // Ensure directory exists
+      if (!fs.existsSync(uploadDir)) {
+        fs.mkdirSync(uploadDir, { recursive: true });
+      }
+      
+      const timestamp = Date.now();
+      const random = Math.random().toString(36).substring(2, 15);
+      const ext = path.extname(req.file.originalname);
+      const filename = `payment-${timestamp}-${random}${ext}`;
+      const filepath = path.join(uploadDir, filename);
+      
+      // Write buffer to disk
+      fs.writeFileSync(filepath, req.file.buffer);
+      
+      // Update req.file object
+      req.file.path = filepath;
+      req.file.filename = filename;
+      req.file.destination = uploadDir;
+      
+      console.log('[SHARES] File saved from buffer to:', filepath);
+      pathsToCheck.push(filepath);
+    }
+    
+    // Validate file exists on disk
+    for (const testPath of pathsToCheck) {
+      try {
+        if (fs.existsSync(testPath)) {
+          const stats = fs.statSync(testPath);
+          if (stats.isFile() && stats.size > 0) {
+            validFilePath = testPath;
+            console.log(`[SHARES] Valid file found at: ${validFilePath}, size: ${stats.size} bytes`);
+            break;
+          }
+        }
+      } catch (error) {
+        console.log(`[SHARES] Error checking path ${testPath}: ${error.message}`);
+      }
+    }
+    
+    if (!validFilePath) {
+      console.error('[SHARES] File validation failed');
+      console.error('[SHARES] Checked paths:', pathsToCheck);
+      console.error('[SHARES] req.file object:', req.file);
+      
       return res.status(400).json({
         success: false,
-        message: 'File upload failed - file not saved'
+        message: 'File upload failed - file not saved',
+        error: 'FILE_NOT_SAVED',
+        debug: process.env.NODE_ENV === 'development' ? {
+          checkedPaths: pathsToCheck,
+          fileObject: req.file,
+          platform: process.platform,
+          nodeEnv: process.env.NODE_ENV
+        } : undefined
       });
     }
-    
-    console.log('[SHARES] File upload verified:', req.file.path);
     
     // Calculate purchase details
     const purchaseDetails = await Share.calculatePurchase(parseInt(quantity), currency);
@@ -2084,7 +2157,7 @@ exports.submitManualPayment = async (req, res) => {
       currency,
       paymentMethod: `manual_${paymentMethod}`,
       status: 'pending',
-      paymentProofPath: req.file.path,
+      paymentProofPath: validFilePath, // Use the validated path
       paymentProofFilename: req.file.filename,
       paymentProofOriginalName: req.file.originalname,
       tierBreakdown: purchaseDetails.tierBreakdown,
@@ -2107,8 +2180,11 @@ exports.submitManualPayment = async (req, res) => {
       totalAmount: purchaseDetails.totalPrice,
       paymentMethod: `manual_${paymentMethod}`,
       status: 'pending',
-      tierBreakdown: purchaseDetails.tierBreakdown
+      tierBreakdown: purchaseDetails.tierBreakdown,
+      paymentProofPath: validFilePath // Store the same validated path
     });
+    
+    console.log('[SHARES] UserShare record created');
     
     // Send success response
     res.status(200).json({
@@ -2121,7 +2197,9 @@ exports.submitManualPayment = async (req, res) => {
         currency,
         status: 'pending',
         fileUrl: `/shares/payment-proof/${transactionId}`,
-        paymentMethod: `manual_${paymentMethod}`
+        paymentMethod: `manual_${paymentMethod}`,
+        filePath: validFilePath, // Include for debugging
+        fileSize: req.file.size
       }
     });
     
@@ -2129,7 +2207,7 @@ exports.submitManualPayment = async (req, res) => {
     console.error('[SHARES] Manual payment submission error:', error);
     
     // Clean up uploaded file if transaction creation failed
-    if (req.file && fs.existsSync(req.file.path)) {
+    if (req.file && req.file.path && fs.existsSync(req.file.path)) {
       try {
         fs.unlinkSync(req.file.path);
         console.log('[SHARES] Cleaned up uploaded file after error');
@@ -2145,6 +2223,7 @@ exports.submitManualPayment = async (req, res) => {
     });
   }
 };
+
 /**
  * @desc    Admin: Get all manual payment transactions
  * @route   GET /api/shares/admin/manual/transactions

@@ -879,11 +879,10 @@ router.get('/user/shares', protect, shareController.getUserShares);
  *         $ref: '#/components/responses/ServerError'
  */
 
-// Enhanced manual payment submission route with comprehensive error handling
 router.post('/manual/submit', 
   protect,                              // Auth middleware first
   debugRequest,                         // Debug incoming request
-  upload.single('paymentProof'),        // Multer upload middleware
+  upload.single('paymentProof'),        // ✅ NEW: Smart upload middleware
   handleUploadError,                    // Handle multer-specific errors
   logUpload,                           // Log upload details
   validateManualPayment,               // Validate required fields
