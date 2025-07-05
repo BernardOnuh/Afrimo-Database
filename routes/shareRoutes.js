@@ -3,9 +3,14 @@ const router = express.Router();
 const shareController = require('../controller/shareController');
 const { protect, adminProtect } = require('../middleware/auth');
 const upload = require('../middleware/upload');
-const multer = require('multer'); // ✅ FIXED: Missing import
+const multer = require('multer');
 
 const logUpload = (req, res, next) => {
+  console.log('\n=== UPLOAD MIDDLEWARE DEBUG ===');
+  console.log('Method:', req.method);
+  console.log('Content-Type:', req.get('Content-Type'));
+  console.log('Content-Length:', req.get('Content-Length'));
+  
   if (req.file) {
     console.log(`[upload-success] ✅ File uploaded to memory successfully:`);
     console.log(`[upload-success] - Original name: ${req.file.originalname}`);
@@ -16,12 +21,21 @@ const logUpload = (req, res, next) => {
     console.log(`[upload-success] - Ready for storage`);
   } else {
     console.log(`[upload-warning] ⚠️ No file received in upload middleware`);
+    console.log('Available fields in req:', Object.keys(req.body || {}));
+    console.log('Files in req.files:', req.files);
   }
+  console.log('===============================\n');
   next();
 };
 
-// ✅ FIXED: Enhanced error handling middleware for multer
+// Enhanced error handling middleware for multer
 const handleUploadError = (err, req, res, next) => {
+  console.error('\n=== UPLOAD ERROR HANDLER ===');
+  console.error('Error type:', err?.constructor?.name);
+  console.error('Error message:', err?.message);
+  console.error('Error code:', err?.code);
+  console.error('============================\n');
+
   if (err instanceof multer.MulterError) {
     console.error(`[multer-error] Multer error: ${err.code} - ${err.message}`);
     
@@ -29,40 +43,55 @@ const handleUploadError = (err, req, res, next) => {
       case 'LIMIT_FILE_SIZE':
         return res.status(400).json({
           success: false,
-          message: 'File too large. Maximum size is 5MB.'
+          message: 'File too large. Maximum size is 5MB.',
+          error: 'FILE_TOO_LARGE'
         });
       case 'LIMIT_FILE_COUNT':
         return res.status(400).json({
           success: false,
-          message: 'Too many files. Only 1 file allowed.'
+          message: 'Too many files. Only 1 file allowed.',
+          error: 'TOO_MANY_FILES'
         });
       case 'LIMIT_UNEXPECTED_FILE':
         return res.status(400).json({
           success: false,
-          message: 'Unexpected file field. Use "paymentProof" field name.'
+          message: 'Unexpected file field. Use "paymentProof" field name.',
+          error: 'UNEXPECTED_FIELD'
+        });
+      case 'LIMIT_PART_COUNT':
+        return res.status(400).json({
+          success: false,
+          message: 'Too many form parts.',
+          error: 'TOO_MANY_PARTS'
         });
       default:
         return res.status(400).json({
           success: false,
-          message: `Upload error: ${err.message}`
+          message: `Upload error: ${err.message}`,
+          error: 'MULTER_ERROR'
         });
     }
   } else if (err) {
     console.error(`[upload-error] General upload error: ${err.message}`);
     return res.status(400).json({
       success: false,
-      message: err.message || 'File upload failed'
+      message: err.message || 'File upload failed',
+      error: 'UPLOAD_ERROR'
     });
   }
   next();
 };
 
-// ✅ ADDED: Request debugging middleware
+// Request debugging middleware
 const debugRequest = (req, res, next) => {
   console.log('\n=== MANUAL PAYMENT REQUEST DEBUG ===');
   console.log('Method:', req.method);
   console.log('URL:', req.url);
-  console.log('Headers:', JSON.stringify(req.headers, null, 2));
+  console.log('Headers:', JSON.stringify({
+    'content-type': req.headers['content-type'],
+    'content-length': req.headers['content-length'],
+    'authorization': req.headers.authorization ? '[PRESENT]' : '[MISSING]'
+  }, null, 2));
   console.log('Body fields:', Object.keys(req.body || {}));
   console.log('File info:', req.file ? {
     fieldname: req.file.fieldname,
@@ -72,6 +101,73 @@ const debugRequest = (req, res, next) => {
   } : 'No file');
   console.log('Body content:', req.body);
   console.log('=====================================\n');
+  next();
+};
+
+// Validation middleware for manual payment
+const validateManualPayment = (req, res, next) => {
+  console.log('\n=== VALIDATION MIDDLEWARE ===');
+  console.log('Body:', req.body);
+  console.log('File:', req.file);
+  
+  const { quantity, currency, paymentMethod } = req.body;
+  
+  // Check required fields
+  if (!quantity || !currency || !paymentMethod) {
+    console.log('Missing required fields');
+    return res.status(400).json({
+      success: false,
+      message: 'Missing required fields: quantity, currency, and paymentMethod are required',
+      error: 'MISSING_FIELDS',
+      received: {
+        quantity: !!quantity,
+        currency: !!currency,
+        paymentMethod: !!paymentMethod,
+        file: !!req.file
+      }
+    });
+  }
+  
+  // Validate quantity
+  const qty = parseInt(quantity);
+  if (isNaN(qty) || qty < 1) {
+    return res.status(400).json({
+      success: false,
+      message: 'Invalid quantity. Must be a positive integer.',
+      error: 'INVALID_QUANTITY'
+    });
+  }
+  
+  // Validate currency
+  if (!['naira', 'usdt'].includes(currency.toLowerCase())) {
+    return res.status(400).json({
+      success: false,
+      message: 'Invalid currency. Must be either "naira" or "usdt".',
+      error: 'INVALID_CURRENCY'
+    });
+  }
+  
+  // Validate payment method
+  const validPaymentMethods = ['bank_transfer', 'cash', 'other'];
+  if (!validPaymentMethods.includes(paymentMethod)) {
+    return res.status(400).json({
+      success: false,
+      message: `Invalid payment method. Must be one of: ${validPaymentMethods.join(', ')}`,
+      error: 'INVALID_PAYMENT_METHOD'
+    });
+  }
+  
+  // Check if file is present
+  if (!req.file) {
+    return res.status(400).json({
+      success: false,
+      message: 'Payment proof image is required',
+      error: 'MISSING_FILE'
+    });
+  }
+  
+  console.log('Validation passed');
+  console.log('============================\n');
   next();
 };
 
@@ -381,7 +477,6 @@ router.post('/calculate', shareController.calculatePurchase);
  */
 router.get('/payment-config', shareController.getPaymentConfig);
 
-
 /**
  * @swagger
  * /shares/centiiv/initiate:
@@ -543,7 +638,293 @@ router.post('/centiiv/initiate', protect, shareController.initiateCentiivPayment
  *       500:
  *         $ref: '#/components/responses/ServerError'
  */
-router.post('/centiiv/webhook', shareController.handleCentiivWebhook); // No auth for webhooks
+router.post('/centiiv/webhook', shareController.handleCentiivWebhook);
+
+/**
+ * @swagger
+ * /shares/web3/verify:
+ *   post:
+ *     tags: [Shares - Payment]
+ *     summary: Verify Web3 transaction
+ *     description: Verify a blockchain transaction for share purchase
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - quantity
+ *               - txHash
+ *               - walletAddress
+ *             properties:
+ *               quantity:
+ *                 type: integer
+ *                 example: 50
+ *                 description: Number of shares purchased
+ *               txHash:
+ *                 type: string
+ *                 example: "0x1234567890abcdef..."
+ *                 description: Blockchain transaction hash
+ *               walletAddress:
+ *                 type: string
+ *                 example: "0x742d35Cc6643C673532925e2aC5c48C0F30A37a0"
+ *                 description: Sender's wallet address
+ *     responses:
+ *       200:
+ *         description: Web3 transaction verified successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *                   example: "Payment verified and processed successfully"
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     transactionId:
+ *                       type: string
+ *                       example: "TXN-A1B2-123456"
+ *                     shares:
+ *                       type: integer
+ *                       example: 50
+ *                     amount:
+ *                       type: number
+ *                       example: 50.25
+ *                     status:
+ *                       type: string
+ *                       example: "completed"
+ *                     verified:
+ *                       type: boolean
+ *                       example: true
+ *       400:
+ *         description: Bad Request - Invalid parameters
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: false
+ *                 message:
+ *                   type: string
+ *                   example: "Please provide all required fields"
+ *       401:
+ *         $ref: '#/components/responses/UnauthorizedError'
+ *       500:
+ *         $ref: '#/components/responses/ServerError'
+ */
+router.post('/web3/verify', protect, shareController.verifyWeb3Transaction);
+
+/**
+ * @swagger
+ * /shares/user/shares:
+ *   get:
+ *     tags: [Shares - User]
+ *     summary: Get user's shares
+ *     description: Get current user's share holdings and transaction history
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: page
+ *         schema:
+ *           type: integer
+ *           minimum: 1
+ *           default: 1
+ *         description: Page number for pagination
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *           minimum: 1
+ *           maximum: 100
+ *           default: 10
+ *         description: Number of transactions per page
+ *     responses:
+ *       200:
+ *         description: User shares retrieved successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 totalShares:
+ *                   type: integer
+ *                   example: 150
+ *                 transactions:
+ *                   type: array
+ *                   items:
+ *                     $ref: '#/components/schemas/Transaction'
+ *       401:
+ *         $ref: '#/components/responses/UnauthorizedError'
+ *       500:
+ *         $ref: '#/components/responses/ServerError'
+ */
+router.get('/user/shares', protect, shareController.getUserShares);
+
+// Manual payment routes
+
+/**
+ * @swagger
+ * /shares/manual/submit:
+ *   post:
+ *     tags: [Shares - Manual Payment]
+ *     summary: Submit manual payment
+ *     description: Submit a manual payment with proof for share purchase
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         multipart/form-data:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - quantity
+ *               - currency
+ *               - paymentMethod
+ *               - paymentProof
+ *             properties:
+ *               quantity:
+ *                 type: integer
+ *                 minimum: 1
+ *                 example: 50
+ *                 description: Number of shares to purchase
+ *               currency:
+ *                 type: string
+ *                 enum: [naira, usdt]
+ *                 example: "naira"
+ *                 description: Currency used for payment
+ *               paymentMethod:
+ *                 type: string
+ *                 enum: [bank_transfer, cash, other]
+ *                 example: "bank_transfer"
+ *                 description: Method of payment used
+ *               bankName:
+ *                 type: string
+ *                 example: "First Bank of Nigeria"
+ *                 description: Bank name (for bank transfers)
+ *               accountName:
+ *                 type: string
+ *                 example: "John Doe"
+ *                 description: Account holder name (for bank transfers)
+ *               reference:
+ *                 type: string
+ *                 example: "FBN123456789"
+ *                 description: Payment reference/receipt number
+ *               paymentProof:
+ *                 type: string
+ *                 format: binary
+ *                 description: Payment proof image (max 5MB)
+ *     responses:
+ *       200:
+ *         description: Manual payment submitted successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *                   example: "Payment proof submitted successfully and awaiting verification"
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     transactionId:
+ *                       type: string
+ *                       example: "TXN-A1B2-123456"
+ *                     shares:
+ *                       type: integer
+ *                       example: 50
+ *                     amount:
+ *                       type: number
+ *                       example: 50000
+ *                     status:
+ *                       type: string
+ *                       example: "pending"
+ *                     fileUrl:
+ *                       type: string
+ *                       example: "/uploads/payment-proofs/payment-1234567890.jpg"
+ *       400:
+ *         description: Bad Request - Invalid parameters
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: false
+ *                 message:
+ *                   type: string
+ *                   example: "Please provide quantity, payment method, and payment proof image"
+ *       401:
+ *         $ref: '#/components/responses/UnauthorizedError'
+ *       500:
+ *         $ref: '#/components/responses/ServerError'
+ */
+
+// Enhanced manual payment submission route with comprehensive error handling
+router.post('/manual/submit', 
+  protect,                              // Auth middleware first
+  debugRequest,                         // Debug incoming request
+  upload.single('paymentProof'),        // Multer upload middleware
+  handleUploadError,                    // Handle multer-specific errors
+  logUpload,                           // Log upload details
+  validateManualPayment,               // Validate required fields
+  shareController.submitManualPayment  // Controller function
+);
+
+/**
+ * @swagger
+ * /shares/payment-proof/{transactionId}:
+ *   get:
+ *     tags: [Shares - Manual Payment]
+ *     summary: Get payment proof
+ *     description: Retrieve payment proof image for a transaction
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: transactionId
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Transaction ID
+ *         example: "TXN-A1B2-123456"
+ *     responses:
+ *       200:
+ *         description: Payment proof retrieved successfully
+ *         content:
+ *           image/*:
+ *             schema:
+ *               type: string
+ *               format: binary
+ *       401:
+ *         $ref: '#/components/responses/UnauthorizedError'
+ *       404:
+ *         $ref: '#/components/responses/NotFoundError'
+ *       500:
+ *         $ref: '#/components/responses/ServerError'
+ */
+router.get('/payment-proof/:transactionId', protect, shareController.getPaymentProof);
+
+// Admin routes
 
 /**
  * @swagger
@@ -828,290 +1209,6 @@ router.post('/admin/centiiv/verify', protect, adminProtect, shareController.admi
  *         $ref: '#/components/responses/ServerError'
  */
 router.get('/admin/centiiv/transactions', protect, adminProtect, shareController.adminGetCentiivTransactions);
-
-/**
- * @swagger
- * /shares/web3/verify:
- *   post:
- *     tags: [Shares - Payment]
- *     summary: Verify Web3 transaction
- *     description: Verify a blockchain transaction for share purchase
- *     security:
- *       - bearerAuth: []
- *     requestBody:
- *       required: true
- *       content:
- *         application/json:
- *           schema:
- *             type: object
- *             required:
- *               - quantity
- *               - txHash
- *               - walletAddress
- *             properties:
- *               quantity:
- *                 type: integer
- *                 example: 50
- *                 description: Number of shares purchased
- *               txHash:
- *                 type: string
- *                 example: "0x1234567890abcdef..."
- *                 description: Blockchain transaction hash
- *               walletAddress:
- *                 type: string
- *                 example: "0x742d35Cc6643C673532925e2aC5c48C0F30A37a0"
- *                 description: Sender's wallet address
- *     responses:
- *       200:
- *         description: Web3 transaction verified successfully
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 success:
- *                   type: boolean
- *                   example: true
- *                 message:
- *                   type: string
- *                   example: "Payment verified and processed successfully"
- *                 data:
- *                   type: object
- *                   properties:
- *                     transactionId:
- *                       type: string
- *                       example: "TXN-A1B2-123456"
- *                     shares:
- *                       type: integer
- *                       example: 50
- *                     amount:
- *                       type: number
- *                       example: 50.25
- *                     status:
- *                       type: string
- *                       example: "completed"
- *                     verified:
- *                       type: boolean
- *                       example: true
- *       400:
- *         description: Bad Request - Invalid parameters
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 success:
- *                   type: boolean
- *                   example: false
- *                 message:
- *                   type: string
- *                   example: "Please provide all required fields"
- *       401:
- *         $ref: '#/components/responses/UnauthorizedError'
- *       500:
- *         $ref: '#/components/responses/ServerError'
- */
-router.post('/web3/verify', protect, shareController.verifyWeb3Transaction);
-
-/**
- * @swagger
- * /shares/user/shares:
- *   get:
- *     tags: [Shares - User]
- *     summary: Get user's shares
- *     description: Get current user's share holdings and transaction history
- *     security:
- *       - bearerAuth: []
- *     parameters:
- *       - in: query
- *         name: page
- *         schema:
- *           type: integer
- *           minimum: 1
- *           default: 1
- *         description: Page number for pagination
- *       - in: query
- *         name: limit
- *         schema:
- *           type: integer
- *           minimum: 1
- *           maximum: 100
- *           default: 10
- *         description: Number of transactions per page
- *     responses:
- *       200:
- *         description: User shares retrieved successfully
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 success:
- *                   type: boolean
- *                   example: true
- *                 totalShares:
- *                   type: integer
- *                   example: 150
- *                 transactions:
- *                   type: array
- *                   items:
- *                     $ref: '#/components/schemas/Transaction'
- *       401:
- *         $ref: '#/components/responses/UnauthorizedError'
- *       500:
- *         $ref: '#/components/responses/ServerError'
- */
-router.get('/user/shares', protect, shareController.getUserShares);
-
-// Manual payment routes
-
-/**
- * @swagger
- * /shares/manual/submit:
- *   post:
- *     tags: [Shares - Manual Payment]
- *     summary: Submit manual payment
- *     description: Submit a manual payment with proof for share purchase
- *     security:
- *       - bearerAuth: []
- *     requestBody:
- *       required: true
- *       content:
- *         multipart/form-data:
- *           schema:
- *             type: object
- *             required:
- *               - quantity
- *               - currency
- *               - paymentMethod
- *               - paymentProof
- *             properties:
- *               quantity:
- *                 type: integer
- *                 minimum: 1
- *                 example: 50
- *                 description: Number of shares to purchase
- *               currency:
- *                 type: string
- *                 enum: [naira, usdt]
- *                 example: "naira"
- *                 description: Currency used for payment
- *               paymentMethod:
- *                 type: string
- *                 enum: [bank_transfer, cash, other]
- *                 example: "bank_transfer"
- *                 description: Method of payment used
- *               bankName:
- *                 type: string
- *                 example: "First Bank of Nigeria"
- *                 description: Bank name (for bank transfers)
- *               accountName:
- *                 type: string
- *                 example: "John Doe"
- *                 description: Account holder name (for bank transfers)
- *               reference:
- *                 type: string
- *                 example: "FBN123456789"
- *                 description: Payment reference/receipt number
- *               paymentProof:
- *                 type: string
- *                 format: binary
- *                 description: Payment proof image (max 5MB)
- *     responses:
- *       200:
- *         description: Manual payment submitted successfully
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 success:
- *                   type: boolean
- *                   example: true
- *                 message:
- *                   type: string
- *                   example: "Payment proof submitted successfully and awaiting verification"
- *                 data:
- *                   type: object
- *                   properties:
- *                     transactionId:
- *                       type: string
- *                       example: "TXN-A1B2-123456"
- *                     shares:
- *                       type: integer
- *                       example: 50
- *                     amount:
- *                       type: number
- *                       example: 50000
- *                     status:
- *                       type: string
- *                       example: "pending"
- *                     fileUrl:
- *                       type: string
- *                       example: "/uploads/payment-proofs/payment-1234567890.jpg"
- *       400:
- *         description: Bad Request - Invalid parameters
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 success:
- *                   type: boolean
- *                   example: false
- *                 message:
- *                   type: string
- *                   example: "Please provide quantity, payment method, and payment proof image"
- *       401:
- *         $ref: '#/components/responses/UnauthorizedError'
- *       500:
- *         $ref: '#/components/responses/ServerError'
- */
-
-// Enhanced manual payment submission route with better error handling
-router.post('/manual/submit', 
-  protect,                              // Auth middleware
-  upload.single('paymentProof'),        // ✅ YOUR upload middleware
-  logUpload,                           // Optional logging
-  handleUploadError,                   // Optional error handling
-  shareController.submitManualPayment  // Your controller
-);
-
-/*
- * @swagger
- * /shares/payment-proof/{transactionId}:
- *   get:
- *     tags: [Shares - Manual Payment]
- *     summary: Get payment proof
- *     description: Retrieve payment proof image for a transaction
- *     security:
- *       - bearerAuth: []
- *     parameters:
- *       - in: path
- *         name: transactionId
- *         required: true
- *         schema:
- *           type: string
- *         description: Transaction ID
- *         example: "TXN-A1B2-123456"
- *     responses:
- *       200:
- *         description: Payment proof retrieved successfully
- *         content:
- *           image/*:
- *             schema:
- *               type: string
- *               format: binary
- *       401:
- *         $ref: '#/components/responses/UnauthorizedError'
- *       404:
- *         $ref: '#/components/responses/NotFoundError'
- *       500:
- *         $ref: '#/components/responses/ServerError'
- */
-router.get('/payment-proof/:transactionId', protect, shareController.getPaymentProof);
-
-// Admin routes
 
 /**
  * @swagger
@@ -1714,39 +1811,36 @@ router.get('/admin/statistics', protect, adminProtect, shareController.getShareS
  *                   items:
  *                     allOf:
  *                       - $ref: '#/components/schemas/Transaction'
- *                       - type: object
- *                         properties:
- *                           user:
- *                             type: object
- *                             properties:
- *                               id:
- *                                 type: string
- *                               name:
- *                                 type: string
- *                               username:
- *                                 type: string
- *                               email:
- *                                 type: string
- *                               phone:
- *                                 type: string
- *                           paymentProofPath:
- *                             type: string
- *                             example: "uploads/payment-proofs/payment-1234567890.jpg"
- *                 pagination:
- *                   type: object
- *                   properties:
- *                     currentPage:
- *                       type: integer
- *                     totalPages:
- *                       type: integer
- *                     totalCount:
- *                       type: integer
- *       401:
- *         $ref: '#/components/responses/UnauthorizedError'
- *       403:
- *         $ref: '#/components/responses/ForbiddenError'
- *       500:
- *         $ref: '#/components/responses/ServerError'
+ *                       type: object
+                             properties:
+                               id:
+                                 type: string
+                               name:
+                                 type: string
+                               username:
+                                 type: string
+                               email:
+                                 type: string
+                               phone:
+                                 type: string
+                           paymentProofPath:
+                             type: string
+                             example: "uploads/payment-proofs/payment-1234567890.jpg"
+                 pagination:
+                   type: object
+                   properties:
+                     currentPage:
+                       type: integer
+                     totalPages:
+                       type: integer
+                     totalCount:
+                       type: integer
+       401:
+         $ref: '#/components/responses/UnauthorizedError'
+       403:
+         $ref: '#/components/responses/ForbiddenError'
+       500:
+         $ref: '#/components/responses/ServerError'
  */
 router.get('/admin/manual/transactions', protect, adminProtect, shareController.adminGetManualTransactions);
 
@@ -1959,8 +2053,6 @@ router.post('/admin/manual/cancel', protect, adminProtect, shareController.admin
  *         $ref: '#/components/responses/ServerError'
  */
 router.delete('/admin/manual/:transactionId', protect, adminProtect, shareController.adminDeleteManualPayment);
-
-// Add this route to your shareRoutes.js file in the admin routes section
 
 /**
  * @swagger
@@ -2183,9 +2275,6 @@ router.delete('/admin/manual/:transactionId', protect, adminProtect, shareContro
  */
 router.get('/admin/purchase-report', protect, adminProtect, shareController.getSharePurchaseReport);
 
-// Add these routes to your shareRoutes.js file in the Admin routes section
-// Place them after the existing admin routes but before module.exports
-
 /**
  * @swagger
  * /shares/admin/debug-transactions/{userId}:
@@ -2390,4 +2479,3 @@ router.post('/admin/fix-transaction-statuses/:userId', protect, adminProtect, sh
 router.get('/admin/transaction-comparison/:userId', protect, adminProtect, shareController.getTransactionComparison);
 
 module.exports = router;
- 
