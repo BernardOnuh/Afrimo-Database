@@ -1,10 +1,9 @@
-// routes/shareRoutes.js
 const express = require('express');
 const router = express.Router();
 const shareController = require('../controller/shareController');
 const { protect, adminProtect } = require('../middleware/auth');
-const { paymentProofUpload } = require('../config/multer');
 const upload = require('../middleware/upload');
+const multer = require('multer'); // ✅ FIXED: Missing import
 
 const logUpload = (req, res, next) => {
   if (req.file) {
@@ -13,13 +12,15 @@ const logUpload = (req, res, next) => {
     console.log(`[upload-success] - Field name: ${req.file.fieldname}`);
     console.log(`[upload-success] - Size: ${req.file.size} bytes`);
     console.log(`[upload-success] - MIME type: ${req.file.mimetype}`);
-    console.log(`[upload-success] - Buffer length: ${req.file.buffer.length} bytes`);
-    console.log(`[upload-success] - Ready for MongoDB storage`);
+    console.log(`[upload-success] - Buffer length: ${req.file.buffer ? req.file.buffer.length : 'N/A'} bytes`);
+    console.log(`[upload-success] - Ready for storage`);
+  } else {
+    console.log(`[upload-warning] ⚠️ No file received in upload middleware`);
   }
   next();
 };
 
-// Enhanced error handling middleware for multer
+// ✅ FIXED: Enhanced error handling middleware for multer
 const handleUploadError = (err, req, res, next) => {
   if (err instanceof multer.MulterError) {
     console.error(`[multer-error] Multer error: ${err.code} - ${err.message}`);
@@ -53,6 +54,24 @@ const handleUploadError = (err, req, res, next) => {
       message: err.message || 'File upload failed'
     });
   }
+  next();
+};
+
+// ✅ ADDED: Request debugging middleware
+const debugRequest = (req, res, next) => {
+  console.log('\n=== MANUAL PAYMENT REQUEST DEBUG ===');
+  console.log('Method:', req.method);
+  console.log('URL:', req.url);
+  console.log('Headers:', JSON.stringify(req.headers, null, 2));
+  console.log('Body fields:', Object.keys(req.body || {}));
+  console.log('File info:', req.file ? {
+    fieldname: req.file.fieldname,
+    originalname: req.file.originalname,
+    mimetype: req.file.mimetype,
+    size: req.file.size
+  } : 'No file');
+  console.log('Body content:', req.body);
+  console.log('=====================================\n');
   next();
 };
 
