@@ -311,9 +311,11 @@ const getUserReferralDetails = async (req, res) => {
     try {
       const adminId = req.user.id;
       const { userId } = req.params;
+      
+      // Handle the new query parameters gracefully
       const { 
         transactionPage = 1, 
-        transactionLimit = 50,  // Increased default limit
+        transactionLimit = 20,  // Use smaller default for now
         transactionSort = 'createdAt',
         transactionOrder = 'desc',
         transactionStatus = '',
@@ -350,14 +352,13 @@ const getUserReferralDetails = async (req, res) => {
         transactionFilter.generation = parseInt(transactionGeneration);
       }
   
-      // Get ALL referral transactions for this user with pagination
+      // Get transactions with basic pagination
       const skip = (parseInt(transactionPage) - 1) * parseInt(transactionLimit);
       const sortOrder = transactionOrder === 'desc' ? -1 : 1;
       const sortObj = { [transactionSort]: sortOrder };
   
       const transactions = await ReferralTransaction.find(transactionFilter)
         .populate('referredUser', 'name userName email')
-        .populate('adjustedBy', 'name email')
         .sort(sortObj)
         .skip(skip)
         .limit(parseInt(transactionLimit));
@@ -366,7 +367,7 @@ const getUserReferralDetails = async (req, res) => {
       const totalTransactions = await ReferralTransaction.countDocuments(transactionFilter);
       const totalPages = Math.ceil(totalTransactions / parseInt(transactionLimit));
   
-      // Get referral tree (people this user has referred)
+      // Get referral tree (simplified version)
       const gen1Users = await User.find(
         { 'referralInfo.code': user.userName },
         'name userName email createdAt'
@@ -384,52 +385,45 @@ const getUserReferralDetails = async (req, res) => {
         'name userName email referralInfo.code createdAt'
       );
   
-      // Calculate time-based earnings
+      // Calculate earnings summary
       const now = new Date();
       const thisMonth = new Date(now.getFullYear(), now.getMonth(), 1);
       const thisYear = new Date(now.getFullYear(), 0, 1);
   
-      const earningsThisMonth = transactions
-        .filter(t => new Date(t.createdAt) >= thisMonth && t.status === 'completed')
+      const allCompletedTransactions = await ReferralTransaction.find({
+        beneficiary: userId,
+        status: 'completed'
+      });
+  
+      const earningsThisMonth = allCompletedTransactions
+        .filter(t => new Date(t.createdAt) >= thisMonth)
         .reduce((sum, t) => sum + t.amount, 0);
   
-      const earningsThisYear = transactions
-        .filter(t => new Date(t.createdAt) >= thisYear && t.status === 'completed')
+      const earningsThisYear = allCompletedTransactions
+        .filter(t => new Date(t.createdAt) >= thisYear)
         .reduce((sum, t) => sum + t.amount, 0);
   
       const totalEarningsAllTime = referralData?.totalEarnings || 0;
       const avgEarningsPerReferral = referralData?.referredUsers > 0 ? 
         totalEarningsAllTime / referralData.referredUsers : 0;
   
-      // Calculate transaction summary for current filter
+      // Calculate transaction summary
       const transactionSummary = {
-        totalAmount: transactions
-          .filter(t => t.status === 'completed')
-          .reduce((sum, t) => sum + t.amount, 0),
+        totalAmount: allCompletedTransactions.reduce((sum, t) => sum + t.amount, 0),
         totalCount: totalTransactions,
         byGeneration: {
           gen1: {
-            count: transactions.filter(t => t.generation === 1).length,
-            amount: transactions.filter(t => t.generation === 1 && t.status === 'completed')
-              .reduce((sum, t) => sum + t.amount, 0)
+            count: allCompletedTransactions.filter(t => t.generation === 1).length,
+            amount: allCompletedTransactions.filter(t => t.generation === 1).reduce((sum, t) => sum + t.amount, 0)
           },
           gen2: {
-            count: transactions.filter(t => t.generation === 2).length,
-            amount: transactions.filter(t => t.generation === 2 && t.status === 'completed')
-              .reduce((sum, t) => sum + t.amount, 0)
+            count: allCompletedTransactions.filter(t => t.generation === 2).length,
+            amount: allCompletedTransactions.filter(t => t.generation === 2).reduce((sum, t) => sum + t.amount, 0)
           },
           gen3: {
-            count: transactions.filter(t => t.generation === 3).length,
-            amount: transactions.filter(t => t.generation === 3 && t.status === 'completed')
-              .reduce((sum, t) => sum + t.amount, 0)
+            count: allCompletedTransactions.filter(t => t.generation === 3).length,
+            amount: allCompletedTransactions.filter(t => t.generation === 3).reduce((sum, t) => sum + t.amount, 0)
           }
-        },
-        byStatus: {
-          completed: transactions.filter(t => t.status === 'completed').length,
-          pending: transactions.filter(t => t.status === 'pending').length,
-          failed: transactions.filter(t => t.status === 'failed').length,
-          cancelled: transactions.filter(t => t.status === 'cancelled').length,
-          adjusted: transactions.filter(t => t.status === 'adjusted').length
         }
       };
   
@@ -465,7 +459,7 @@ const getUserReferralDetails = async (req, res) => {
             name: u.name,
             userName: u.userName,
             email: u.email,
-            referredBy: u.referralInfo.code,
+            referredBy: u.referralInfo?.code || 'Unknown',
             joinedDate: u.createdAt
           })),
           generation3: gen3Users.map(u => ({
@@ -473,7 +467,7 @@ const getUserReferralDetails = async (req, res) => {
             name: u.name,
             userName: u.userName,
             email: u.email,
-            referredBy: u.referralInfo.code,
+            referredBy: u.referralInfo?.code || 'Unknown',
             joinedDate: u.createdAt
           }))
         },
@@ -491,17 +485,10 @@ const getUserReferralDetails = async (req, res) => {
           generation: t.generation,
           purchaseType: t.purchaseType,
           sourceTransaction: t.sourceTransaction,
-          sourceTransactionModel: t.sourceTransactionModel,
           status: t.status,
           createdAt: t.createdAt,
-          updatedAt: t.updatedAt,
-          adjustedBy: t.adjustedBy ? {
-            id: t.adjustedBy._id,
-            name: t.adjustedBy.name,
-            email: t.adjustedBy.email
-          } : null,
-          adjustmentReason: t.adjustmentReason,
-          canEdit: true // Flag to indicate this transaction can be edited
+          adjustedBy: t.adjustedBy,
+          adjustmentReason: t.adjustmentReason
         })),
         transactionsPagination: {
           currentPage: parseInt(transactionPage),
