@@ -18,6 +18,7 @@ const {
   getReferralSettings,
   updateReferralSettings,
   getAuditLog,
+  bulkEditTransactions,
   syncUserReferralData
 } = require('../controller/adminReferralController');
 
@@ -512,6 +513,51 @@ router.get('/analytics',
   adminProtect, 
   getReferralAnalytics
 );
+
+/**
+ * @swagger
+ * /admin/referrals/transactions/bulk-edit:
+ *   post:
+ *     tags: [Admin Referrals]
+ *     summary: Bulk edit multiple transactions
+ *     description: Edit multiple referral transactions at once with amounts and status changes
+ *     security:
+ *       - adminAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - transactions
+ *               - reason
+ *             properties:
+ *               transactions:
+ *                 type: array
+ *                 items:
+ *                   type: object
+ *                   properties:
+ *                     id:
+ *                       type: string
+ *                       description: Transaction ID
+ *                     newAmount:
+ *                       type: number
+ *                       description: New amount (optional)
+ *                     newStatus:
+ *                       type: string
+ *                       description: New status (optional)
+ *               reason:
+ *                 type: string
+ *                 description: Reason for bulk changes
+ *     responses:
+ *       200:
+ *         description: Bulk edit completed successfully
+ */
+router.post('/transactions/bulk-edit', 
+    adminProtect, 
+    bulkEditTransactions
+  );
 
 /**
  * @swagger

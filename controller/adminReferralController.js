@@ -308,156 +308,354 @@ const getAllUsersWithReferralData = async (req, res) => {
 
 // Get detailed referral data for a specific user
 const getUserReferralDetails = async (req, res) => {
-  try {
-    const adminId = req.user.id;
-    const { userId } = req.params;
-    
-    // Verify admin
-    const admin = await User.findById(adminId);
-    if (!admin || !admin.isAdmin) {
-      return res.status(403).json({
-        success: false,
-        message: 'Unauthorized: Admin access required'
-      });
-    }
-
-    // Get user
-    const user = await User.findById(userId).select('name userName email phone createdAt');
-    if (!user) {
-      return res.status(404).json({
-        success: false,
-        message: 'User not found'
-      });
-    }
-
-    // Get referral data
-    const referralData = await Referral.findOne({ user: userId });
-    
-    // Get all referral transactions for this user
-    const transactions = await ReferralTransaction.find({ beneficiary: userId })
-      .populate('referredUser', 'name userName email')
-      .sort({ createdAt: -1 });
-
-    // Get referral tree (people this user has referred)
-    const gen1Users = await User.find(
-      { 'referralInfo.code': user.userName },
-      'name userName email createdAt'
-    );
-
-    const gen1UserNames = gen1Users.map(u => u.userName);
-    const gen2Users = await User.find(
-      { 'referralInfo.code': { $in: gen1UserNames } },
-      'name userName email referralInfo.code createdAt'
-    );
-
-    const gen2UserNames = gen2Users.map(u => u.userName);
-    const gen3Users = await User.find(
-      { 'referralInfo.code': { $in: gen2UserNames } },
-      'name userName email referralInfo.code createdAt'
-    );
-
-    // Calculate time-based earnings
-    const now = new Date();
-    const thisMonth = new Date(now.getFullYear(), now.getMonth(), 1);
-    const thisYear = new Date(now.getFullYear(), 0, 1);
-
-    const earningsThisMonth = transactions
-      .filter(t => new Date(t.createdAt) >= thisMonth && t.status === 'completed')
-      .reduce((sum, t) => sum + t.amount, 0);
-
-    const earningsThisYear = transactions
-      .filter(t => new Date(t.createdAt) >= thisYear && t.status === 'completed')
-      .reduce((sum, t) => sum + t.amount, 0);
-
-    const totalEarningsAllTime = referralData?.totalEarnings || 0;
-    const avgEarningsPerReferral = referralData?.referredUsers > 0 ? 
-      totalEarningsAllTime / referralData.referredUsers : 0;
-
-    const userReferralData = {
-      user: {
-        id: user._id,
-        name: user.name,
-        userName: user.userName,
-        email: user.email,
-        phone: user.phone,
-        referralCode: user.userName,
-        totalEarnings: totalEarningsAllTime,
-        totalReferred: referralData?.referredUsers || 0,
-        joinDate: user.createdAt,
-        lastActivity: referralData?.updatedAt || user.createdAt,
-        status: 'active',
-        generations: {
-          gen1: referralData?.generation1 || { count: 0, earnings: 0 },
-          gen2: referralData?.generation2 || { count: 0, earnings: 0 },
-          gen3: referralData?.generation3 || { count: 0, earnings: 0 }
-        }
-      },
-      referralTree: {
-        generation1: gen1Users.map(u => ({
-          id: u._id,
-          name: u.name,
-          userName: u.userName,
-          email: u.email,
-          joinedDate: u.createdAt
-        })),
-        generation2: gen2Users.map(u => ({
-          id: u._id,
-          name: u.name,
-          userName: u.userName,
-          email: u.email,
-          referredBy: u.referralInfo.code,
-          joinedDate: u.createdAt
-        })),
-        generation3: gen3Users.map(u => ({
-          id: u._id,
-          name: u.name,
-          userName: u.userName,
-          email: u.email,
-          referredBy: u.referralInfo.code,
-          joinedDate: u.createdAt
-        }))
-      },
-      transactions: transactions.map(t => ({
-        id: t._id,
-        referredUser: t.referredUser ? {
-          id: t.referredUser._id,
-          name: t.referredUser.name,
-          userName: t.referredUser.userName,
-          email: t.referredUser.email
-        } : null,
-        amount: t.amount,
-        currency: t.currency,
-        generation: t.generation,
-        purchaseType: t.purchaseType,
-        sourceTransaction: t.sourceTransaction,
-        status: t.status,
-        createdAt: t.createdAt,
-        adjustedBy: t.adjustedBy,
-        adjustmentReason: t.adjustmentReason,
-        originalAmount: t.originalAmount
-      })),
-      summary: {
-        totalEarningsAllTime: Math.round(totalEarningsAllTime * 100) / 100,
-        totalEarningsThisMonth: Math.round(earningsThisMonth * 100) / 100,
-        totalEarningsThisYear: Math.round(earningsThisYear * 100) / 100,
-        avgEarningsPerReferral: Math.round(avgEarningsPerReferral * 100) / 100
+    try {
+      const adminId = req.user.id;
+      const { userId } = req.params;
+      const { 
+        transactionPage = 1, 
+        transactionLimit = 50,  // Increased default limit
+        transactionSort = 'createdAt',
+        transactionOrder = 'desc',
+        transactionStatus = '',
+        transactionGeneration = ''
+      } = req.query;
+      
+      // Verify admin
+      const admin = await User.findById(adminId);
+      if (!admin || !admin.isAdmin) {
+        return res.status(403).json({
+          success: false,
+          message: 'Unauthorized: Admin access required'
+        });
       }
-    };
-
-    res.status(200).json({
-      success: true,
-      userReferralData
-    });
-
-  } catch (error) {
-    console.error('Error getting user referral details:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Failed to get user referral details',
-      error: process.env.NODE_ENV === 'development' ? error.message : undefined
-    });
-  }
-};
+  
+      // Get user
+      const user = await User.findById(userId).select('name userName email phone createdAt');
+      if (!user) {
+        return res.status(404).json({
+          success: false,
+          message: 'User not found'
+        });
+      }
+  
+      // Get referral data
+      const referralData = await Referral.findOne({ user: userId });
+      
+      // Build transaction filter
+      let transactionFilter = { beneficiary: userId };
+      if (transactionStatus) {
+        transactionFilter.status = transactionStatus;
+      }
+      if (transactionGeneration) {
+        transactionFilter.generation = parseInt(transactionGeneration);
+      }
+  
+      // Get ALL referral transactions for this user with pagination
+      const skip = (parseInt(transactionPage) - 1) * parseInt(transactionLimit);
+      const sortOrder = transactionOrder === 'desc' ? -1 : 1;
+      const sortObj = { [transactionSort]: sortOrder };
+  
+      const transactions = await ReferralTransaction.find(transactionFilter)
+        .populate('referredUser', 'name userName email')
+        .populate('adjustedBy', 'name email')
+        .sort(sortObj)
+        .skip(skip)
+        .limit(parseInt(transactionLimit));
+  
+      // Get total count for pagination
+      const totalTransactions = await ReferralTransaction.countDocuments(transactionFilter);
+      const totalPages = Math.ceil(totalTransactions / parseInt(transactionLimit));
+  
+      // Get referral tree (people this user has referred)
+      const gen1Users = await User.find(
+        { 'referralInfo.code': user.userName },
+        'name userName email createdAt'
+      );
+  
+      const gen1UserNames = gen1Users.map(u => u.userName);
+      const gen2Users = await User.find(
+        { 'referralInfo.code': { $in: gen1UserNames } },
+        'name userName email referralInfo.code createdAt'
+      );
+  
+      const gen2UserNames = gen2Users.map(u => u.userName);
+      const gen3Users = await User.find(
+        { 'referralInfo.code': { $in: gen2UserNames } },
+        'name userName email referralInfo.code createdAt'
+      );
+  
+      // Calculate time-based earnings
+      const now = new Date();
+      const thisMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+      const thisYear = new Date(now.getFullYear(), 0, 1);
+  
+      const earningsThisMonth = transactions
+        .filter(t => new Date(t.createdAt) >= thisMonth && t.status === 'completed')
+        .reduce((sum, t) => sum + t.amount, 0);
+  
+      const earningsThisYear = transactions
+        .filter(t => new Date(t.createdAt) >= thisYear && t.status === 'completed')
+        .reduce((sum, t) => sum + t.amount, 0);
+  
+      const totalEarningsAllTime = referralData?.totalEarnings || 0;
+      const avgEarningsPerReferral = referralData?.referredUsers > 0 ? 
+        totalEarningsAllTime / referralData.referredUsers : 0;
+  
+      // Calculate transaction summary for current filter
+      const transactionSummary = {
+        totalAmount: transactions
+          .filter(t => t.status === 'completed')
+          .reduce((sum, t) => sum + t.amount, 0),
+        totalCount: totalTransactions,
+        byGeneration: {
+          gen1: {
+            count: transactions.filter(t => t.generation === 1).length,
+            amount: transactions.filter(t => t.generation === 1 && t.status === 'completed')
+              .reduce((sum, t) => sum + t.amount, 0)
+          },
+          gen2: {
+            count: transactions.filter(t => t.generation === 2).length,
+            amount: transactions.filter(t => t.generation === 2 && t.status === 'completed')
+              .reduce((sum, t) => sum + t.amount, 0)
+          },
+          gen3: {
+            count: transactions.filter(t => t.generation === 3).length,
+            amount: transactions.filter(t => t.generation === 3 && t.status === 'completed')
+              .reduce((sum, t) => sum + t.amount, 0)
+          }
+        },
+        byStatus: {
+          completed: transactions.filter(t => t.status === 'completed').length,
+          pending: transactions.filter(t => t.status === 'pending').length,
+          failed: transactions.filter(t => t.status === 'failed').length,
+          cancelled: transactions.filter(t => t.status === 'cancelled').length,
+          adjusted: transactions.filter(t => t.status === 'adjusted').length
+        }
+      };
+  
+      const userReferralData = {
+        user: {
+          id: user._id,
+          name: user.name,
+          userName: user.userName,
+          email: user.email,
+          phone: user.phone,
+          referralCode: user.userName,
+          totalEarnings: totalEarningsAllTime,
+          totalReferred: referralData?.referredUsers || 0,
+          joinDate: user.createdAt,
+          lastActivity: referralData?.updatedAt || user.createdAt,
+          status: 'active',
+          generations: {
+            gen1: referralData?.generation1 || { count: 0, earnings: 0 },
+            gen2: referralData?.generation2 || { count: 0, earnings: 0 },
+            gen3: referralData?.generation3 || { count: 0, earnings: 0 }
+          }
+        },
+        referralTree: {
+          generation1: gen1Users.map(u => ({
+            id: u._id,
+            name: u.name,
+            userName: u.userName,
+            email: u.email,
+            joinedDate: u.createdAt
+          })),
+          generation2: gen2Users.map(u => ({
+            id: u._id,
+            name: u.name,
+            userName: u.userName,
+            email: u.email,
+            referredBy: u.referralInfo.code,
+            joinedDate: u.createdAt
+          })),
+          generation3: gen3Users.map(u => ({
+            id: u._id,
+            name: u.name,
+            userName: u.userName,
+            email: u.email,
+            referredBy: u.referralInfo.code,
+            joinedDate: u.createdAt
+          }))
+        },
+        transactions: transactions.map(t => ({
+          id: t._id,
+          referredUser: t.referredUser ? {
+            id: t.referredUser._id,
+            name: t.referredUser.name,
+            userName: t.referredUser.userName,
+            email: t.referredUser.email
+          } : null,
+          amount: t.amount,
+          originalAmount: t.originalAmount || t.amount,
+          currency: t.currency,
+          generation: t.generation,
+          purchaseType: t.purchaseType,
+          sourceTransaction: t.sourceTransaction,
+          sourceTransactionModel: t.sourceTransactionModel,
+          status: t.status,
+          createdAt: t.createdAt,
+          updatedAt: t.updatedAt,
+          adjustedBy: t.adjustedBy ? {
+            id: t.adjustedBy._id,
+            name: t.adjustedBy.name,
+            email: t.adjustedBy.email
+          } : null,
+          adjustmentReason: t.adjustmentReason,
+          canEdit: true // Flag to indicate this transaction can be edited
+        })),
+        transactionsPagination: {
+          currentPage: parseInt(transactionPage),
+          totalPages,
+          totalCount: totalTransactions,
+          hasNext: parseInt(transactionPage) < totalPages,
+          hasPrev: parseInt(transactionPage) > 1,
+          limit: parseInt(transactionLimit)
+        },
+        transactionSummary,
+        summary: {
+          totalEarningsAllTime: Math.round(totalEarningsAllTime * 100) / 100,
+          totalEarningsThisMonth: Math.round(earningsThisMonth * 100) / 100,
+          totalEarningsThisYear: Math.round(earningsThisYear * 100) / 100,
+          avgEarningsPerReferral: Math.round(avgEarningsPerReferral * 100) / 100
+        }
+      };
+  
+      res.status(200).json({
+        success: true,
+        userReferralData
+      });
+  
+    } catch (error) {
+      console.error('Error getting user referral details:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Failed to get user referral details',
+        error: process.env.NODE_ENV === 'development' ? error.message : undefined
+      });
+    }
+  };
+  
+  // Add new endpoint for bulk transaction editing
+  const bulkEditTransactions = async (req, res) => {
+    try {
+      const adminId = req.user.id;
+      const { transactions, reason } = req.body;
+      
+      // Verify admin
+      const admin = await User.findById(adminId);
+      if (!admin || !admin.isAdmin) {
+        return res.status(403).json({
+          success: false,
+          message: 'Unauthorized: Admin access required'
+        });
+      }
+  
+      if (!transactions || !Array.isArray(transactions) || transactions.length === 0) {
+        return res.status(400).json({
+          success: false,
+          message: 'Transactions array is required'
+        });
+      }
+  
+      const results = {
+        processed: 0,
+        successful: 0,
+        failed: 0,
+        errors: []
+      };
+  
+      // Process each transaction update
+      for (const txUpdate of transactions) {
+        results.processed++;
+        
+        try {
+          const { id, newAmount, newStatus } = txUpdate;
+          
+          if (!id) {
+            throw new Error('Transaction ID is required');
+          }
+  
+          const transaction = await ReferralTransaction.findById(id)
+            .populate('beneficiary', 'name email');
+          
+          if (!transaction) {
+            throw new Error('Transaction not found');
+          }
+  
+          const oldAmount = transaction.amount;
+          const oldStatus = transaction.status;
+          let amountChanged = false;
+  
+          // Update amount if provided
+          if (newAmount !== undefined && parseFloat(newAmount) !== oldAmount) {
+            transaction.originalAmount = transaction.originalAmount || oldAmount;
+            transaction.amount = parseFloat(newAmount);
+            amountChanged = true;
+          }
+  
+          // Update status if provided
+          if (newStatus && newStatus !== oldStatus) {
+            transaction.status = newStatus;
+          }
+  
+          // Add adjustment tracking
+          transaction.adjustedBy = adminId;
+          transaction.adjustmentReason = reason || 'Bulk transaction edit';
+          
+          await transaction.save();
+  
+          // Update user's referral stats if amount changed
+          if (amountChanged) {
+            const referralData = await Referral.findOne({ user: transaction.beneficiary._id });
+            
+            if (referralData) {
+              const amountDifference = parseFloat(newAmount) - oldAmount;
+              
+              referralData.totalEarnings += amountDifference;
+              
+              // Update generation-specific earnings
+              const genKey = `generation${transaction.generation}`;
+              if (referralData[genKey]) {
+                referralData[genKey].earnings += amountDifference;
+              }
+              
+              await referralData.save();
+            }
+          }
+  
+          results.successful++;
+          
+        } catch (error) {
+          results.failed++;
+          results.errors.push({
+            transactionId: txUpdate.id,
+            error: error.message
+          });
+        }
+      }
+  
+      // Create audit log
+      await createAuditLog(adminId, 'bulk_transaction_edit', null, {
+        transactionCount: transactions.length,
+        results,
+        reason
+      }, req.ip);
+  
+      res.status(200).json({
+        success: true,
+        message: `Bulk edit completed: ${results.successful} successful, ${results.failed} failed`,
+        results
+      });
+  
+    } catch (error) {
+      console.error('Error in bulk edit transactions:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Failed to bulk edit transactions',
+        error: process.env.NODE_ENV === 'development' ? error.message : undefined
+      });
+    }
+  };
 
 // Get all referral transactions
 const getAllReferralTransactions = async (req, res) => {
@@ -1918,7 +2116,8 @@ const syncUserReferralData = async (req, res) => {
 module.exports = {
   getReferralDashboard,
   getAllUsersWithReferralData,
-  getUserReferralDetails,
+    getUserReferralDetails,
+  bulkEditTransactions,
   getAllReferralTransactions,
   adjustUserEarnings,
   adjustReferralTransaction,
