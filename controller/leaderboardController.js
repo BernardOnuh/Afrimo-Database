@@ -566,6 +566,10 @@ const getAdminLeaderboard = async (filters) => {
   return result[0] || { users: [], total: 0, totalPages: 0, currentPage: 1 };
 };
 
+const getFilteredLeaderboard = async (categoryFilter = 'registration', limit = Number.MAX_SAFE_INTEGER) => {
+  return getTimeFilteredLeaderboard(null, categoryFilter, limit);
+};
+
 // Get location analytics
 const getLocationAnalytics = async (type = 'states', parentFilter = null, limit = 10) => {
   const matchStage = { 'status.isActive': true };
