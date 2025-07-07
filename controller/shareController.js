@@ -241,7 +241,6 @@ exports.calculatePurchase = async (req, res) => {
   }
 };
 
-// Enhanced Centiiv controller with comprehensive error handling and logging
 exports.initiateCentiivPayment = async (req, res) => {
   try {
     const { quantity, email, customerName } = req.body;
@@ -287,7 +286,21 @@ exports.initiateCentiivPayment = async (req, res) => {
     const transactionId = generateTransactionId();
     console.log('🆔 [Centiiv] Transaction ID:', transactionId);
     
-    // Create request payload
+    // 🔥 CREATE REDIRECT URLs
+    const frontendUrl = process.env.FRONTEND_URL || 'https://yourfrontend.com';
+    const backendUrl = process.env.BACKEND_URL || 'https://yourapi.com';
+    
+    const successUrl = `${frontendUrl}/dashboard`;
+    const cancelUrl = `${frontendUrl}/dashboard/shares/payment-cancelled?transaction=${transactionId}&method=centiiv`;
+    const notifyUrl = `${backendUrl}/api/shares/centiiv/webhook`;
+    
+    console.log('🔗 [Centiiv] Redirect URLs:', {
+      success: successUrl,
+      cancel: cancelUrl,
+      notify: notifyUrl
+    });
+    
+    // Create request payload with redirect URLs
     const dueDate = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
     const centiivRequest = {
       reminderInterval: 7,
@@ -301,7 +314,18 @@ exports.initiateCentiivPayment = async (req, res) => {
           qty: 1,
           price: purchaseDetails.totalPrice
         }
-      ]
+      ],
+      // 🔥 ADD REDIRECT URLs TO CENTIIV REQUEST
+      successUrl: successUrl,
+      cancelUrl: cancelUrl,
+      notifyUrl: notifyUrl,
+      // Optional: Add metadata for tracking
+      metadata: {
+        userId: userId.toString(),
+        transactionId: transactionId,
+        shares: purchaseDetails.totalShares.toString(),
+        purchaseType: 'share_purchase'
+      }
     };
     
     console.log('📦 [Centiiv] Request payload:', JSON.stringify(centiivRequest, null, 2));
@@ -392,7 +416,11 @@ exports.initiateCentiivPayment = async (req, res) => {
         status: 'pending',
         tierBreakdown: purchaseDetails.tierBreakdown,
         centiivOrderId: orderId,
-        centiivInvoiceUrl: invoiceUrl || null
+        centiivInvoiceUrl: invoiceUrl || null,
+        // 🔥 STORE REDIRECT URLs FOR REFERENCE
+        successUrl: successUrl,
+        cancelUrl: cancelUrl,
+        notifyUrl: notifyUrl
       });
       
       console.log('✅ [Centiiv] Database save successful');
@@ -413,14 +441,20 @@ exports.initiateCentiivPayment = async (req, res) => {
       invoiceUrl: invoiceUrl || null,
       amount: purchaseDetails.totalPrice,
       shares: purchaseDetails.totalShares,
-      dueDate: dueDate
+      dueDate: dueDate,
+      // 🔥 INCLUDE REDIRECT URLs IN RESPONSE
+      redirectUrls: {
+        success: successUrl,
+        cancel: cancelUrl,
+        notify: notifyUrl
+      }
     };
     
     console.log('🎉 [Centiiv] Success:', responseData);
     
     res.status(200).json({
       success: true,
-      message: 'Centiiv invoice created successfully (using hardcoded API key)',
+      message: 'Centiiv invoice created successfully with redirect URLs',
       data: responseData
     });
     
