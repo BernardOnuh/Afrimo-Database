@@ -61,6 +61,9 @@ const { leaderboardQuerySchema, visibilityUpdateSchema, bulkUpdateSchema } = adm
 // ====================
 
 // Main leaderboard aggregation function (existing - preserved)
+// Replace the existing aggregation pipeline in getTimeFilteredLeaderboard function
+// This fixes the cofounder shares lookup issue
+
 const getTimeFilteredLeaderboard = async (timeFrame, categoryFilter = 'registration', limit = Number.MAX_SAFE_INTEGER) => {
   // Calculate the date threshold based on the time frame
   const now = new Date();
@@ -104,8 +107,8 @@ const getTimeFilteredLeaderboard = async (timeFrame, categoryFilter = 'registrat
       matchCriteria.totalSpent = { $gt: 0 };
       break;
     case 'cofounder':
-      sortField = { 'cofounderShares.totalShares': -1 };
-      matchCriteria['cofounderShares.totalShares'] = { $gt: 0 };
+      sortField = { 'totalCofounderShares': -1 };
+      matchCriteria['totalCofounderShares'] = { $gt: 0 };
       break;
     case 'earnings':
       sortField = { totalEarnings: -1 };
@@ -118,6 +121,10 @@ const getTimeFilteredLeaderboard = async (timeFrame, categoryFilter = 'registrat
     default:
       sortField = { createdAt: -1 };
   }
+  
+  // Get the actual collection name for transactions
+  const PaymentTransaction = require('../models/Transaction');
+  const actualCollectionName = PaymentTransaction.collection.name;
   
   let transactionField = null;
   if (dateThreshold) {
@@ -135,6 +142,7 @@ const getTimeFilteredLeaderboard = async (timeFrame, categoryFilter = 'registrat
   }
   
   const aggregatePipeline = [
+    // Lookup regular shares
     {
       $lookup: {
         from: 'usershares',
@@ -143,14 +151,30 @@ const getTimeFilteredLeaderboard = async (timeFrame, categoryFilter = 'registrat
         as: 'shares'
       }
     },
+    
+    // FIXED: Lookup cofounder shares from transactions collection
     {
       $lookup: {
-        from: 'cofoundershares',
-        localField: '_id',
-        foreignField: 'user',
-        as: 'cofounderShares'
+        from: actualCollectionName,
+        let: { userId: '$_id' },
+        pipeline: [
+          {
+            $match: {
+              $expr: {
+                $and: [
+                  { $eq: ['$userId', '$$userId'] },
+                  { $eq: ['$type', 'co-founder'] },
+                  { $eq: ['$status', 'completed'] }
+                ]
+              }
+            }
+          }
+        ],
+        as: 'cofounderTransactions'
       }
     },
+    
+    // Lookup referral data
     {
       $lookup: {
         from: 'referrals',
@@ -159,6 +183,8 @@ const getTimeFilteredLeaderboard = async (timeFrame, categoryFilter = 'registrat
         as: 'referralData'
       }
     },
+    
+    // Lookup referral transactions
     {
       $lookup: {
         from: 'referraltransactions',
@@ -167,6 +193,8 @@ const getTimeFilteredLeaderboard = async (timeFrame, categoryFilter = 'registrat
         as: 'referralTransactions'
       }
     },
+    
+    // Lookup withdrawals
     {
       $lookup: {
         from: 'withdrawals',
@@ -191,7 +219,7 @@ const getTimeFilteredLeaderboard = async (timeFrame, categoryFilter = 'registrat
     });
   }
   
-  // First, safely access the referral data as an object
+  // Calculate shares and other fields
   aggregatePipeline.push({
     $addFields: {
       // Safely get the first element from the referralData array
@@ -209,11 +237,16 @@ const getTimeFilteredLeaderboard = async (timeFrame, categoryFilter = 'registrat
       },
       
       totalShares: { $sum: '$shares.totalShares' },
-      totalCofounderShares: { $sum: '$cofounderShares.totalShares' },
+      
+      // FIXED: Calculate cofounder shares from transactions
+      totalCofounderShares: {
+        $sum: '$cofounderTransactions.shares'
+      },
+      
       combinedShares: { 
         $sum: [
           { $sum: '$shares.totalShares' }, 
-          { $sum: '$cofounderShares.totalShares' }
+          { $sum: '$cofounderTransactions.shares' }  // Use transaction-based cofounder shares
         ]
       },
       
@@ -226,7 +259,7 @@ const getTimeFilteredLeaderboard = async (timeFrame, categoryFilter = 'registrat
                 as: 'withdrawal',
                 cond: { 
                   $and: [
-                    { $in: ['$$withdrawal.status', ['paid', 'approved']] }, // Only completed withdrawals
+                    { $in: ['$$withdrawal.status', ['paid', 'approved']] },
                     ...(dateThreshold ? [{ $gte: ['$$withdrawal.createdAt', dateThreshold] }] : [])
                   ]
                 }
@@ -283,13 +316,13 @@ const getTimeFilteredLeaderboard = async (timeFrame, categoryFilter = 'registrat
       totalSpent: { 
         $sum: [
           { $sum: '$shares.transactions.totalAmount' },
-          { $sum: '$cofounderShares.transactions.totalAmount' }
+          { $sum: '$cofounderTransactions.amount' }  // Include cofounder transaction amounts
         ]
       }
     }
   });
   
-  // Now calculate the derived fields
+  // Calculate derived fields
   aggregatePipeline.push({
     $addFields: {
       // Use the referralInfo object to safely access fields
@@ -380,12 +413,6 @@ const getTimeFilteredLeaderboard = async (timeFrame, categoryFilter = 'registrat
   
   return await User.aggregate(aggregatePipeline.filter(Boolean));
 };
-
-// Wrapper function for non-time-filtered leaderboards (existing - preserved)
-const getFilteredLeaderboard = async (categoryFilter = 'registration', limit = Number.MAX_SAFE_INTEGER) => {
-  return getTimeFilteredLeaderboard(null, categoryFilter, limit);
-};
-
 // ====================
 // NEW ADMIN LEADERBOARD METHODS
 // ====================
