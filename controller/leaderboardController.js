@@ -1104,12 +1104,24 @@ exports.getCofounderLeaderboard = async (req, res) => {
     console.log('Getting cofounder leaderboard with limit:', limit);
     
     // Get the actual collection name used by PaymentTransaction model
-    const PaymentTransaction = require('../models/Transaction'); // Adjust path as needed
+    const PaymentTransaction = require('../models/Transaction');
     const actualCollectionName = PaymentTransaction.collection.name;
     
     console.log('Using transaction collection:', actualCollectionName);
     
-    // FIXED: Use the actual collection name from the model
+    // Get the co-founder share ratio
+    let shareToRegularRatio = 29; // Default
+    try {
+      const CoFounderShare = require('../models/CoFounderShare');
+      const coFounderConfig = await CoFounderShare.findOne();
+      if (coFounderConfig && coFounderConfig.shareToRegularRatio) {
+        shareToRegularRatio = coFounderConfig.shareToRegularRatio;
+      }
+    } catch (error) {
+      console.log('Could not get ratio from CoFounderShare model, using default 29');
+    }
+    
+    // FIXED: Updated aggregation pipeline to properly read co-founder shares
     const pipeline = [
       // First, get all active users
       {
@@ -1119,10 +1131,10 @@ exports.getCofounderLeaderboard = async (req, res) => {
         }
       },
       
-      // Lookup completed co-founder transactions using the correct collection name
+      // FIXED: Lookup completed co-founder transactions from PaymentTransaction collection
       {
         $lookup: {
-          from: actualCollectionName, // Use the actual collection name
+          from: actualCollectionName,
           let: { userId: '$_id' },
           pipeline: [
             {
@@ -1141,6 +1153,16 @@ exports.getCofounderLeaderboard = async (req, res) => {
         }
       },
       
+      // ALSO: Check UserShare transactions for co-founder shares (backward compatibility)
+      {
+        $lookup: {
+          from: 'usershares',
+          localField: '_id',
+          foreignField: 'user',
+          as: 'userShares'
+        }
+      },
+      
       // Lookup referral data for context
       {
         $lookup: {
@@ -1151,39 +1173,92 @@ exports.getCofounderLeaderboard = async (req, res) => {
         }
       },
       
-      // Calculate total co-founder shares from transactions
+      // FIXED: Calculate total co-founder shares from BOTH sources
       {
         $addFields: {
-          totalCofounderShares: {
+          // Shares from PaymentTransaction (primary source)
+          cofounderSharesFromTransactions: {
             $sum: '$cofounderTransactions.shares'
           },
           
+          // Shares from UserShare transactions (backup/legacy)
+          cofounderSharesFromUserShare: {
+            $reduce: {
+              input: { $ifNull: [{ $arrayElemAt: ['$userShares.transactions', 0] }, []] },
+              initialValue: 0,
+              in: {
+                $cond: {
+                  if: { 
+                    $and: [
+                      { $eq: ['$$this.paymentMethod', 'co-founder'] },
+                      { $eq: ['$$this.status', 'completed'] }
+                    ]
+                  },
+                  then: { $add: ['$$value', { $ifNull: ['$$this.coFounderShares', '$$this.shares', 0] }] },
+                  else: '$$value'
+                }
+              }
+            }
+          },
+          
+          // Total earnings for context
           totalEarnings: {
             $ifNull: [
               { $arrayElemAt: ['$referralData.totalEarnings', 0] },
               0
             ]
+          }
+        }
+      },
+      
+      // FIXED: Combine both sources and calculate total
+      {
+        $addFields: {
+          totalCofounderShares: {
+            $add: [
+              '$cofounderSharesFromTransactions',
+              '$cofounderSharesFromUserShare'
+            ]
           },
           
-          // Debug fields to understand the data
+          // Calculate equivalent regular shares
+          equivalentRegularShares: {
+            $multiply: [
+              {
+                $add: [
+                  '$cofounderSharesFromTransactions',
+                  '$cofounderSharesFromUserShare'
+                ]
+              },
+              shareToRegularRatio
+            ]
+          },
+          
+          // Debug info
           transactionCount: { $size: '$cofounderTransactions' },
-          transactionDetails: {
-            $map: {
-              input: '$cofounderTransactions',
-              as: 'transaction',
-              in: {
-                shares: '$$transaction.shares',
-                amount: '$$transaction.amount',
-                status: '$$transaction.status',
-                transactionId: '$$transaction.transactionId',
-                date: '$$transaction.createdAt'
-              }
+          userShareTransactionCount: {
+            $size: {
+              $ifNull: [
+                {
+                  $filter: {
+                    input: { $ifNull: [{ $arrayElemAt: ['$userShares.transactions', 0] }, []] },
+                    as: 'transaction',
+                    cond: { 
+                      $and: [
+                        { $eq: ['$$transaction.paymentMethod', 'co-founder'] },
+                        { $eq: ['$$transaction.status', 'completed'] }
+                      ]
+                    }
+                  }
+                },
+                []
+              ]
             }
           }
         }
       },
       
-      // FIXED: Only include users who actually have co-founder shares
+      // FIXED: Only include users who actually have co-founder shares from either source
       {
         $match: {
           totalCofounderShares: { $gt: 0 }
@@ -1207,18 +1282,24 @@ exports.getCofounderLeaderboard = async (req, res) => {
           name: 1,
           userName: 1,
           totalCofounderShares: 1,
+          equivalentRegularShares: 1,
           totalEarnings: 1,
           'location.state': 1,
           'location.city': 1,
           createdAt: 1,
-          // Calculate equivalent regular shares (get ratio from CoFounderShare model)
-          equivalentRegularShares: { 
-            $multiply: ['$totalCofounderShares', 29] // Default to 29, will be updated below
-          },
+          
           // Debug info (only in development)
           ...(process.env.NODE_ENV === 'development' && {
             transactionCount: 1,
-            transactionDetails: 1
+            userShareTransactionCount: 1,
+            cofounderSharesFromTransactions: 1,
+            cofounderSharesFromUserShare: 1,
+            shareBreakdown: {
+              fromPaymentTransaction: '$cofounderSharesFromTransactions',
+              fromUserShare: '$cofounderSharesFromUserShare',
+              total: '$totalCofounderShares',
+              equivalentRegular: '$equivalentRegularShares'
+            }
           })
         }
       }
@@ -1229,29 +1310,11 @@ exports.getCofounderLeaderboard = async (req, res) => {
     
     console.log(`Found ${cofounders.length} cofounders with shares > 0`);
     
-    // Get the actual ratio from CoFounderShare model
-    let shareToRegularRatio = 29; // Default
-    try {
-      const CoFounderShare = require('../models/CoFounderShare');
-      const coFounderConfig = await CoFounderShare.findOne();
-      if (coFounderConfig && coFounderConfig.shareToRegularRatio) {
-        shareToRegularRatio = coFounderConfig.shareToRegularRatio;
-      }
-    } catch (error) {
-      console.log('Could not get ratio from CoFounderShare model, using default 29');
-    }
-    
-    // Update equivalent regular shares with correct ratio
-    const cofoundersWithCorrectRatio = cofounders.map(user => ({
-      ...user,
-      equivalentRegularShares: user.totalCofounderShares * shareToRegularRatio
-    }));
-    
     // Enhanced debug info (only in development)
     let debugInfo = {};
     if (process.env.NODE_ENV === 'development') {
       try {
-        // Check total completed co-founder transactions by querying the model directly
+        // Check total completed co-founder transactions
         const totalCompletedTransactions = await PaymentTransaction.countDocuments({
           type: 'co-founder',
           status: 'completed'
@@ -1262,13 +1325,44 @@ exports.getCofounderLeaderboard = async (req, res) => {
           status: 'completed'
         });
         
+        // Also check UserShare for co-founder transactions
+        const userSharesWithCofounder = await User.aggregate([
+          {
+            $lookup: {
+              from: 'usershares',
+              localField: '_id',
+              foreignField: 'user',
+              as: 'userShares'
+            }
+          },
+          {
+            $unwind: { path: '$userShares', preserveNullAndEmptyArrays: true }
+          },
+          {
+            $match: {
+              'userShares.transactions': {
+                $elemMatch: {
+                  paymentMethod: 'co-founder',
+                  status: 'completed'
+                }
+              }
+            }
+          },
+          { $count: 'total' }
+        ]);
+        
         debugInfo = {
           actualCollectionName,
           shareToRegularRatio,
           totalCofoundersFound: cofounders.length,
           totalCompletedTransactions,
-          uniqueUsersWithCompletedTransactions: uniqueUsersWithTransactions.length,
-          uniqueUserIds: uniqueUsersWithTransactions
+          uniqueUsersWithTransactions: uniqueUsersWithTransactions.length,
+          userShareCofounderTransactions: userSharesWithCofounder[0]?.total || 0,
+          dataSources: {
+            paymentTransactionUsers: uniqueUsersWithTransactions.length,
+            userShareUsers: userSharesWithCofounder[0]?.total || 0,
+            combinedResults: cofounders.length
+          }
         };
         
         console.log('Debug info:', debugInfo);
@@ -1279,19 +1373,20 @@ exports.getCofounderLeaderboard = async (req, res) => {
     
     res.json({
       success: true,
-      data: cofoundersWithCorrectRatio.map((user, index) => ({
+      data: cofounders.map((user, index) => ({
         ...user,
         rank: index + 1
       })),
       pagination: {
         currentPage: 1,
         totalPages: 1,
-        totalItems: cofoundersWithCorrectRatio.length,
+        totalItems: cofounders.length,
         hasNext: false,
         hasPrev: false,
         limit: limit
       },
       filter: 'cofounder',
+      shareToRegularRatio,
       ...(process.env.NODE_ENV === 'development' && { debug: debugInfo })
     });
     
