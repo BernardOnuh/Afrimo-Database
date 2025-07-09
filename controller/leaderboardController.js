@@ -54,6 +54,11 @@ try {
   };
 }
 
+const calculateTotalShares = (regularShares, cofounderShares, ratio = 29) => {
+  return regularShares + (cofounderShares * ratio);
+};
+
+
 const { leaderboardQuerySchema, visibilityUpdateSchema, bulkUpdateSchema } = adminValidation;
 
 // ====================
@@ -126,6 +131,18 @@ const getTimeFilteredLeaderboard = async (timeFrame, categoryFilter = 'registrat
   const PaymentTransaction = require('../models/Transaction');
   const actualCollectionName = PaymentTransaction.collection.name;
   
+  // Get co-founder share ratio
+  let shareToRegularRatio = 29; // Default
+  try {
+    const CoFounderShare = require('../models/CoFounderShare');
+    const coFounderConfig = await CoFounderShare.findOne();
+    if (coFounderConfig && coFounderConfig.shareToRegularRatio) {
+      shareToRegularRatio = coFounderConfig.shareToRegularRatio;
+    }
+  } catch (error) {
+    console.log('Could not get ratio from CoFounderShare model, using default 29');
+  }
+  
   let transactionField = null;
   if (dateThreshold) {
     switch (categoryFilter) {
@@ -152,7 +169,7 @@ const getTimeFilteredLeaderboard = async (timeFrame, categoryFilter = 'registrat
       }
     },
     
-    // FIXED: Lookup cofounder shares from transactions collection
+    // FIXED: Lookup cofounder shares from PaymentTransaction collection
     {
       $lookup: {
         from: actualCollectionName,
@@ -219,7 +236,7 @@ const getTimeFilteredLeaderboard = async (timeFrame, categoryFilter = 'registrat
     });
   }
   
-  // Calculate shares and other fields
+  // FIXED: Calculate shares and other fields with proper co-founder integration
   aggregatePipeline.push({
     $addFields: {
       // Safely get the first element from the referralData array
@@ -236,17 +253,103 @@ const getTimeFilteredLeaderboard = async (timeFrame, categoryFilter = 'registrat
         } 
       },
       
-      totalShares: { $sum: '$shares.totalShares' },
+      // FIXED: Calculate regular shares (from UserShare)
+      regularShares: { $sum: '$shares.totalShares' },
       
-      // FIXED: Calculate cofounder shares from transactions
+      // FIXED: Calculate co-founder shares from PaymentTransaction
       totalCofounderShares: {
         $sum: '$cofounderTransactions.shares'
       },
       
-      combinedShares: { 
-        $sum: [
-          { $sum: '$shares.totalShares' }, 
-          { $sum: '$cofounderTransactions.shares' }  // Use transaction-based cofounder shares
+      // ALSO: Get co-founder shares from UserShare transactions (backward compatibility)
+      cofounderSharesFromUserShare: {
+        $reduce: {
+          input: {
+            $ifNull: [
+              {
+                $filter: {
+                  input: { $arrayElemAt: ['$shares.transactions', 0] },
+                  as: 'transaction',
+                  cond: {
+                    $and: [
+                      { $eq: ['$$transaction.paymentMethod', 'co-founder'] },
+                      { $eq: ['$$transaction.status', 'completed'] }
+                    ]
+                  }
+                }
+              },
+              []
+            ]
+          },
+          initialValue: 0,
+          in: {
+            $add: [
+              '$$value',
+              { $ifNull: ['$$this.coFounderShares', '$$this.shares', 0] }
+            ]
+          }
+        }
+      }
+    }
+  });
+  
+  // FIXED: Calculate derived fields with proper co-founder share conversion
+  aggregatePipeline.push({
+    $addFields: {
+      // FIXED: Total co-founder shares from both sources
+      actualCofounderShares: {
+        $add: [
+          '$totalCofounderShares',
+          '$cofounderSharesFromUserShare'
+        ]
+      },
+      
+      // FIXED: Convert co-founder shares to regular share equivalent
+      equivalentRegularSharesFromCofounder: {
+        $multiply: [
+          {
+            $add: [
+              '$totalCofounderShares',
+              '$cofounderSharesFromUserShare'
+            ]
+          },
+          shareToRegularRatio
+        ]
+      },
+      
+      // FIXED: Calculate TOTAL shares (regular + equivalent from co-founder)
+      totalShares: {
+        $add: [
+          { $sum: '$shares.totalShares' }, // Regular shares
+          {
+            $multiply: [
+              {
+                $add: [
+                  '$totalCofounderShares',
+                  '$cofounderSharesFromUserShare'
+                ]
+              },
+              shareToRegularRatio
+            ]
+          } // Equivalent regular shares from co-founder
+        ]
+      },
+      
+      // FIXED: Combined shares (same as totalShares for consistency)
+      combinedShares: {
+        $add: [
+          { $sum: '$shares.totalShares' }, // Regular shares
+          {
+            $multiply: [
+              {
+                $add: [
+                  '$totalCofounderShares',
+                  '$cofounderSharesFromUserShare'
+                ]
+              },
+              shareToRegularRatio
+            ]
+          } // Equivalent regular shares from co-founder
         ]
       },
       
@@ -313,10 +416,19 @@ const getTimeFilteredLeaderboard = async (timeFrame, categoryFilter = 'registrat
         }
       },
       
+      // FIXED: Total spent including co-founder transactions
       totalSpent: { 
-        $sum: [
-          { $sum: '$shares.transactions.totalAmount' },
-          { $sum: '$cofounderTransactions.amount' }  // Include cofounder transaction amounts
+        $add: [
+          { 
+            $sum: {
+              $map: {
+                input: { $ifNull: [{ $arrayElemAt: ['$shares.transactions', 0] }, []] },
+                as: 'transaction',
+                in: { $ifNull: ['$$transaction.totalAmount', 0] }
+              }
+            }
+          },
+          { $sum: '$cofounderTransactions.amount' } // Include co-founder transaction amounts
         ]
       }
     }
@@ -387,8 +499,10 @@ const getTimeFilteredLeaderboard = async (timeFrame, categoryFilter = 'registrat
         _id: 1,
         name: 1,
         userName: 1,
+        // FIXED: Use the corrected totalShares that includes co-founder equivalent
         totalShares: 1,
-        totalCofounderShares: 1,
+        // FIXED: Show actual co-founder shares count
+        totalCofounderShares: '$actualCofounderShares',
         combinedShares: 1,
         referralCount: 1,
         totalEarnings: 1,
@@ -398,6 +512,15 @@ const getTimeFilteredLeaderboard = async (timeFrame, categoryFilter = 'registrat
         processingWithdrawalsAmount: 1,
         totalSpent: 1,
         createdAt: 1,
+        // FIXED: Add breakdown for debugging
+        ...(process.env.NODE_ENV === 'development' && {
+          shareBreakdown: {
+            regularShares: '$regularShares',
+            cofounderShares: '$actualCofounderShares',
+            equivalentRegularFromCofounder: '$equivalentRegularSharesFromCofounder',
+            totalCalculated: '$totalShares'
+          }
+        }),
         ...(dateThreshold && transactionField === 'referralTransactions' ? {
           periodEarnings: 1
         } : {}),
@@ -2312,9 +2435,27 @@ exports.getLeaderboardByLocation = async (filters) => {
             }
           }
         },
-        totalShares: { $sum: '$shares.totalShares' }
+        
+        // FIXED: Include co-founder shares in total calculation
+        regularShares: { $sum: '$shares.totalShares' },
+        
+        // Get co-founder shares
+        cofounderShares: { $sum: '$cofounderTransactions.shares' },
+        
+        // FIXED: Total shares = regular + (cofounder * 29)
+        totalShares: {
+          $add: [
+            { $sum: '$shares.totalShares' },
+            {
+              $multiply: [
+                { $sum: '$cofounderTransactions.shares' },
+                29 // shareToRegularRatio
+              ]
+            }
+          ]
+        }
       }
-    },
+    },    
     {
       $addFields: {
         totalEarnings: { $ifNull: ["$referralInfo.totalEarnings", 0] },
@@ -2741,26 +2882,71 @@ exports.getLeaderboardByShares = async (filters) => {
       }
     },
     {
-      $addFields: {
-        // Determine which share count to use for filtering based on shareType
-        filterShareCount: {
-          $cond: {
-            if: { $eq: [shareType, 'regular'] },
-            then: '$regularShares',
-            else: {
-              $cond: {
-                if: { $eq: [shareType, 'cofounder'] },
-                then: '$cofounderSharesTotal',
-                else: '$combinedShares' // 'all' or default
+      $lookup: {
+        from: 'transactions', // Use actual collection name
+        let: { userId: '$_id' },
+        pipeline: [
+          {
+            $match: {
+              $expr: {
+                $and: [
+                  { $eq: ['$userId', '$$userId'] },
+                  { $eq: ['$type', 'co-founder'] },
+                  { $eq: ['$status', 'completed'] }
+                ]
               }
             }
           }
-        },
-        
-        // Add total earnings for context
-        totalEarnings: { $ifNull: ["$referralInfo.totalEarnings", 0] }
+        ],
+        as: 'cofounderTransactions'
       }
     },
+    {
+      $addFields: {
+        // FIXED: Calculate different types of shares including co-founder conversion
+        regularShares: { $sum: '$shares.totalShares' },
+        
+        // Get co-founder shares from both sources
+        cofounderSharesFromTransaction: { $sum: '$cofounderShares.totalShares' },
+        cofounderSharesFromPaymentTx: { $sum: '$cofounderTransactions.shares' },
+        
+        // Total co-founder shares
+        totalCofounderShares: {
+          $add: [
+            { $sum: '$cofounderShares.totalShares' },
+            { $sum: '$cofounderTransactions.shares' }
+          ]
+        },
+        
+        // FIXED: Combined shares = regular + (cofounder * ratio)
+        combinedShares: { 
+          $add: [
+            { $sum: '$shares.totalShares' }, // Regular shares
+            {
+              $multiply: [
+                {
+                  $add: [
+                    { $sum: '$cofounderShares.totalShares' },
+                    { $sum: '$cofounderTransactions.shares' }
+                  ]
+                },
+                29 // shareToRegularRatio - you can make this dynamic
+              ]
+            }
+          ]
+        },
+        
+        // Add referral info for additional context
+        referralInfo: {
+          $cond: {
+            if: { $gt: [{ $size: "$referralData" }, 0] },
+            then: { $arrayElemAt: ["$referralData", 0] },
+            else: { totalEarnings: 0 }
+          }
+        }
+      }
+    },
+    
     {
       $match: {
         'status.isActive': true,
@@ -3606,6 +3792,27 @@ exports.getLeaderboardByLocationFixed = async (filters) => {
         as: 'shares'
       }
     },
+    {
+      $lookup: {
+        from: 'transactions', // Use actual collection name  
+        let: { userId: '$_id' },
+        pipeline: [
+          {
+            $match: {
+              $expr: {
+                $and: [
+                  { $eq: ['$userId', '$$userId'] },
+                  { $eq: ['$type', 'co-founder'] },
+                  { $eq: ['$status', 'completed'] }
+                ]
+              }
+            }
+          }
+        ],
+        as: 'cofounderTransactions'
+      }
+    },
+    
     {
       $addFields: {
         referralInfo: {
