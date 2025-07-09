@@ -1223,6 +1223,16 @@ exports.getCofounderLeaderboard = async (req, res) => {
         }
       },
       
+      // Lookup regular shares
+      {
+        $lookup: {
+          from: 'usershares',
+          localField: '_id',
+          foreignField: 'user',
+          as: 'shares'
+        }
+      },
+      
       // Lookup referral data for context
       {
         $lookup: {
@@ -1236,6 +1246,9 @@ exports.getCofounderLeaderboard = async (req, res) => {
       // FIXED: Calculate total co-founder shares from SINGLE source only
       {
         $addFields: {
+          // Regular shares from UserShare
+          regularShares: { $sum: '$shares.totalShares' },
+          
           // FIXED: Shares from PaymentTransaction ONLY (single source)
           totalCofounderShares: {
             $sum: '$cofounderTransactions.shares'
@@ -1257,11 +1270,24 @@ exports.getCofounderLeaderboard = async (req, res) => {
       // FIXED: Calculate equivalent regular shares from single source
       {
         $addFields: {
-          // Calculate equivalent regular shares
+          // Calculate equivalent regular shares from co-founder shares
           equivalentRegularShares: {
             $multiply: [
               '$totalCofounderShares',
               shareToRegularRatio
+            ]
+          },
+          
+          // FIXED: Calculate total shares (regular + co-founder equivalent)
+          totalShares: {
+            $add: [
+              '$regularShares',
+              {
+                $multiply: [
+                  '$totalCofounderShares',
+                  shareToRegularRatio
+                ]
+              }
             ]
           }
         }
@@ -1286,11 +1312,13 @@ exports.getCofounderLeaderboard = async (req, res) => {
       
       // Project final fields
       {
-        $project: {
+        $project:         {
           _id: 1,
           name: 1,
           userName: 1,
+          regularShares: 1,
           totalCofounderShares: 1,
+          totalShares: 1,
           equivalentRegularShares: 1,
           totalEarnings: 1,
           'location.state': 1,
@@ -1301,8 +1329,10 @@ exports.getCofounderLeaderboard = async (req, res) => {
           ...(process.env.NODE_ENV === 'development' && {
             transactionCount: 1,
             shareBreakdown: {
+              regularShares: '$regularShares',
               cofounderShares: '$totalCofounderShares',
-              equivalentRegular: '$equivalentRegularShares'
+              equivalentRegular: '$equivalentRegularShares',
+              totalShares: '$totalShares'
             }
           })
         }
