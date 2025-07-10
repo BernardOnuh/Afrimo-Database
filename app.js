@@ -6,9 +6,8 @@ const path = require('path');
 const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
 const cron = require('node-cron');
-const fs = require('fs'); // Added for enhanced file handling
+const fs = require('fs');
 
-// Load environment variables
 require('dotenv').config();
 
 // Import custom middleware
@@ -24,32 +23,24 @@ console.log(`LENCO_API_KEY configured: ${process.env.LENCO_API_KEY ? 'Yes' : 'No
 console.log(`Storage Method: MongoDB + Legacy File System`);
 console.log('======================================');
 
-// ========================================
-// ENHANCED CORS CONFIGURATION
-// ========================================
-
 // Enhanced CORS configuration
 const corsOptions = {
   origin: function (origin, callback) {
-    // Allow requests with no origin (like mobile apps or curl requests)
     if (!origin) return callback(null, true);
     
-    // List of allowed origins
     const allowedOrigins = [
       'http://localhost:3000',
       'http://localhost:3001', 
       'http://localhost:5000',
       'http://localhost:8080',
       'https://afrimo-database.onrender.com',
-      'https://www.afrimobil.com',  // ← ADD THIS LINE
-      'https://afrimobil.com',      // ← AND THIS (without www)
-      'https://www.afrimobiletech.com',  // ← ADD THIS LINE
-      'https://afrimobiletech.com',      // ← AND THIS (without www)
-      'https://your-frontend-domain.netlify.app', // If using Netlify
-      // Add more domains as needed
+      'https://www.afrimobil.com',
+      'https://afrimobil.com',
+      'https://www.afrimobiletech.com',
+      'https://afrimobiletech.com',
+      'https://your-frontend-domain.netlify.app',
     ];
     
-    // In development, allow all localhost origins
     if (process.env.NODE_ENV === 'development') {
       const localhostRegex = /^http:\/\/localhost:\d+$/;
       if (localhostRegex.test(origin)) {
@@ -57,7 +48,6 @@ const corsOptions = {
       }
     }
     
-    // Check if origin is in allowed list
     if (allowedOrigins.indexOf(origin) !== -1) {
       callback(null, true);
     } else {
@@ -65,7 +55,7 @@ const corsOptions = {
       callback(new Error('Not allowed by CORS'));
     }
   },
-  credentials: true, // Allow cookies and authentication headers
+  credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
   allowedHeaders: [
     'Origin',
@@ -76,23 +66,16 @@ const corsOptions = {
     'Cache-Control',
     'X-Access-Token'
   ],
-  exposedHeaders: ['X-Total-Count'], // Expose custom headers to frontend
-  optionsSuccessStatus: 200 // Some legacy browsers choke on 204
+  exposedHeaders: ['X-Total-Count'],
+  optionsSuccessStatus: 200
 };
 
-// Apply CORS with options
 app.use(cors(corsOptions));
-
-// Add preflight handling for complex requests
 app.options('*', cors(corsOptions));
 
-// ========================================
-// SECURITY MIDDLEWARE WITH UPDATED HELMET
-// ========================================
-
-// Updated helmet configuration to be less restrictive for file serving
+// Security middleware
 app.use(helmet({
-  crossOriginResourcePolicy: { policy: "cross-origin" }, // Allow cross-origin resource access
+  crossOriginResourcePolicy: { policy: "cross-origin" },
   contentSecurityPolicy: {
     directives: {
       defaultSrc: ["'self'"],
@@ -110,27 +93,146 @@ app.use(helmet({
 
 // Rate limiting
 const limiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 100, // limit each IP to 100 requests per windowMs
+  windowMs: 15 * 60 * 1000,
+  max: 100,
   message: 'Too many requests from this IP, please try again after 15 minutes'
 });
 
-// Apply rate limiting to all routes
 app.use(limiter);
 
-// Connect to MongoDB
-mongoose.connect(process.env.MONGODB_URI, {
-  useNewUrlParser: true,
-  useUnifiedTopology: true,
-})
-.then(() => console.log('MongoDB Connected'))
-.catch(err => {
-  console.error(`Error connecting to MongoDB: ${err.message}`);
-  process.exit(1);
+// Database connection with health monitor integration
+const connectDB = async () => {
+  try {
+    const mongoUri = process.env.MONGODB_URI || 
+                    process.env.MONGO_URI || 
+                    process.env.DATABASE_URL ||
+                    'mongodb://localhost:27017/afrimobile';
+    
+    // Updated MongoDB connection options - removed deprecated options
+    const options = {
+      useNewUrlParser: true,
+      useUnifiedTopology: true,
+      maxPoolSize: 10,
+      serverSelectionTimeoutMS: 5000,
+      socketTimeoutMS: 45000,
+      // Removed: bufferCommands: false, (deprecated)
+      // Removed: bufferMaxEntries: 0 (deprecated - this was causing the error)
+      
+      // Modern connection options
+      heartbeatFrequencyMS: 10000,
+      maxIdleTimeMS: 30000,
+      retryWrites: true,
+      retryReads: true
+    };
+    
+    await mongoose.connect(mongoUri, options);
+    
+    console.log('✅ Connected to MongoDB');
+    console.log(`📊 Database: ${mongoose.connection.name}`);
+    console.log(`🔗 Connection URI: ${mongoUri.split('@')[1] || 'localhost'}`); // Hide credentials
+    
+    // Initialize health monitor after database connection
+    initializeHealthMonitor();
+    
+  } catch (error) {
+    console.error('❌ Database connection failed:', error.message);
+    console.error('🔄 Retrying connection in 5 seconds...');
+    
+    // Retry connection after 5 seconds
+    setTimeout(() => {
+      console.log('🔄 Attempting to reconnect to database...');
+      connectDB();
+    }, 5000);
+  }
+};
+
+// Enhanced Initialize health monitoring system with better error handling
+function initializeHealthMonitor() {
+  // Only start in non-test environments and when database is connected
+  if (process.env.NODE_ENV !== 'test' && mongoose.connection.readyState === 1) {
+    try {
+      console.log('🏥 Initializing System Health Monitor...');
+      
+      // Import and start the health monitor
+      const healthMonitor = require('./scripts/systemHealthMonitor');
+      
+      // Check if health monitor module is properly loaded
+      if (!healthMonitor || typeof healthMonitor.startMonitoring !== 'function') {
+        throw new Error('Health monitor module not properly loaded or missing startMonitoring function');
+      }
+      
+      healthMonitor.startMonitoring();
+      
+      console.log('✅ System Health Monitor started successfully');
+      console.log(`⏰ Check interval: ${process.env.HEALTH_CHECK_INTERVAL || 15} minutes`);
+      console.log(`🔧 Auto-fix: ${process.env.AUTO_FIX_ENABLED !== 'false' ? 'ENABLED' : 'DISABLED'}`);
+      
+      // Store reference for graceful shutdown
+      global.healthMonitor = healthMonitor;
+      
+      // Delayed status check
+      setTimeout(() => {
+        try {
+          const status = healthMonitor.getMonitorStatus();
+          console.log(`📈 Health Monitor Status: ${status.isRunning ? 'Running' : 'Stopped'}`);
+          if (status.runCount > 0) {
+            console.log(`📊 Completed ${status.runCount} health checks`);
+            console.log(`🕒 Last run: ${status.lastRun || 'Never'}`);
+          }
+        } catch (error) {
+          console.error('❌ Error getting health monitor status:', error.message);
+        }
+      }, 3000);
+      
+    } catch (error) {
+      console.error('❌ Failed to start Health Monitor:', error.message);
+      console.error('📋 Health Monitor Error Details:', error.stack);
+      console.log('🔄 The application will continue running without the health monitor');
+      
+      // Set a flag to indicate health monitor is disabled
+      global.healthMonitor = null;
+    }
+  } else if (mongoose.connection.readyState !== 1) {
+    console.log('⏳ Database not ready - Health Monitor will start after connection');
+  } else {
+    console.log('🧪 Test environment detected - Health Monitor disabled');
+  }
+}
+
+// Enhanced database event listeners
+mongoose.connection.on('connected', () => {
+  console.log('🔗 Mongoose connected to MongoDB');
+});
+
+mongoose.connection.on('error', (err) => {
+  console.error('❌ Mongoose connection error:', err.message);
+});
+
+mongoose.connection.on('disconnected', () => {
+  console.log('🔌 Mongoose disconnected from MongoDB');
+  // Try to reconnect after disconnection
+  setTimeout(() => {
+    if (mongoose.connection.readyState === 0) {
+      console.log('🔄 Attempting to reconnect...');
+      connectDB();
+    }
+  }, 5000);
+});
+
+// Handle MongoDB connection issues gracefully
+process.on('SIGINT', async () => {
+  try {
+    await mongoose.connection.close();
+    console.log('✅ MongoDB connection closed through app termination');
+    process.exit(0);
+  } catch (error) {
+    console.error('❌ Error closing MongoDB connection:', error);
+    process.exit(1);
+  }
 });
 
 // Middleware
-app.use(express.json({ limit: '10mb' })); // Increased limit for MongoDB storage
+app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
 // Logging middleware
@@ -138,7 +240,7 @@ if (process.env.NODE_ENV === 'development') {
   app.use(morgan('dev'));
 }
 
-// For development - very permissive CORS
+// Development CORS
 if (process.env.NODE_ENV === 'development') {
   app.use((req, res, next) => {
     res.header('Access-Control-Allow-Origin', '*');
@@ -146,19 +248,13 @@ if (process.env.NODE_ENV === 'development') {
     res.header('Access-Control-Allow-Headers', '*');
     next();
   });
-  
   console.log('🔓 Development mode: Permissive CORS enabled');
 }
 
-// ====================================
-// SIMPLIFIED STATIC FILE SERVING (LEGACY SUPPORT)
-// ====================================
-
+// Static file serving
 console.log('📁 Setting up legacy file serving (MongoDB storage active for new uploads)');
 
-// Simplified static file serving for legacy files
 app.use('/uploads', (req, res, next) => {
-  // Add CORS headers for file serving
   res.header('Access-Control-Allow-Origin', '*');
   res.header('Access-Control-Allow-Methods', 'GET, OPTIONS');
   res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
@@ -166,7 +262,6 @@ app.use('/uploads', (req, res, next) => {
   console.log(`[legacy-serve] Legacy file request: ${req.path}`);
   console.log(`[legacy-serve] Note: New files are served from MongoDB via controllers`);
   
-  // This will only serve old files that exist on disk
   next();
 }, express.static(path.join(__dirname, 'uploads'), {
   maxAge: '1d',
@@ -179,7 +274,6 @@ app.use('/uploads', (req, res, next) => {
   }
 }));
 
-// Simplified co-founder payment proofs route (legacy support)
 app.use('/cofounder-payment-proofs', (req, res, next) => {
   res.header('Access-Control-Allow-Origin', '*');
   res.header('Access-Control-Allow-Methods', 'GET, OPTIONS');
@@ -202,24 +296,17 @@ app.use('/cofounder-payment-proofs', (req, res, next) => {
 // Setup Swagger documentation
 setupSwagger(app);
 
-// ========================================
-// SIMPLIFIED API MONITORING MIDDLEWARE
-// ========================================
-
-// Simplified API monitoring for MongoDB storage
+// API monitoring middleware
 app.use('/api', (req, res, next) => {
-  // Ensure CORS headers are present on all API routes
   res.header('Access-Control-Allow-Origin', req.headers.origin || '*');
   res.header('Access-Control-Allow-Credentials', 'true');
   res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, PATCH, OPTIONS');
   res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization, Cache-Control, X-Access-Token');
   
-  // Handle preflight requests
   if (req.method === 'OPTIONS') {
     return res.status(200).end();
   }
   
-  // Log file-related requests (now using MongoDB storage)
   if (req.path.includes('shares') && (req.method === 'POST' || req.path.includes('manual') || req.path.includes('upload'))) {
     console.log(`[api-monitor] File upload request: ${req.method} ${req.path}`);
     console.log(`[api-monitor] Timestamp: ${new Date().toISOString()}`);
@@ -228,16 +315,10 @@ app.use('/api', (req, res, next) => {
   next();
 });
 
-// ========================================
-// API ROUTES
-// ========================================
-
-// Routes
+// API Routes
 app.use('/api/users', require('./routes/userRoutes'));
 app.use('/api/shares', require('./routes/shareRoutes'));
-app.use('/api/cofounder', require('./routes/coFounderShareRoutes')); // Fixed to use same base path
-
-// New routes for project stats, leaderboard, and referrals
+app.use('/api/cofounder', require('./routes/coFounderShareRoutes'));
 app.use('/api/project', require('./routes/projectRoutes'));
 app.use('/api/leaderboard', require('./routes/leaderboardRoutes'));
 app.use('/api/referral', require('./routes/referralRoutes'));
@@ -245,22 +326,73 @@ app.use('/api/admin/referrals', require('./routes/adminReferralRoutes'));
 app.use('/api/payment', require('./routes/paymentRoutes'));
 app.use('/api/withdrawal', require('./routes/withdrawalRoutes'));
 app.use('/api/exchange-rates', require('./routes/exchangeRateRoutes'));
-
-// Add installment payment routes
 app.use('/api/shares/installment', require('./routes/installmentRoutes'));
-
-// ========================================
-// CO-FOUNDER INSTALLMENT ROUTES (NEW)
-// ========================================
-
-// Add co-founder installment routes
 app.use('/api/shares/cofounder/installment', require('./routes/coFounderInstallmentRoutes'));
 
-// ========================================
-// DEBUG AND MONITORING ENDPOINTS
-// ========================================
+// Health Monitor System Endpoints
+app.get('/api/system/health-status', async (req, res) => {
+  try {
+    const healthMonitor = global.healthMonitor;
+    if (!healthMonitor) {
+      return res.status(503).json({
+        success: false,
+        message: 'Health monitor not initialized'
+      });
+    }
+    
+    const status = healthMonitor.getMonitorStatus();
+    res.json({
+      success: true,
+      data: {
+        ...status,
+        server: {
+          uptime: process.uptime(),
+          memory: process.memoryUsage(),
+          cpu: process.cpuUsage(),
+          version: process.version,
+          platform: process.platform
+        },
+        database: {
+          connected: mongoose.connection.readyState === 1,
+          state: mongoose.connection.readyState
+        }
+      }
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
 
-// Add CORS test endpoint
+app.post('/api/system/health-check', async (req, res) => {
+  try {
+    console.log('🔍 Manual health check requested');
+    const healthMonitor = global.healthMonitor;
+    if (!healthMonitor) {
+      return res.status(503).json({
+        success: false,
+        message: 'Health monitor not initialized'
+      });
+    }
+    
+    const results = await healthMonitor.runManualCheck();
+    res.json({
+      success: true,
+      message: 'Manual health check completed',
+      data: results
+    });
+  } catch (error) {
+    console.error('❌ Manual health check failed:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
+// Debug and monitoring endpoints
 app.get('/api/cors-test', (req, res) => {
   res.json({
     success: true,
@@ -273,7 +405,6 @@ app.get('/api/cors-test', (req, res) => {
   });
 });
 
-// Updated file access test endpoint
 app.get('/api/test-file-access', (req, res) => {
   res.json({
     success: true,
@@ -301,7 +432,6 @@ app.get('/api/test-file-access', (req, res) => {
   });
 });
 
-// Updated file system debugging endpoint
 app.get('/api/debug/files', (req, res) => {
   try {
     const uploadsDir = path.join(process.cwd(), 'uploads');
@@ -336,7 +466,6 @@ app.get('/api/debug/files', (req, res) => {
       diskSpace: null
     };
     
-    // Check disk space if possible
     try {
       const stats = fs.statSync(process.cwd());
       result.diskSpace = {
@@ -350,7 +479,6 @@ app.get('/api/debug/files', (req, res) => {
       };
     }
     
-    // Check both directories (legacy files only)
     const directories = [
       { path: paymentProofsDir, key: 'paymentProofs', name: 'payment-proofs' },
       { path: cofounderPaymentProofsDir, key: 'cofounderPaymentProofs', name: 'cofounder-payment-proofs' }
@@ -383,7 +511,6 @@ app.get('/api/debug/files', (req, res) => {
             }
           });
           
-          // Sort by modification time (newest first)
           result.files[key].sort((a, b) => new Date(b.modified) - new Date(a.modified));
         } catch (err) {
           result[`${key}Error`] = `Error reading directory: ${err.message}`;
@@ -404,7 +531,7 @@ app.get('/api/debug/files', (req, res) => {
   }
 });
 
-// Enhanced manual referral sync endpoint with better error handling
+// Enhanced manual referral sync endpoint
 app.post('/api/referral/sync-earnings', async (req, res) => {
   try {
     console.log('\n======================================');
@@ -443,7 +570,7 @@ app.post('/api/referral/sync-earnings', async (req, res) => {
   }
 });
 
-// Add a debug endpoint to check referral data structure
+// Debug endpoint for referral data
 app.get('/api/referral/debug/:userId?', async (req, res) => {
   try {
     const User = require('./models/User');
@@ -454,7 +581,6 @@ app.get('/api/referral/debug/:userId?', async (req, res) => {
     const { userId } = req.params;
     
     if (userId) {
-      // Debug specific user
       const user = await User.findById(userId);
       if (!user) {
         return res.status(404).json({ success: false, message: 'User not found' });
@@ -484,14 +610,12 @@ app.get('/api/referral/debug/:userId?', async (req, res) => {
         referralStats: referralStats
       });
     } else {
-      // General debug info
       const totalUsers = await User.countDocuments();
       const usersWithUserNames = await User.countDocuments({ userName: { $exists: true, $ne: null } });
       const totalUserShares = await UserShare.countDocuments();
       const totalReferralTransactions = await ReferralTransaction.countDocuments();
       const totalReferrals = await Referral.countDocuments();
       
-      // Sample data
       const sampleUser = await User.findOne({ userName: { $exists: true, $ne: null } });
       const sampleUserShare = await UserShare.findOne();
       const sampleReferralTransaction = await ReferralTransaction.findOne();
@@ -531,11 +655,7 @@ app.get('/api/referral/debug/:userId?', async (req, res) => {
   }
 });
 
-// ========================================
-// CO-FOUNDER INSTALLMENT DEBUG ENDPOINTS (NEW)
-// ========================================
-
-// Add manual co-founder installment penalty check endpoint
+// Co-founder installment endpoints
 app.post('/api/cofounder/installment/manual-penalty-check', async (req, res) => {
   try {
     console.log('\n======================================');
@@ -574,7 +694,6 @@ app.post('/api/cofounder/installment/manual-penalty-check', async (req, res) => 
   }
 });
 
-// Add co-founder installment statistics endpoint
 app.get('/api/cofounder/installment/stats', async (req, res) => {
   try {
     const CoFounderInstallmentPlan = require('./models/CoFounderInstallmentPlan');
@@ -588,7 +707,6 @@ app.get('/api/cofounder/installment/stats', async (req, res) => {
       cancelled: await CoFounderInstallmentPlan.countDocuments({ status: 'cancelled' })
     };
 
-    // Calculate financial stats
     const allPlans = await CoFounderInstallmentPlan.find({});
     const financialStats = allPlans.reduce((acc, plan) => {
       acc.totalValue += plan.totalPrice;
@@ -622,11 +740,47 @@ app.get('/api/cofounder/installment/stats', async (req, res) => {
   }
 });
 
-// ========================================
-// CRON JOBS SETUP
-// ========================================
+// Test Lenco API endpoint
+app.get('/api/test-lenco/:reference', async (req, res) => {
+  try {
+    console.log('Testing Lenco API directly...');
+    const { reference } = req.params;
+    
+    console.log(`LENCO_API_KEY configured: ${process.env.LENCO_API_KEY ? 'Yes' : 'No'}`);
+    
+    if (!process.env.LENCO_API_KEY) {
+      return res.status(400).json({
+        success: false,
+        message: 'LENCO_API_KEY not configured in environment variables'
+      });
+    }
+    
+    const axios = require('axios');
+    const response = await axios.get(`https://api.lenco.co/access/v1/transaction-by-reference/${reference}`, {
+      headers: {
+        'Authorization': `Bearer ${process.env.LENCO_API_KEY}`
+      }
+    });
+    
+    return res.json({
+      success: true,
+      data: response.data
+    });
+  } catch (error) {
+    console.error('Error testing Lenco API:', error.message);
+    if (error.response) {
+      console.error('API Response Error:', JSON.stringify(error.response.data, null, 2));
+    }
+    
+    return res.status(500).json({
+      success: false,
+      message: 'Error testing Lenco API',
+      error: error.message
+    });
+  }
+});
 
-// Simple test cron job to verify cron is working (runs every minute)
+// CRON JOBS SETUP
 cron.schedule('* * * * *', () => {
   console.log('\n======================================');
   console.log('TEST CRON: This should run every minute');
@@ -634,7 +788,6 @@ cron.schedule('* * * * *', () => {
   console.log('======================================\n');
 });
 
-// Create a simple test job that just logs withdrawals (runs every minute)
 cron.schedule('* * * * *', async () => {
   console.log('\n**********************************************');
   console.log('*  TEST WITHDRAWAL JOB RUNNING              *');
@@ -642,7 +795,6 @@ cron.schedule('* * * * *', async () => {
   console.log('**********************************************');
   
   try {
-    // Just find withdrawals and log them
     const Withdrawal = require('./models/Withdrawal');
     const processingWithdrawals = await Withdrawal.find({ status: 'processing' });
     console.log(`Found ${processingWithdrawals.length} processing withdrawals`);
@@ -660,8 +812,7 @@ cron.schedule('* * * * *', async () => {
   console.log('**********************************************\n');
 });
 
-// Schedule tasks
-// Setup monthly penalties for overdue installments
+// Production schedulers
 if (process.env.NODE_ENV === 'production') {
   console.log('Setting up production-only cron jobs...');
   
@@ -669,7 +820,6 @@ if (process.env.NODE_ENV === 'production') {
   installmentScheduler.scheduleInstallmentPenalties();
   console.log('Installment penalty scheduler initialized');
   
-  // Add daily check for late installment payments
   cron.schedule('0 0 * * *', async () => {
     try {
       console.log('Running late installment payment check job...');
@@ -681,10 +831,6 @@ if (process.env.NODE_ENV === 'production') {
     }
   });
 
-  // ========================================
-  // CO-FOUNDER INSTALLMENT SCHEDULER SETUP (NEW)
-  // ========================================
-  
   console.log('\n======================================');
   console.log('SETTING UP CO-FOUNDER INSTALLMENT SCHEDULER');
   console.log('======================================');
@@ -692,7 +838,6 @@ if (process.env.NODE_ENV === 'production') {
   try {
     const coFounderInstallmentScheduler = require('./utils/coFounderInstallmentScheduler');
     
-    // Setup co-founder installment penalties (production only)
     coFounderInstallmentScheduler.scheduleCoFounderInstallmentPenalties();
     console.log('✅ Co-founder installment penalty scheduler initialized for production');
     console.log('📅 Daily check: 2:00 AM');
@@ -705,16 +850,15 @@ if (process.env.NODE_ENV === 'production') {
 
   console.log('======================================\n');
 } else {
-  console.log('ℹ️  Co-founder installment scheduler disabled in development mode');
-  console.log('🔧 To test manually, use: POST /api/cofounder/installment/manual-penalty-check');
+  // Continuation from "console.log('🔧 To test manually, use: POST /api/co"
+
+console.log('ℹ️  Co-founder installment scheduler disabled in development mode');
+console.log('🔧 To test manually, use: POST /api/cofounder/installment/manual-penalty-check');
 }
 
-// REFERRAL SYNC CRON JOBS SETUP
 console.log('\n======================================');
 console.log('SETTING UP REFERRAL SYNC CRON JOBS');
 console.log('======================================');
-
-
 
 console.log('======================================\n');
 
@@ -727,11 +871,9 @@ try {
   const withdrawalCronJobs = require('./withdrawalCronJobs');
   console.log('Withdrawal cron jobs module loaded successfully');
   
-  // Force start the processing job directly
   withdrawalCronJobs.verifyProcessingWithdrawals.start();
   console.log('Processing withdrawals job started');
   
-  // Force start the pending job directly
   withdrawalCronJobs.verifyPendingWithdrawals.start();
   console.log('Pending withdrawals job started');
   
@@ -747,7 +889,6 @@ setTimeout(async () => {
   console.log('======================================');
   console.log('Running immediate one-time withdrawal verification check...');
   try {
-    // Only proceed if LENCO_API_KEY is configured
     if (!process.env.LENCO_API_KEY) {
       console.error('LENCO_API_KEY is not configured! API calls will fail.');
       return;
@@ -764,7 +905,6 @@ setTimeout(async () => {
       for (const w of processingWithdrawals) {
         console.log(`- ID: ${w._id}, ClientRef: ${w.clientReference}, Status: ${w.status}, Created: ${w.createdAt}`);
         
-        // Try a direct API call to Lenco for the first withdrawal
         if (processingWithdrawals.indexOf(w) === 0) {
           console.log(`Testing direct API call for withdrawal ${w._id}`);
           try {
@@ -802,25 +942,16 @@ setTimeout(async () => {
     console.error(error.stack);
   }
   console.log('======================================\n');
-}, 5000); // Run 5 seconds after startup
-
-// ========================================
-// STATIC FILES & PRODUCTION SETUP
-// ========================================
+}, 5000);
 
 // Serve static assets if in production
 if (process.env.NODE_ENV === 'production') {
-  // Set static folder
   app.use(express.static('client/build'));
   
   app.get('*', (req, res) => {
     res.sendFile(path.resolve(__dirname, 'client', 'build', 'index.html'));
   });
 }
-
-// ========================================
-// API ENDPOINTS
-// ========================================
 
 // Root route - Health check
 app.get('/', (req, res) => {
@@ -841,7 +972,14 @@ app.get('/', (req, res) => {
       origin: req.get('Origin'),
       method: req.method
     },
-    // Add co-founder installment system info
+    healthMonitor: {
+      enabled: global.healthMonitor ? true : false,
+      status: global.healthMonitor ? 'Running' : 'Disabled',
+      endpoints: [
+        '/api/system/health-status',
+        '/api/system/health-check'
+      ]
+    },
     coFounderInstallments: {
       enabled: true,
       endpoints: [
@@ -861,56 +999,11 @@ app.get('/', (req, res) => {
       regularPayments: '/uploads/payment-proofs/',
       cofounderPayments: [
         '/uploads/cofounder-payment-proofs/',
-        '/cofounder-payment-proofs/' // Alternative route
+        '/cofounder-payment-proofs/'
       ]
     }
   });
 });
-
-// Add a test route for manually checking Lenco API
-app.get('/api/test-lenco/:reference', async (req, res) => {
-  try {
-    console.log('Testing Lenco API directly...');
-    const { reference } = req.params;
-    
-    // Log API key status
-    console.log(`LENCO_API_KEY configured: ${process.env.LENCO_API_KEY ? 'Yes' : 'No'}`);
-    
-    if (!process.env.LENCO_API_KEY) {
-      return res.status(400).json({
-        success: false,
-        message: 'LENCO_API_KEY not configured in environment variables'
-      });
-    }
-    
-    const axios = require('axios');
-    const response = await axios.get(`https://api.lenco.co/access/v1/transaction-by-reference/${reference}`, {
-      headers: {
-        'Authorization': `Bearer ${process.env.LENCO_API_KEY}`
-      }
-    });
-    
-    return res.json({
-      success: true,
-      data: response.data
-    });
-  } catch (error) {
-    console.error('Error testing Lenco API:', error.message);
-    if (error.response) {
-      console.error('API Response Error:', JSON.stringify(error.response.data, null, 2));
-    }
-    
-    return res.status(500).json({
-      success: false,
-      message: 'Error testing Lenco API',
-      error: error.message
-    });
-  }
-});
-
-// ========================================
-// ERROR HANDLING
-// ========================================
 
 // Error handling middleware
 app.use((err, req, res, next) => {
@@ -952,9 +1045,66 @@ app.use((req, res) => {
   });
 });
 
-// ========================================
-// SERVER STARTUP
-// ========================================
+// Graceful shutdown handling
+async function gracefulShutdown(signal) {
+  console.log(`🛑 ${signal} received, shutting down gracefully...`);
+  
+  // Close HTTP server
+  global.server?.close(() => {
+    console.log('✅ HTTP server closed');
+  });
+  
+  // Stop health monitor
+  try {
+    if (global.healthMonitor) {
+      global.healthMonitor.stopMonitoring();
+      console.log('✅ Health monitor stopped');
+    }
+  } catch (error) {
+    console.error('❌ Error stopping health monitor:', error);
+  }
+  
+  // Stop cron jobs
+  try {
+    const withdrawalCronJobs = require('./withdrawalCronJobs');
+    withdrawalCronJobs.stopAll();
+    
+    const coFounderInstallmentScheduler = require('./utils/coFounderInstallmentScheduler');
+    coFounderInstallmentScheduler.stopAll();
+    
+    console.log('✅ Cron jobs stopped (withdrawal, installment, co-founder installment)');
+    console.log('ℹ️  Referral cron jobs continue running for tracking purposes');
+  } catch (error) {
+    console.error('❌ Error stopping cron jobs:', error);
+  }
+  
+  // Close database connection
+  try {
+    await mongoose.connection.close();
+    console.log('✅ Database connection closed');
+  } catch (error) {
+    console.error('❌ Error closing database:', error);
+  }
+  
+  console.log('👋 Process terminated gracefully');
+  process.exit(0);
+}
+
+// Signal handlers
+process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+process.on('SIGINT', () => gracefulShutdown('SIGINT'));
+
+// Handle uncaught exceptions
+process.on('uncaughtException', (err) => {
+  console.error('💥 Uncaught Exception:', err);
+  console.error('Stack:', err.stack);
+  process.exit(1);
+});
+
+// Handle unhandled promise rejections
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('💥 Unhandled Rejection at:', promise, 'reason:', reason);
+});
 
 // Start server
 const PORT = process.env.PORT || 5000;
@@ -968,7 +1118,12 @@ const server = app.listen(PORT, () => {
   console.log(`📁 Working Directory: ${process.cwd()}`);
   console.log(`📂 Upload Directory: ${path.join(process.cwd(), 'uploads')}`);
   
-  // Add co-founder installment specific endpoints
+  // Health Monitor endpoints
+  console.log('\n🏥 Health Monitor Endpoints:');
+  console.log(`   Status: http://localhost:${PORT}/api/system/health-status`);
+  console.log(`   Manual Check: http://localhost:${PORT}/api/system/health-check`);
+  
+  // Co-founder installment endpoints
   console.log('\n🏛️ Co-Founder Installment Endpoints:');
   console.log(`   Stats: http://localhost:${PORT}/api/cofounder/installment/stats`);
   console.log(`   Manual Check: http://localhost:${PORT}/api/cofounder/installment/manual-penalty-check`);
@@ -978,7 +1133,7 @@ const server = app.listen(PORT, () => {
   console.log(`   Pay: http://localhost:${PORT}/api/shares/cofounder/installment/paystack/pay`);
   console.log(`   Verify: http://localhost:${PORT}/api/shares/cofounder/installment/paystack/verify`);
   
-  // Add file serving info
+  // File serving info
   console.log('\n📁 File Serving Routes:');
   console.log(`   Regular Payments: http://localhost:${PORT}/uploads/payment-proofs/`);
   console.log(`   Co-founder Payments: http://localhost:${PORT}/uploads/cofounder-payment-proofs/`);
@@ -1022,63 +1177,22 @@ const server = app.listen(PORT, () => {
   console.log('   - /uploads/cofounder-payment-proofs/');
   console.log('   - /cofounder-payment-proofs/ (alternative)');
   console.log('⏰ Installment schedulers active (regular + co-founder)');
+  console.log('🏥 System Health Monitor active');
   console.log('\n🎯 Quick Test URLs:');
   console.log(`   Health: https://afrimo-database.onrender.com/`);
   console.log(`   CORS: https://afrimo-database.onrender.com/api/cors-test`);
   console.log(`   Files: https://afrimo-database.onrender.com/api/debug/files`);
   console.log(`   Docs: https://afrimo-database.onrender.com/api-docs`);
+  console.log(`   Health Status: https://afrimo-database.onrender.com/api/system/health-status`);
+  console.log(`   Health Check: https://afrimo-database.onrender.com/api/system/health-check`);
   console.log(`   CoFounder Stats: https://afrimo-database.onrender.com/api/cofounder/installment/stats`);
   console.log(`   Manual Check: https://afrimo-database.onrender.com/api/cofounder/installment/manual-penalty-check`);
   console.log(`   File Test: https://afrimo-database.onrender.com/api/test-file-access`);
   console.log('');
-});
-
-// ========================================
-// ENHANCED GRACEFUL SHUTDOWN
-// ========================================
-
-// Handle graceful shutdown
-process.on('SIGTERM', () => {
-  console.log('SIGTERM signal received: closing HTTP server');
   
-  // Stop cron jobs if running
-  try {
-    const withdrawalCronJobs = require('./withdrawalCronJobs');
-    withdrawalCronJobs.stopAll();
-    
-    // REMOVED: referral cron jobs stop to allow continuous tracking
-    // const referralCronJobs = require('./referralCronJobs');
-    // referralCronJobs.stopReferralJobs();
-    
-    // Stop co-founder installment scheduler
-    const coFounderInstallmentScheduler = require('./utils/coFounderInstallmentScheduler');
-    coFounderInstallmentScheduler.stopAll();
-    
-    console.log('✅ Cron jobs stopped (withdrawal, installment, co-founder installment)');
-    console.log('ℹ️  Referral cron jobs continue running for tracking purposes');
-  } catch (error) {
-    console.error('❌ Error stopping cron jobs:', error);
-  }
-  
-  server.close(() => {
-    console.log('HTTP server closed');
-    mongoose.connection.close(false, () => {
-      console.log('MongoDB connection closed');
-      process.exit(0);
-    });
-  });
-});
-
-// Handle uncaught exceptions
-process.on('uncaughtException', (err) => {
-  console.error('Uncaught Exception:', err);
-  console.error('Stack:', err.stack);
-  process.exit(1);
-});
-
-// Handle unhandled promise rejections
-process.on('unhandledRejection', (reason, promise) => {
-  console.error('Unhandled Rejection at:', promise, 'reason:', reason);
+  // Store server reference for graceful shutdown
+  global.server = server;
+  server.timeout = 120000; // 2 minutes
 });
 
 // For testing purposes
