@@ -714,22 +714,7 @@ console.log('\n======================================');
 console.log('SETTING UP REFERRAL SYNC CRON JOBS');
 console.log('======================================');
 
-try {
-  const referralCronJobs = require('./referralCronJobs');
-  
-  // Start referral sync jobs - runs in all environments for testing
-  // Change to production-only if needed: if (process.env.NODE_ENV === 'production')
-  referralCronJobs.startReferralJobs();
-  console.log('✅ Referral sync cron jobs started');
-  console.log('📅 Daily sync: 2:00 AM');
-  console.log('📅 Weekly comprehensive sync: Sunday 3:00 AM');
-  console.log('🔧 Manual trigger: POST /api/referral/sync-earnings');
-  console.log('🐛 Debug endpoint: GET /api/referral/debug');
-  
-} catch (error) {
-  console.error('❌ ERROR LOADING REFERRAL CRON JOBS:', error.message);
-  console.error(error.stack);
-}
+
 
 console.log('======================================\n');
 
