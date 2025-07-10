@@ -25,7 +25,7 @@ const swaggerOptions = {
     },
     servers: [
       {
-        url: 'https://afrimobile-d240af77c383.herokuapp.com//api',
+        url: 'https://afrimobile-d240af77c383.herokuapp.com/api',
         description: 'Production server'
       },
       {
@@ -509,7 +509,7 @@ const getSwaggerSpec = () => {
   // Provide multiple server options for easy switching
   const servers = [
     {
-      url: 'https://afrimobile-d240af77c383.herokuapp.com//api',
+      url: 'https://afrimobile-d240af77c383.herokuapp.com/api',
       description: 'Production server (Live)'
     },
     {

@@ -1179,15 +1179,15 @@ const server = app.listen(PORT, () => {
   console.log('⏰ Installment schedulers active (regular + co-founder)');
   console.log('🏥 System Health Monitor active');
   console.log('\n🎯 Quick Test URLs:');
-  console.log(`   Health: https://afrimobile-d240af77c383.herokuapp.com//`);
-  console.log(`   CORS: https://afrimobile-d240af77c383.herokuapp.com//api/cors-test`);
-  console.log(`   Files: https://afrimobile-d240af77c383.herokuapp.com//api/debug/files`);
-  console.log(`   Docs: https://afrimobile-d240af77c383.herokuapp.com//api-docs`);
-  console.log(`   Health Status: https://afrimobile-d240af77c383.herokuapp.com//api/system/health-status`);
-  console.log(`   Health Check: https://afrimobile-d240af77c383.herokuapp.com//api/system/health-check`);
-  console.log(`   CoFounder Stats: https://afrimobile-d240af77c383.herokuapp.com//api/cofounder/installment/stats`);
-  console.log(`   Manual Check: https://afrimobile-d240af77c383.herokuapp.com//api/cofounder/installment/manual-penalty-check`);
-  console.log(`   File Test: https://afrimobile-d240af77c383.herokuapp.com//api/test-file-access`);
+  console.log(`   Health: https://afrimobile-d240af77c383.herokuapp.com/`);
+  console.log(`   CORS: https://afrimobile-d240af77c383.herokuapp.com/api/cors-test`);
+  console.log(`   Files: https://afrimobile-d240af77c383.herokuapp.com/api/debug/files`);
+  console.log(`   Docs: https://afrimobile-d240af77c383.herokuapp.com/api-docs`);
+  console.log(`   Health Status: https://afrimobile-d240af77c383.herokuapp.com/api/system/health-status`);
+  console.log(`   Health Check: https://afrimobile-d240af77c383.herokuapp.com/api/system/health-check`);
+  console.log(`   CoFounder Stats: https://afrimobile-d240af77c383.herokuapp.com/api/cofounder/installment/stats`);
+  console.log(`   Manual Check: https://afrimobile-d240af77c383.herokuapp.com/api/cofounder/installment/manual-penalty-check`);
+  console.log(`   File Test: https://afrimobile-d240af77c383.herokuapp.com/api/test-file-access`);
   console.log('');
   
   // Store server reference for graceful shutdown
