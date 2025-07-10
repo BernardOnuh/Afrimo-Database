@@ -1061,15 +1061,16 @@ process.on('SIGTERM', () => {
     const withdrawalCronJobs = require('./withdrawalCronJobs');
     withdrawalCronJobs.stopAll();
     
-    // Stop referral cron jobs
-    const referralCronJobs = require('./referralCronJobs');
-    referralCronJobs.stopReferralJobs();
+    // REMOVED: referral cron jobs stop to allow continuous tracking
+    // const referralCronJobs = require('./referralCronJobs');
+    // referralCronJobs.stopReferralJobs();
     
     // Stop co-founder installment scheduler
     const coFounderInstallmentScheduler = require('./utils/coFounderInstallmentScheduler');
     coFounderInstallmentScheduler.stopAll();
     
-    console.log('✅ All cron jobs stopped (withdrawal, referral, installment, co-founder installment)');
+    console.log('✅ Cron jobs stopped (withdrawal, installment, co-founder installment)');
+    console.log('ℹ️  Referral cron jobs continue running for tracking purposes');
   } catch (error) {
     console.error('❌ Error stopping cron jobs:', error);
   }
