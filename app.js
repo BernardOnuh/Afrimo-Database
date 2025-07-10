@@ -7,6 +7,7 @@ const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
 const cron = require('node-cron');
 const fs = require('fs');
+const setupSwagger = require('./middleware/swagger');
 
 require('dotenv').config();
 
@@ -19,7 +20,7 @@ app.set('trust proxy', 1);
 // 🔧 FIX 2: Global mongoose settings (ADD THIS BEFORE CONNECTION)
 mongoose.set('strictQuery', true);
 mongoose.set('bufferCommands', false);
-mongoose.set('bufferMaxEntries', 0);
+
 
 // Display important environment variables
 console.log('======================================');
@@ -1160,7 +1161,7 @@ process.on('unhandledRejection', (reason, promise) => {
 });
 
 // Start server
-const PORT = process.env.PORT || 5000;
+const PORT = process.env.PORT || 50011;
 const server = app.listen(PORT, () => {
   console.log('\n**********************************************');
   console.log(`🚀 Server running in ${process.env.NODE_ENV || 'development'} mode on port ${PORT}`);
