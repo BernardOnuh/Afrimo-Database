@@ -33,7 +33,7 @@ const corsOptions = {
       'http://localhost:3001', 
       'http://localhost:5000',
       'http://localhost:8080',
-      'https://afrimo-database.onrender.com',
+      'https://afrimo-database-1.onrender.com',
       'https://www.afrimobil.com',
       'https://afrimobil.com',
       'https://www.afrimobiletech.com',
@@ -1179,15 +1179,15 @@ const server = app.listen(PORT, () => {
   console.log('⏰ Installment schedulers active (regular + co-founder)');
   console.log('🏥 System Health Monitor active');
   console.log('\n🎯 Quick Test URLs:');
-  console.log(`   Health: https://afrimo-database.onrender.com/`);
-  console.log(`   CORS: https://afrimo-database.onrender.com/api/cors-test`);
-  console.log(`   Files: https://afrimo-database.onrender.com/api/debug/files`);
-  console.log(`   Docs: https://afrimo-database.onrender.com/api-docs`);
-  console.log(`   Health Status: https://afrimo-database.onrender.com/api/system/health-status`);
-  console.log(`   Health Check: https://afrimo-database.onrender.com/api/system/health-check`);
-  console.log(`   CoFounder Stats: https://afrimo-database.onrender.com/api/cofounder/installment/stats`);
-  console.log(`   Manual Check: https://afrimo-database.onrender.com/api/cofounder/installment/manual-penalty-check`);
-  console.log(`   File Test: https://afrimo-database.onrender.com/api/test-file-access`);
+  console.log(`   Health: https://afrimo-database-1.onrender.com/`);
+  console.log(`   CORS: https://afrimo-database-1.onrender.com/api/cors-test`);
+  console.log(`   Files: https://afrimo-database-1.onrender.com/api/debug/files`);
+  console.log(`   Docs: https://afrimo-database-1.onrender.com/api-docs`);
+  console.log(`   Health Status: https://afrimo-database-1.onrender.com/api/system/health-status`);
+  console.log(`   Health Check: https://afrimo-database-1.onrender.com/api/system/health-check`);
+  console.log(`   CoFounder Stats: https://afrimo-database-1.onrender.com/api/cofounder/installment/stats`);
+  console.log(`   Manual Check: https://afrimo-database-1.onrender.com/api/cofounder/installment/manual-penalty-check`);
+  console.log(`   File Test: https://afrimo-database-1.onrender.com/api/test-file-access`);
   console.log('');
   
   // Store server reference for graceful shutdown

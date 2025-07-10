@@ -46,7 +46,7 @@ const setupSwagger = (app) => {
     // For production - prioritize custom BASE_URL, then auto-detect Render URL
     const baseUrl = process.env.BASE_URL || 
       (process.env.RENDER_EXTERNAL_URL) ||
-      (process.env.RENDER_SERVICE_NAME ? `https://afrimo-database.onrender.com` : null);
+      (process.env.RENDER_SERVICE_NAME ? `https://afrimo-database-1.onrender.com` : null);
     
     if (baseUrl) {
       console.log(`🌐 Production access: ${baseUrl}/api-docs`);
