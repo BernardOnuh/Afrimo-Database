@@ -10,13 +10,18 @@ const fs = require('fs');
 
 require('dotenv').config();
 
-// Import custom middleware
-const setupSwagger = require('./middleware/swagger');
-
 // Initialize express app
 const app = express();
 
-// Display important environment variables (without exposing sensitive data)
+// 🔧 FIX 1: Trust proxy for Heroku (ADD THIS)
+app.set('trust proxy', 1);
+
+// 🔧 FIX 2: Global mongoose settings (ADD THIS BEFORE CONNECTION)
+mongoose.set('strictQuery', true);
+mongoose.set('bufferCommands', false);
+mongoose.set('bufferMaxEntries', 0);
+
+// Display important environment variables
 console.log('======================================');
 console.log(`NODE_ENV: ${process.env.NODE_ENV}`);
 console.log(`LENCO_API_KEY configured: ${process.env.LENCO_API_KEY ? 'Yes' : 'No'}`);
@@ -93,9 +98,15 @@ app.use(helmet({
 
 // Rate limiting
 const limiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
+  windowMs: 15 * 60 * 1000, // 15 minutes
   max: 100,
-  message: 'Too many requests from this IP, please try again after 15 minutes'
+  message: 'Too many requests from this IP, please try again after 15 minutes',
+  standardHeaders: true, // Return rate limit info in the `RateLimit-*` headers
+  legacyHeaders: false, // Disable the `X-RateLimit-*` headers
+  skip: (req, res) => {
+    // Skip rate limiting for health checks
+    return req.path === '/' || req.path.startsWith('/health');
+  }
 });
 
 app.use(limiter);
@@ -108,43 +119,51 @@ const connectDB = async () => {
                     process.env.DATABASE_URL ||
                     'mongodb://localhost:27017/afrimobile';
     
-    // Updated MongoDB connection options - removed deprecated options
+    // Updated MongoDB connection options for Heroku
     const options = {
       useNewUrlParser: true,
       useUnifiedTopology: true,
-      maxPoolSize: 10,
-      serverSelectionTimeoutMS: 5000,
-      socketTimeoutMS: 45000,
-      // Removed: bufferCommands: false, (deprecated)
-      // Removed: bufferMaxEntries: 0 (deprecated - this was causing the error)
-      
-      // Modern connection options
-      heartbeatFrequencyMS: 10000,
-      maxIdleTimeMS: 30000,
+      maxPoolSize: 5, // Reduced for Heroku
+      minPoolSize: 1,
+      serverSelectionTimeoutMS: 30000, // Increased from 5000ms
+      socketTimeoutMS: 75000, // Increased from 45000ms
+      connectTimeoutMS: 30000,
+      heartbeatFrequencyMS: 30000, // Increased from 10000ms
+      maxIdleTimeMS: 60000, // Increased from 30000ms
       retryWrites: true,
-      retryReads: true
+      retryReads: true,
+      keepAlive: true,
+      keepAliveInitialDelay: 300000,
+      // 🔧 REMOVED: bufferMaxEntries: 0 (this was causing the error)
     };
     
     await mongoose.connect(mongoUri, options);
     
     console.log('✅ Connected to MongoDB');
     console.log(`📊 Database: ${mongoose.connection.name}`);
-    console.log(`🔗 Connection URI: ${mongoUri.split('@')[1] || 'localhost'}`); // Hide credentials
+    console.log(`🔗 Connection URI: ${mongoUri.split('@')[1] || 'localhost'}`);
+    
+    // Re-enable buffering after successful connection
+    mongoose.set('bufferCommands', true);
     
     // Initialize health monitor after database connection
     initializeHealthMonitor();
     
   } catch (error) {
     console.error('❌ Database connection failed:', error.message);
-    console.error('🔄 Retrying connection in 5 seconds...');
+    console.error('🔄 Retrying connection in 10 seconds...');
     
-    // Retry connection after 5 seconds
     setTimeout(() => {
       console.log('🔄 Attempting to reconnect to database...');
       connectDB();
-    }, 5000);
+    }, 10000); // Increased retry interval
   }
 };
+
+// Your existing database event listeners (keep as is)
+mongoose.connection.on('connected', () => {
+  console.log('🔗 Mongoose connected to MongoDB');
+});
 
 // Enhanced Initialize health monitoring system with better error handling
 function initializeHealthMonitor() {
@@ -235,6 +254,29 @@ process.on('SIGINT', async () => {
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
+// 🔧 FIX 5: Add timeout middleware (ADD THIS AFTER express.json)
+app.use((req, res, next) => {
+  // Set request timeout to 25 seconds (less than Heroku's 30s limit)
+  req.setTimeout(25000, () => {
+    const err = new Error('Request timeout');
+    err.status = 408;
+    next(err);
+  });
+  
+  res.setTimeout(25000, () => {
+    if (!res.headersSent) {
+      res.status(408).json({
+        success: false,
+        message: 'Request timeout - operation took too long',
+        timestamp: new Date().toISOString()
+      });
+    }
+  });
+  
+  next();
+});
+
+
 // Logging middleware
 if (process.env.NODE_ENV === 'development') {
   app.use(morgan('dev'));
@@ -298,6 +340,17 @@ setupSwagger(app);
 
 // API monitoring middleware
 app.use('/api', (req, res, next) => {
+  // Check if MongoDB is connected
+  if (mongoose.connection.readyState !== 1) {
+    return res.status(503).json({
+      success: false,
+      message: 'Database connection unavailable',
+      retryAfter: 30,
+      timestamp: new Date().toISOString()
+    });
+  }
+  
+  // Your existing API monitoring middleware
   res.header('Access-Control-Allow-Origin', req.headers.origin || '*');
   res.header('Access-Control-Allow-Credentials', 'true');
   res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, PATCH, OPTIONS');
@@ -1194,6 +1247,9 @@ const server = app.listen(PORT, () => {
   global.server = server;
   server.timeout = 120000; // 2 minutes
 });
+server.timeout = 30000; // 30 seconds
+server.keepAliveTimeout = 61000; // Slightly longer than ALB idle timeout  
+server.headersTimeout = 62000; // Slightly longer than keepAliveTimeout
 
 // For testing purposes
 module.exports = app;
