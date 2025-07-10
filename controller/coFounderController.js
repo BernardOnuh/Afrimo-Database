@@ -7,6 +7,7 @@ const crypto = require('crypto');
 const axios = require('axios');
 const { ethers } = require('ethers');
 const { sendEmail } = require('../utils/emailService');
+const { handleCofounderPurchase } = require('./referralController');
 const { processReferralCommission, rollbackReferralCommission } = require('../utils/referralUtils');
 
 // Generate a unique transaction ID
@@ -373,17 +374,20 @@ const verifyCoFounderPaystackPayment = async (req, res) => {
         // Process referral commissions for completed transactions
         try {
             if (transaction.status === 'completed') {
-                const referralResult = await processReferralCommission(
+                const referralResult = await handleCofounderPurchase(
                     transaction.userId,
                     transaction.amount,
-                    'cofounder',
+                    transaction.shares,
                     transaction._id
                 );
                 
-                console.log('Referral commission process result:', referralResult);
+                console.log('Co-founder referral commission process result:', referralResult);
+                if (referralResult.success) {
+                    console.log('Commissions distributed:', referralResult.commissions);
+                }
             }
         } catch (referralError) {
-            console.error('Error processing referral commissions:', referralError);
+            console.error('Error processing co-founder referral commissions:', referralError);
         }
         
         // Notify user
@@ -810,19 +814,21 @@ const adminVerifyWeb3Transaction = async (req, res) => {
             try {
                 const updatedTransaction = await PaymentTransaction.findById(transactionId);
                 if (updatedTransaction.status === 'completed') {
-                    const referralResult = await processReferralCommission(
+                    const referralResult = await handleCofounderPurchase(
                         transaction.userId,  // userId
                         transaction.amount,  // purchaseAmount
-                        'cofounder',        // Make sure this says 'cofounder'
+                        transaction.shares,  // shares
                         transaction._id     // transactionId (MongoDB ID)
                     );
                     
-                    console.log('Referral commission process result:', referralResult);
+                    console.log('Co-founder referral commission process result:', referralResult);
+                    if (referralResult.success) {
+                        console.log('Commissions distributed:', referralResult.commissions);
+                    }
                 }
             } catch (referralError) {
-                console.error('Error processing referral commissions:', referralError);
+                console.error('Error processing co-founder referral commissions:', referralError);
             }
-            
             // Notify user
             const user = await User.findById(transaction.userId);
             if (user && user.email) {
@@ -1257,17 +1263,21 @@ const adminVerifyCoFounderManualPayment = async (req, res) => {
             
             // Process referral commissions ONLY for now-completed transactions
             try {
-                const referralResult = await processReferralCommission(
+                const referralResult = await handleCofounderPurchase(
                     transaction.userId,
                     transaction.amount,
-                    'cofounder', // Make sure this says 'cofounder'
+                    transaction.shares,
                     transaction._id  // Use transaction._id (MongoDB ID)
                 );
                 
-                console.log('Referral commission process result:', referralResult);
+                console.log('Co-founder referral commission process result:', referralResult);
+                if (referralResult.success) {
+                    console.log('Commissions distributed:', referralResult.commissions);
+                }
             } catch (referralError) {
-                console.error('Error processing referral commissions:', referralError);
+                console.error('Error processing co-founder referral commissions:', referralError);
             }
+            
         }
         
         // Notify user
@@ -1773,18 +1783,20 @@ const adminAddCoFounderShares = async (req, res) => {
         await coFounderShare.save();
         
         try {
-            if (user && user.referralInfo && user.referralInfo.code) {
-                const referralResult = await processReferralCommission(
-                    userId,
-                    coFounderShare.pricing.priceNaira * parseInt(shares), // Use correct amount calculation
-                    'cofounder', // Make sure this says 'cofounder'
-                    transaction._id  // Use transaction._id
-                );
-                
-                console.log('Referral commission process result for admin-added shares:', referralResult);
+            // Process referral commissions for admin-added co-founder shares
+            const referralResult = await handleCofounderPurchase(
+                userId,
+                coFounderShare.pricing.priceNaira * parseInt(shares), // Use correct amount calculation
+                parseInt(shares), // shares count
+                transaction._id  // Use transaction._id
+            );
+            
+            console.log('Co-founder referral commission process result for admin-added shares:', referralResult);
+            if (referralResult.success) {
+                console.log('Admin-added shares commissions distributed:', referralResult.commissions);
             }
         } catch (referralError) {
-            console.error('Error processing referral commissions for admin-added shares:', referralError);
+            console.error('Error processing co-founder referral commissions for admin-added shares:', referralError);
         }
 
         // Notify user

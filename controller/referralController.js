@@ -180,7 +180,246 @@ const syncReferralStats = async (userId) => {
   }
 };
 
-const processReferralCommission = async (userId, purchaseAmount, purchaseType = 'share', transactionId = null) => {
+// NEW: Enhanced Co-founder Referral Commission Function
+const processCofounderReferralCommission = async (userId, purchaseAmount, shares, transactionId) => {
+  try {
+    console.log(`🏆 Processing co-founder referral commission for user: ${userId}`);
+    console.log(`💰 Purchase amount: ${purchaseAmount}, Shares: ${shares}, Transaction: ${transactionId}`);
+    
+    // Get the purchaser
+    const purchaser = await User.findById(userId);
+    if (!purchaser || !purchaser.referralInfo || !purchaser.referralInfo.code) {
+      console.log('❌ User has no referrer, skipping co-founder commission');
+      return { success: false, message: 'User has no referrer' };
+    }
+    
+    // Get commission rates from site config
+    const siteConfig = await SiteConfig.getCurrentConfig();
+    const commissionRates = siteConfig.referralCommission || {
+      generation1: 15, // 15% for direct referrals
+      generation2: 3,  // 3% for second generation  
+      generation3: 2   // 2% for third generation
+    };
+    
+    console.log(`📊 Commission rates: Gen1: ${commissionRates.generation1}%, Gen2: ${commissionRates.generation2}%, Gen3: ${commissionRates.generation3}%`);
+    console.log(`👤 Purchaser: ${purchaser.userName}, Referrer code: ${purchaser.referralInfo.code}`);
+    
+    // Find Generation 1 referrer (direct referrer)
+    const gen1Referrer = await User.findOne({ userName: purchaser.referralInfo.code });
+    
+    if (!gen1Referrer) {
+      console.log(`❌ Generation 1 referrer with username ${purchaser.referralInfo.code} not found`);
+      return { success: false, message: 'Generation 1 referrer not found' };
+    }
+    
+    console.log(`✅ Found Generation 1 referrer: ${gen1Referrer.userName} (${gen1Referrer._id})`);
+    
+    // ===================
+    // GENERATION 1 COMMISSION
+    // ===================
+    const gen1Commission = (purchaseAmount * commissionRates.generation1) / 100;
+    
+    // Create Generation 1 referral transaction
+    const gen1Transaction = new ReferralTransaction({
+      beneficiary: gen1Referrer._id,
+      referredUser: userId,
+      amount: gen1Commission,
+      currency: 'USD',
+      generation: 1,
+      purchaseType: 'cofounder',
+      sourceTransaction: transactionId,
+      sourceTransactionModel: 'PaymentTransaction',
+      status: 'completed',
+      metadata: {
+        shares: shares,
+        originalAmount: purchaseAmount,
+        commissionRate: commissionRates.generation1
+      },
+      createdAt: new Date()
+    });
+    
+    await gen1Transaction.save();
+    console.log(`💵 Created Generation 1 commission: $${gen1Commission.toFixed(2)} for ${gen1Referrer.userName}`);
+    
+    // Update Generation 1 referrer stats
+    let gen1Stats = await Referral.findOne({ user: gen1Referrer._id });
+    
+    if (!gen1Stats) {
+      gen1Stats = new Referral({
+        user: gen1Referrer._id,
+        referredUsers: 1,
+        totalEarnings: gen1Commission,
+        generation1: { count: 1, earnings: gen1Commission },
+        generation2: { count: 0, earnings: 0 },
+        generation3: { count: 0, earnings: 0 }
+      });
+    } else {
+      gen1Stats.totalEarnings += gen1Commission;
+      gen1Stats.generation1.earnings += gen1Commission;
+    }
+    
+    await gen1Stats.save();
+    console.log(`📈 Updated Generation 1 stats for ${gen1Referrer.userName}`);
+    
+    let gen2Commission = 0;
+    let gen3Commission = 0;
+    
+    // ===================
+    // GENERATION 2 COMMISSION
+    // ===================
+    if (gen1Referrer.referralInfo && gen1Referrer.referralInfo.code) {
+      const gen2Referrer = await User.findOne({ userName: gen1Referrer.referralInfo.code });
+      
+      if (gen2Referrer) {
+        console.log(`✅ Found Generation 2 referrer: ${gen2Referrer.userName} (${gen2Referrer._id})`);
+        
+        gen2Commission = (purchaseAmount * commissionRates.generation2) / 100;
+        
+        // Create Generation 2 referral transaction
+        const gen2Transaction = new ReferralTransaction({
+          beneficiary: gen2Referrer._id,
+          referredUser: userId,
+          amount: gen2Commission,
+          currency: 'USD',
+          generation: 2,
+          purchaseType: 'cofounder',
+          sourceTransaction: transactionId,
+          sourceTransactionModel: 'PaymentTransaction',
+          status: 'completed',
+          metadata: {
+            shares: shares,
+            originalAmount: purchaseAmount,
+            commissionRate: commissionRates.generation2
+          },
+          createdAt: new Date()
+        });
+        
+        await gen2Transaction.save();
+        console.log(`💵 Created Generation 2 commission: $${gen2Commission.toFixed(2)} for ${gen2Referrer.userName}`);
+        
+        // Update Generation 2 referrer stats
+        let gen2Stats = await Referral.findOne({ user: gen2Referrer._id });
+        
+        if (!gen2Stats) {
+          gen2Stats = new Referral({
+            user: gen2Referrer._id,
+            referredUsers: 0,
+            totalEarnings: gen2Commission,
+            generation1: { count: 0, earnings: 0 },
+            generation2: { count: 1, earnings: gen2Commission },
+            generation3: { count: 0, earnings: 0 }
+          });
+        } else {
+          gen2Stats.totalEarnings += gen2Commission;
+          gen2Stats.generation2.earnings += gen2Commission;
+        }
+        
+        await gen2Stats.save();
+        console.log(`📈 Updated Generation 2 stats for ${gen2Referrer.userName}`);
+        
+        // ===================
+        // GENERATION 3 COMMISSION
+        // ===================
+        if (gen2Referrer.referralInfo && gen2Referrer.referralInfo.code) {
+          const gen3Referrer = await User.findOne({ userName: gen2Referrer.referralInfo.code });
+          
+          if (gen3Referrer) {
+            console.log(`✅ Found Generation 3 referrer: ${gen3Referrer.userName} (${gen3Referrer._id})`);
+            
+            gen3Commission = (purchaseAmount * commissionRates.generation3) / 100;
+            
+            // Create Generation 3 referral transaction
+            const gen3Transaction = new ReferralTransaction({
+              beneficiary: gen3Referrer._id,
+              referredUser: userId,
+              amount: gen3Commission,
+              currency: 'USD',
+              generation: 3,
+              purchaseType: 'cofounder',
+              sourceTransaction: transactionId,
+              sourceTransactionModel: 'PaymentTransaction',
+              status: 'completed',
+              metadata: {
+                shares: shares,
+                originalAmount: purchaseAmount,
+                commissionRate: commissionRates.generation3
+              },
+              createdAt: new Date()
+            });
+            
+            await gen3Transaction.save();
+            console.log(`💵 Created Generation 3 commission: $${gen3Commission.toFixed(2)} for ${gen3Referrer.userName}`);
+            
+            // Update Generation 3 referrer stats
+            let gen3Stats = await Referral.findOne({ user: gen3Referrer._id });
+            
+            if (!gen3Stats) {
+              gen3Stats = new Referral({
+                user: gen3Referrer._id,
+                referredUsers: 0,
+                totalEarnings: gen3Commission,
+                generation1: { count: 0, earnings: 0 },
+                generation2: { count: 0, earnings: 0 },
+                generation3: { count: 1, earnings: gen3Commission }
+              });
+            } else {
+              gen3Stats.totalEarnings += gen3Commission;
+              gen3Stats.generation3.earnings += gen3Commission;
+            }
+            
+            await gen3Stats.save();
+            console.log(`📈 Updated Generation 3 stats for ${gen3Referrer.userName}`);
+          } else {
+            console.log(`⚠️ Generation 3 referrer with username ${gen2Referrer.referralInfo.code} not found`);
+          }
+        } else {
+          console.log(`⚠️ Generation 2 referrer ${gen2Referrer.userName} has no referrer (no Gen 3)`);
+        }
+      } else {
+        console.log(`⚠️ Generation 2 referrer with username ${gen1Referrer.referralInfo.code} not found`);
+      }
+    } else {
+      console.log(`⚠️ Generation 1 referrer ${gen1Referrer.userName} has no referrer (no Gen 2)`);
+    }
+    
+    console.log(`🎉 Co-founder referral commission processing completed successfully!`);
+    
+    return { 
+      success: true, 
+      message: 'Co-founder referral commissions processed successfully',
+      commissions: {
+        generation1: gen1Commission,
+        generation2: gen2Commission,
+        generation3: gen3Commission,
+        total: gen1Commission + gen2Commission + gen3Commission
+      }
+    };
+  } catch (error) {
+    console.error('❌ Error processing co-founder referral commission:', error);
+    return { success: false, message: error.message };
+  }
+};
+
+// UPDATED: Generic function that handles both regular and co-founder purchases
+const processReferralCommission = async (userId, purchaseAmount, purchaseType = 'share', transactionId = null, shares = null) => {
+  try {
+    console.log(`🚀 Processing referral commission - Type: ${purchaseType}, Amount: ${purchaseAmount}`);
+    
+    // For co-founder purchases, use the specialized function
+    if (purchaseType === 'cofounder') {
+      return await processCofounderReferralCommission(userId, purchaseAmount, shares, transactionId);
+    }
+    
+    // For regular share purchases, use the existing logic
+    return await processRegularReferralCommission(userId, purchaseAmount, purchaseType, transactionId);
+  } catch (error) {
+    console.error('❌ Error in processReferralCommission:', error);
+    return { success: false, message: error.message };
+  }
+};
+
+// Regular share purchase commission processing (existing logic preserved)
+const processRegularReferralCommission = async (userId, purchaseAmount, purchaseType, transactionId) => {
   try {
     // Get the purchaser
     const purchaser = await User.findById(userId);
@@ -197,22 +436,7 @@ const processReferralCommission = async (userId, purchaseAmount, purchaseType = 
       generation3: 2
     };
 
-    // **NEW: Handle co-founder purchase amount calculation**
-    let effectivePurchaseAmount = purchaseAmount;
-    if (purchaseType === 'cofounder') {
-      // Get co-founder share configuration for ratio
-      const CoFounderShare = require('../models/CoFounderShare');
-      const coFounderConfig = await CoFounderShare.findOne();
-      const shareToRegularRatio = coFounderConfig?.shareToRegularRatio || 29;
-      
-      // For commission calculation, treat co-founder shares as their equivalent regular share value
-      // This ensures referrers get commissions based on the full value representation
-      effectivePurchaseAmount = purchaseAmount; // Keep original amount as commission base
-      
-      console.log(`Processing co-founder referral commission: Original amount: ${purchaseAmount}, Ratio: ${shareToRegularRatio}`);
-    }
-    
-    console.log(`Processing referral commission for purchase: ${effectivePurchaseAmount} by user: ${purchaser.userName}`);
+    console.log(`Processing regular referral commission for purchase: ${purchaseAmount} by user: ${purchaser.userName}`);
     console.log(`Purchase type: ${purchaseType}, Referral code: ${purchaser.referralInfo.code}`);
     
     // Find direct referrer (Generation 1)
@@ -226,17 +450,17 @@ const processReferralCommission = async (userId, purchaseAmount, purchaseType = 
     console.log(`Found Generation 1 referrer: ${gen1Referrer.userName}`);
     
     // Calculate and create Generation 1 commission
-    const gen1Commission = (effectivePurchaseAmount * commissionRates.generation1) / 100;
+    const gen1Commission = (purchaseAmount * commissionRates.generation1) / 100;
     
     const gen1Transaction = new ReferralTransaction({
       beneficiary: gen1Referrer._id,
       referredUser: userId,
       amount: gen1Commission,
-      currency: 'USD', // **UPDATE: Consider using actual currency from purchase**
+      currency: 'USD',
       generation: 1,
       purchaseType: purchaseType,
       sourceTransaction: transactionId,
-      sourceTransactionModel: purchaseType === 'cofounder' ? 'PaymentTransaction' : 'UserShare', // **NEW: Specify correct model**
+      sourceTransactionModel: 'UserShare',
       status: 'completed',
       createdAt: new Date()
     });
@@ -263,7 +487,7 @@ const processReferralCommission = async (userId, purchaseAmount, purchaseType = 
     
     await gen1Stats.save();
     
-    // Continue with Generation 2 and 3 processing (similar updates)...
+    // Continue with Generation 2 and 3 processing (similar pattern as co-founder)
     if (gen1Referrer.referralInfo && gen1Referrer.referralInfo.code) {
       const gen2Referrer = await User.findOne({ userName: gen1Referrer.referralInfo.code });
       
@@ -271,7 +495,7 @@ const processReferralCommission = async (userId, purchaseAmount, purchaseType = 
         console.log(`Found Generation 2 referrer: ${gen2Referrer.userName}`);
         
         // Calculate and create Generation 2 commission
-        const gen2Commission = (effectivePurchaseAmount * commissionRates.generation2) / 100;
+        const gen2Commission = (purchaseAmount * commissionRates.generation2) / 100;
         
         const gen2Transaction = new ReferralTransaction({
           beneficiary: gen2Referrer._id,
@@ -281,7 +505,7 @@ const processReferralCommission = async (userId, purchaseAmount, purchaseType = 
           generation: 2,
           purchaseType: purchaseType,
           sourceTransaction: transactionId,
-          sourceTransactionModel: purchaseType === 'cofounder' ? 'PaymentTransaction' : 'UserShare', // **NEW**
+          sourceTransactionModel: 'UserShare',
           status: 'completed',
           createdAt: new Date()
         });
@@ -361,7 +585,7 @@ const processReferralCommission = async (userId, purchaseAmount, purchaseType = 
     
     return { success: true };
   } catch (error) {
-    console.error('Error processing referral commission:', error);
+    console.error('Error processing regular referral commission:', error);
     return { success: false, message: error.message };
   }
 };
@@ -493,6 +717,28 @@ const processNewUserReferral = async (userId) => {
   }
 };
 
+// NEW: Integration function for co-founder purchases
+const handleCofounderPurchase = async (userId, purchaseAmount, shares, transactionId) => {
+  try {
+    console.log(`🔥 Handling co-founder purchase: User ${userId}, Amount: ${purchaseAmount}, Shares: ${shares}`);
+    
+    // Process the referral commissions
+    const result = await processReferralCommission(userId, purchaseAmount, 'cofounder', transactionId, shares);
+    
+    if (result.success) {
+      console.log(`✅ Co-founder purchase processing completed successfully`);
+      console.log(`💰 Commissions distributed:`, result.commissions);
+    } else {
+      console.log(`⚠️ Co-founder referral commission failed: ${result.message}`);
+    }
+    
+    return result;
+  } catch (error) {
+    console.error('❌ Error handling co-founder purchase:', error);
+    return { success: false, message: error.message };
+  }
+};
+
 // Get referral statistics
 const getReferralStats = async (req, res) => {
   try {
@@ -513,7 +759,6 @@ const getReferralStats = async (req, res) => {
     
     // Get referral data
     const referralData = await Referral.findOne({ user: userId });
-    
     // Sync referral stats if needed (to ensure accuracy)
     if (!referralData || req.query.sync === 'true') {
       console.log(`Syncing referral stats for user ${user.userName}`);
@@ -864,7 +1109,8 @@ const getReferralEarnings = async (req, res) => {
         purchaseType: tx.purchaseType,
         sourceTransaction: tx.sourceTransaction,
         sourceTransactionModel: tx.sourceTransactionModel,
-        status: tx.status
+        status: tx.status,
+        metadata: tx.metadata || {}
       };
     });
     
@@ -1073,6 +1319,77 @@ const syncUserReferralData = async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Failed to sync referral data',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+};
+
+// NEW: Admin function to verify co-founder commission setup
+const verifyCofounderCommissionSetup = async (req, res) => {
+  try {
+    if (!req.user.isAdmin) {
+      return res.status(403).json({
+        success: false,
+        message: 'Unauthorized: Admin access required'
+      });
+    }
+    
+    // Get current commission rates
+    const siteConfig = await SiteConfig.getCurrentConfig();
+    const commissionRates = siteConfig.referralCommission || {
+      generation1: 15,
+      generation2: 3,
+      generation3: 2
+    };
+    
+    // Check for co-founder transactions
+    const cofounderTransactions = await ReferralTransaction.find({
+      purchaseType: 'cofounder'
+    }).populate('beneficiary', 'userName').populate('referredUser', 'userName');
+    
+    // Get co-founder commission summary
+    const commissionSummary = await ReferralTransaction.aggregate([
+      { $match: { purchaseType: 'cofounder', status: 'completed' } },
+      {
+        $group: {
+          _id: '$generation',
+          totalCommissions: { $sum: '$amount' },
+          transactionCount: { $sum: 1 },
+          averageCommission: { $avg: '$amount' }
+        }
+      },
+      { $sort: { _id: 1 } }
+    ]);
+    
+    res.status(200).json({
+      success: true,
+      message: 'Co-founder commission setup verification',
+      setup: {
+        commissionRates,
+        isConfigured: true,
+        rates: {
+          generation1: `${commissionRates.generation1}%`,
+          generation2: `${commissionRates.generation2}%`,
+          generation3: `${commissionRates.generation3}%`
+        }
+      },
+      statistics: {
+        totalCofounderTransactions: cofounderTransactions.length,
+        commissionsByGeneration: commissionSummary,
+        recentTransactions: cofounderTransactions.slice(0, 5).map(tx => ({
+          beneficiary: tx.beneficiary?.userName || 'Unknown',
+          referredUser: tx.referredUser?.userName || 'Unknown',
+          amount: tx.amount,
+          generation: tx.generation,
+          date: tx.createdAt
+        }))
+      }
+    });
+  } catch (error) {
+    console.error('Error verifying co-founder commission setup:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to verify co-founder commission setup',
       error: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
@@ -1318,11 +1635,14 @@ module.exports = {
   generateCustomInviteLink,
   validateInviteLink,
   syncUserReferralData,
-  fixWrongBalances, // NEW: Added fix balances function
+  fixWrongBalances,
+  verifyCofounderCommissionSetup, // NEW: Added co-founder verification
+  handleCofounderPurchase, // NEW: Added co-founder purchase handler
   // Export utility functions for use in other controllers
   syncReferralStats,
   processNewUserReferral,
   processReferralCommission,
+  processCofounderReferralCommission, // NEW: Added co-founder specific function
   // Export middleware for user signup
   processSignup,
   // Export function for purchase processing
