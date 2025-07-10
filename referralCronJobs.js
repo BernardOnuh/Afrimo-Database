@@ -1,5 +1,5 @@
-// referralCronJobsV3.js
-// Most updated version with co-founder support and smart scheduling
+// referralCronJobs.js
+// Complete referral earnings sync with co-founder support and bug fixes
 
 const cron = require('node-cron');
 const mongoose = require('mongoose');
@@ -20,7 +20,7 @@ async function fixAllUsersReferralEarnings() {
 
   try {
     console.log('\n======================================');
-    console.log('REFERRAL EARNINGS SYNC JOB STARTED V3.0');
+    console.log('REFERRAL EARNINGS SYNC JOB STARTED');
     console.log('======================================');
     console.log('Time:', new Date().toISOString());
     
@@ -33,18 +33,17 @@ async function fixAllUsersReferralEarnings() {
       ReferralTransaction = require('./models/ReferralTransaction');
       UserShare = require('./models/UserShare');
       SiteConfig = require('./models/SiteConfig');
-      PaymentTransaction = require('./models/Transaction'); // Added for co-founder support
+      PaymentTransaction = require('./models/Transaction');
     } catch (modelError) {
       console.error('Error loading models:', modelError.message);
       throw new Error(`Failed to load required models: ${modelError.message}`);
     }
 
     // Get commission rates from site config
-    let siteConfig;
     let commissionRates;
     
     try {
-      siteConfig = await SiteConfig.getCurrentConfig();
+      const siteConfig = await SiteConfig.getCurrentConfig();
       
       if (!siteConfig || !siteConfig.referralCommission) {
         console.log('Using default commission rates');
@@ -83,6 +82,7 @@ async function fixAllUsersReferralEarnings() {
       totalEarningsGenerated: 0,
       processingErrors: 0,
       skippedUsers: 0,
+      shareTransactionsProcessed: 0,
       cofounderTransactionsProcessed: 0
     };
 
@@ -111,8 +111,7 @@ async function fixAllUsersReferralEarnings() {
           gen2Earnings: 0,
           gen3Earnings: 0,
           totalEarnings: 0,
-          transactions: 0,
-          cofounderTransactions: 0
+          transactions: 0
         };
 
         // Clean up existing referral transactions for this user
@@ -123,86 +122,62 @@ async function fixAllUsersReferralEarnings() {
           console.error(`  Error cleaning up existing transactions: ${deleteError.message}`);
         }
 
+        // ========================================
         // PROCESS GENERATION 1 USERS
+        // ========================================
         for (const user of gen1Users) {
           try {
             console.log(`    Processing Gen1 user: ${user.name} (${user.userName})`);
             
-            // ========================================
-            // PROCESS REGULAR SHARE TRANSACTIONS
-            // ========================================
+            // Process regular share transactions
             const userShare = await UserShare.findOne({ user: user._id });
             
-            if (userShare && userShare.transactions && userShare.totalShares > 0) {
+            if (userShare && userShare.transactions) {
               const completedTransactions = userShare.transactions.filter(tx => 
                 tx && tx.status === 'completed' && tx.totalAmount && tx.totalAmount > 0
               );
               
-              console.log(`      Found ${completedTransactions.length} completed share transactions`);
-              
-              // Process each completed transaction
-              for (const transaction of completedTransactions) {
-                try {
-                  // Validate transaction data
-                  if (!transaction.totalAmount || transaction.totalAmount <= 0) {
-                    console.log('      Invalid transaction amount, skipping');
-                    continue;
+              if (completedTransactions.length > 0) {
+                console.log(`      Found ${completedTransactions.length} completed share transactions`);
+                
+                for (const transaction of completedTransactions) {
+                  try {
+                    const commissionAmount = (transaction.totalAmount * commissionRates.generation1) / 100;
+                    
+                    if (commissionAmount > 0) {
+                      const referralTxData = {
+                        beneficiary: referrer._id,
+                        referredUser: user._id,
+                        amount: commissionAmount,
+                        currency: transaction.currency || 'NGN',
+                        generation: 1,
+                        purchaseType: 'share',
+                        sourceTransactionModel: 'UserShare',
+                        status: 'completed',
+                        createdAt: transaction.createdAt || new Date()
+                      };
+                      
+                      await ReferralTransaction.create(referralTxData);
+                      
+                      userStats.transactions++;
+                      userStats.gen1Earnings += commissionAmount;
+                      userStats.totalEarnings += commissionAmount;
+                      
+                      stats.totalReferralTransactions++;
+                      stats.totalEarningsGenerated += commissionAmount;
+                      stats.shareTransactionsProcessed++;
+                      
+                      console.log(`      Gen1 Share: $${commissionAmount.toFixed(2)} from $${transaction.totalAmount}`);
+                    }
+                  } catch (txError) {
+                    console.error(`      Error creating Gen 1 share referral transaction: ${txError.message}`);
+                    stats.processingErrors++;
                   }
-                  
-                  const commissionAmount = (transaction.totalAmount * commissionRates.generation1) / 100;
-                  
-                  if (commissionAmount <= 0) {
-                    console.log('      Commission amount is zero or negative, skipping');
-                    continue;
-                  }
-                  
-                  // Create referral transaction with explicit field validation
-                  const referralTxData = {
-                    beneficiary: referrer._id,
-                    referredUser: user._id,
-                    amount: commissionAmount,
-                    currency: transaction.currency || 'NGN',
-                    generation: 1,
-                    purchaseType: 'share',
-                    sourceTransactionModel: 'UserShare',
-                    status: 'completed',
-                    metadata: {
-                      originalAmount: transaction.totalAmount,
-                      commissionRate: commissionRates.generation1,
-                      processedAt: new Date(),
-                      version: 'v3.0'
-                    },
-                    createdAt: transaction.createdAt || new Date()
-                  };
-                  
-                  // Validate all required fields are present
-                  if (!referralTxData.beneficiary || !referralTxData.referredUser) {
-                    console.log('      Missing required IDs, skipping transaction');
-                    continue;
-                  }
-                  
-                  const referralTx = new ReferralTransaction(referralTxData);
-                  await referralTx.save();
-                  
-                  userStats.transactions++;
-                  userStats.gen1Earnings += commissionAmount;
-                  userStats.totalEarnings += commissionAmount;
-                  
-                  stats.totalReferralTransactions++;
-                  stats.totalEarningsGenerated += commissionAmount;
-                  
-                  console.log(`      Gen1 Share: $${commissionAmount.toFixed(2)} from $${transaction.totalAmount}`);
-                  
-                } catch (txError) {
-                  console.error(`      Error creating Gen 1 share referral transaction: ${txError.message}`);
-                  stats.processingErrors++;
                 }
               }
             }
 
-            // ========================================
-            // PROCESS CO-FOUNDER TRANSACTIONS (NEW)
-            // ========================================
+            // Process co-founder transactions
             try {
               const cofounderTransactions = await PaymentTransaction.find({
                 userId: user._id,
@@ -231,23 +206,14 @@ async function fixAllUsersReferralEarnings() {
                         metadata: {
                           shares: tx.shares,
                           originalAmount: tx.amount,
-                          commissionRate: commissionRates.generation1,
-                          processedAt: new Date(),
-                          version: 'v3.0'
+                          commissionRate: commissionRates.generation1
                         },
                         createdAt: tx.createdAt
                       };
                       
-                      if (!cofounderReferralTxData.beneficiary || !cofounderReferralTxData.referredUser) {
-                        console.log('      Missing required IDs for co-founder tx, skipping');
-                        continue;
-                      }
-                      
-                      const cofounderReferralTx = new ReferralTransaction(cofounderReferralTxData);
-                      await cofounderReferralTx.save();
+                      await ReferralTransaction.create(cofounderReferralTxData);
                       
                       userStats.transactions++;
-                      userStats.cofounderTransactions++;
                       userStats.gen1Earnings += commission;
                       userStats.totalEarnings += commission;
                       
@@ -268,35 +234,42 @@ async function fixAllUsersReferralEarnings() {
               stats.processingErrors++;
             }
             
-            // ========================================
-            // GENERATION 2 REFERRALS
-            // ========================================
-            try {
-              const gen2Users = await User.find({ 
-                'referralInfo.code': user.userName 
-              }).select('_id name userName email referralInfo');
+          } catch (userError) {
+            console.error(`    Error processing Gen1 user ${user.name}: ${userError.message}`);
+            stats.processingErrors++;
+          }
+        }
+
+        // ========================================
+        // PROCESS GENERATION 2 REFERRALS
+        // ========================================
+        let gen2Count = 0;
+        for (const gen1User of gen1Users) {
+          try {
+            const gen2Users = await User.find({ 
+              'referralInfo.code': gen1User.userName 
+            }).select('_id name userName email referralInfo');
+            
+            gen2Count += gen2Users.length;
+            
+            if (gen2Users.length > 0) {
+              console.log(`      Found ${gen2Users.length} Generation 2 users under ${gen1User.userName}`);
               
-              if (gen2Users.length > 0) {
-                console.log(`      Found ${gen2Users.length} Generation 2 users`);
-                
-                for (const gen2User of gen2Users) {
-                  try {
-                    // Process Gen2 regular shares
-                    const gen2UserShare = await UserShare.findOne({ user: gen2User._id });
+              for (const gen2User of gen2Users) {
+                try {
+                  // Process Gen2 regular shares
+                  const gen2UserShare = await UserShare.findOne({ user: gen2User._id });
+                  
+                  if (gen2UserShare && gen2UserShare.transactions) {
+                    const gen2CompletedTransactions = gen2UserShare.transactions.filter(tx => 
+                      tx && tx.status === 'completed' && tx.totalAmount && tx.totalAmount > 0
+                    );
                     
-                    if (gen2UserShare && gen2UserShare.transactions && gen2UserShare.totalShares > 0) {
-                      const gen2CompletedTransactions = gen2UserShare.transactions.filter(tx => 
-                        tx && tx.status === 'completed' && tx.totalAmount && tx.totalAmount > 0
-                      );
-                      
-                      for (const gen2Transaction of gen2CompletedTransactions) {
-                        try {
-                          if (!gen2Transaction.totalAmount || gen2Transaction.totalAmount <= 0) continue;
-                          
-                          const gen2CommissionAmount = (gen2Transaction.totalAmount * commissionRates.generation2) / 100;
-                          
-                          if (gen2CommissionAmount <= 0) continue;
-                          
+                    for (const gen2Transaction of gen2CompletedTransactions) {
+                      try {
+                        const gen2CommissionAmount = (gen2Transaction.totalAmount * commissionRates.generation2) / 100;
+                        
+                        if (gen2CommissionAmount > 0) {
                           const gen2ReferralTxData = {
                             beneficiary: referrer._id,
                             referredUser: gen2User._id,
@@ -306,19 +279,10 @@ async function fixAllUsersReferralEarnings() {
                             purchaseType: 'share',
                             sourceTransactionModel: 'UserShare',
                             status: 'completed',
-                            metadata: {
-                              originalAmount: gen2Transaction.totalAmount,
-                              commissionRate: commissionRates.generation2,
-                              processedAt: new Date(),
-                              version: 'v3.0'
-                            },
                             createdAt: gen2Transaction.createdAt || new Date()
                           };
                           
-                          if (!gen2ReferralTxData.beneficiary || !gen2ReferralTxData.referredUser) continue;
-                          
-                          const gen2ReferralTx = new ReferralTransaction(gen2ReferralTxData);
-                          await gen2ReferralTx.save();
+                          await ReferralTransaction.create(gen2ReferralTxData);
                           
                           userStats.transactions++;
                           userStats.gen2Earnings += gen2CommissionAmount;
@@ -326,216 +290,211 @@ async function fixAllUsersReferralEarnings() {
                           
                           stats.totalReferralTransactions++;
                           stats.totalEarningsGenerated += gen2CommissionAmount;
+                          stats.shareTransactionsProcessed++;
                           
-                        } catch (gen2TxError) {
-                          console.error(`        Gen 2 share transaction error: ${gen2TxError.message}`);
-                          stats.processingErrors++;
+                          console.log(`        Gen2 Share: ${gen2User.userName} → $${gen2CommissionAmount.toFixed(2)} from $${gen2Transaction.totalAmount}`);
                         }
+                      } catch (gen2TxError) {
+                        console.error(`        Gen 2 share transaction error: ${gen2TxError.message}`);
+                        stats.processingErrors++;
                       }
                     }
+                  }
 
-                    // Process Gen2 co-founder transactions
-                    try {
-                      const gen2CofounderTransactions = await PaymentTransaction.find({
-                        userId: gen2User._id,
-                        type: 'co-founder',
-                        status: 'completed'
-                      });
+                  // Process Gen2 co-founder transactions
+                  try {
+                    const gen2CofounderTransactions = await PaymentTransaction.find({
+                      userId: gen2User._id,
+                      type: 'co-founder',
+                      status: 'completed'
+                    });
 
-                      for (const tx of gen2CofounderTransactions) {
-                        try {
-                          if (tx.amount && tx.amount > 0) {
-                            const commission = (tx.amount * commissionRates.generation2) / 100;
-                            
-                            const gen2CofounderReferralTxData = {
-                              beneficiary: referrer._id,
-                              referredUser: gen2User._id,
-                              amount: commission,
-                              currency: tx.currency || 'USD',
-                              generation: 2,
-                              purchaseType: 'cofounder',
-                              sourceTransaction: tx._id,
-                              sourceTransactionModel: 'PaymentTransaction',
-                              status: 'completed',
-                              metadata: {
-                                shares: tx.shares,
-                                originalAmount: tx.amount,
-                                commissionRate: commissionRates.generation2,
-                                processedAt: new Date(),
-                                version: 'v3.0'
-                              },
-                              createdAt: tx.createdAt
-                            };
-                            
-                            if (!gen2CofounderReferralTxData.beneficiary || !gen2CofounderReferralTxData.referredUser) continue;
-                            
-                            const gen2CofounderReferralTx = new ReferralTransaction(gen2CofounderReferralTxData);
-                            await gen2CofounderReferralTx.save();
-                            
-                            userStats.transactions++;
-                            userStats.cofounderTransactions++;
-                            userStats.gen2Earnings += commission;
-                            userStats.totalEarnings += commission;
-                            
-                            stats.totalReferralTransactions++;
-                            stats.totalEarningsGenerated += commission;
-                            stats.cofounderTransactionsProcessed++;
-                          }
-                        } catch (gen2CofounderTxError) {
-                          console.error(`        Gen 2 co-founder transaction error: ${gen2CofounderTxError.message}`);
-                          stats.processingErrors++;
+                    for (const tx of gen2CofounderTransactions) {
+                      try {
+                        if (tx.amount && tx.amount > 0) {
+                          const commission = (tx.amount * commissionRates.generation2) / 100;
+                          
+                          const gen2CofounderReferralTxData = {
+                            beneficiary: referrer._id,
+                            referredUser: gen2User._id,
+                            amount: commission,
+                            currency: tx.currency || 'USD',
+                            generation: 2,
+                            purchaseType: 'cofounder',
+                            sourceTransaction: tx._id,
+                            sourceTransactionModel: 'PaymentTransaction',
+                            status: 'completed',
+                            metadata: {
+                              shares: tx.shares,
+                              originalAmount: tx.amount,
+                              commissionRate: commissionRates.generation2
+                            },
+                            createdAt: tx.createdAt
+                          };
+                          
+                          await ReferralTransaction.create(gen2CofounderReferralTxData);
+                          
+                          userStats.transactions++;
+                          userStats.gen2Earnings += commission;
+                          userStats.totalEarnings += commission;
+                          
+                          stats.totalReferralTransactions++;
+                          stats.totalEarningsGenerated += commission;
+                          stats.cofounderTransactionsProcessed++;
+                          
+                          console.log(`        Gen2 Cofounder: ${gen2User.userName} → $${commission.toFixed(2)} from $${tx.amount}`);
                         }
+                      } catch (gen2CofounderTxError) {
+                        console.error(`        Gen 2 co-founder transaction error: ${gen2CofounderTxError.message}`);
+                        stats.processingErrors++;
                       }
-                    } catch (gen2CofounderError) {
-                      console.error(`      Gen 2 co-founder processing error: ${gen2CofounderError.message}`);
-                      stats.processingErrors++;
                     }
-                    
-                    // ========================================
-                    // GENERATION 3 REFERRALS
-                    // ========================================
+                  } catch (gen2CofounderError) {
+                    console.error(`      Gen 2 co-founder processing error: ${gen2CofounderError.message}`);
+                    stats.processingErrors++;
+                  }
+                  
+                } catch (gen2UserError) {
+                  console.error(`      Gen 2 user processing error: ${gen2UserError.message}`);
+                  stats.processingErrors++;
+                }
+              }
+            }
+          } catch (gen2Error) {
+            console.error(`    Gen 2 processing error for ${gen1User.userName}: ${gen2Error.message}`);
+            stats.processingErrors++;
+          }
+        }
+
+        // ========================================
+        // PROCESS GENERATION 3 REFERRALS
+        // ========================================
+        let gen3Count = 0;
+        for (const gen1User of gen1Users) {
+          try {
+            const gen2Users = await User.find({ 'referralInfo.code': gen1User.userName });
+            
+            for (const gen2User of gen2Users) {
+              try {
+                const gen3Users = await User.find({ 
+                  'referralInfo.code': gen2User.userName 
+                }).select('_id name userName email referralInfo');
+                
+                gen3Count += gen3Users.length;
+                
+                if (gen3Users.length > 0) {
+                  for (const gen3User of gen3Users) {
                     try {
-                      const gen3Users = await User.find({ 
-                        'referralInfo.code': gen2User.userName 
-                      }).select('_id name userName email referralInfo');
+                      // Process Gen3 regular shares
+                      const gen3UserShare = await UserShare.findOne({ user: gen3User._id });
                       
-                      if (gen3Users.length > 0) {
-                        for (const gen3User of gen3Users) {
+                      if (gen3UserShare && gen3UserShare.transactions) {
+                        const gen3CompletedTransactions = gen3UserShare.transactions.filter(tx => 
+                          tx && tx.status === 'completed' && tx.totalAmount && tx.totalAmount > 0
+                        );
+                        
+                        for (const gen3Transaction of gen3CompletedTransactions) {
                           try {
-                            // Process Gen3 regular shares
-                            const gen3UserShare = await UserShare.findOne({ user: gen3User._id });
+                            const gen3CommissionAmount = (gen3Transaction.totalAmount * commissionRates.generation3) / 100;
                             
-                            if (gen3UserShare && gen3UserShare.transactions && gen3UserShare.totalShares > 0) {
-                              const gen3CompletedTransactions = gen3UserShare.transactions.filter(tx => 
-                                tx && tx.status === 'completed' && tx.totalAmount && tx.totalAmount > 0
-                              );
+                            if (gen3CommissionAmount > 0) {
+                              const gen3ReferralTxData = {
+                                beneficiary: referrer._id,
+                                referredUser: gen3User._id,
+                                amount: gen3CommissionAmount,
+                                currency: gen3Transaction.currency || 'NGN',
+                                generation: 3,
+                                purchaseType: 'share',
+                                sourceTransactionModel: 'UserShare',
+                                status: 'completed',
+                                createdAt: gen3Transaction.createdAt || new Date()
+                              };
                               
-                              for (const gen3Transaction of gen3CompletedTransactions) {
-                                try {
-                                  if (!gen3Transaction.totalAmount || gen3Transaction.totalAmount <= 0) continue;
-                                  
-                                  const gen3CommissionAmount = (gen3Transaction.totalAmount * commissionRates.generation3) / 100;
-                                  
-                                  if (gen3CommissionAmount <= 0) continue;
-                                  
-                                  const gen3ReferralTxData = {
-                                    beneficiary: referrer._id,
-                                    referredUser: gen3User._id,
-                                    amount: gen3CommissionAmount,
-                                    currency: gen3Transaction.currency || 'NGN',
-                                    generation: 3,
-                                    purchaseType: 'share',
-                                    sourceTransactionModel: 'UserShare',
-                                    status: 'completed',
-                                    metadata: {
-                                      originalAmount: gen3Transaction.totalAmount,
-                                      commissionRate: commissionRates.generation3,
-                                      processedAt: new Date(),
-                                      version: 'v3.0'
-                                    },
-                                    createdAt: gen3Transaction.createdAt || new Date()
-                                  };
-                                  
-                                  if (!gen3ReferralTxData.beneficiary || !gen3ReferralTxData.referredUser) continue;
-                                  
-                                  const gen3ReferralTx = new ReferralTransaction(gen3ReferralTxData);
-                                  await gen3ReferralTx.save();
-                                  
-                                  userStats.transactions++;
-                                  userStats.gen3Earnings += gen3CommissionAmount;
-                                  userStats.totalEarnings += gen3CommissionAmount;
-                                  
-                                  stats.totalReferralTransactions++;
-                                  stats.totalEarningsGenerated += gen3CommissionAmount;
-                                  
-                                } catch (gen3TxError) {
-                                  console.error(`          Gen 3 share transaction error: ${gen3TxError.message}`);
-                                  stats.processingErrors++;
-                                }
-                              }
+                              await ReferralTransaction.create(gen3ReferralTxData);
+                              
+                              userStats.transactions++;
+                              userStats.gen3Earnings += gen3CommissionAmount;
+                              userStats.totalEarnings += gen3CommissionAmount;
+                              
+                              stats.totalReferralTransactions++;
+                              stats.totalEarningsGenerated += gen3CommissionAmount;
+                              stats.shareTransactionsProcessed++;
+                              
+                              console.log(`          Gen3 Share: ${gen3User.userName} → $${gen3CommissionAmount.toFixed(2)} from $${gen3Transaction.totalAmount}`);
                             }
-
-                            // Process Gen3 co-founder transactions
-                            try {
-                              const gen3CofounderTransactions = await PaymentTransaction.find({
-                                userId: gen3User._id,
-                                type: 'co-founder',
-                                status: 'completed'
-                              });
-
-                              for (const tx of gen3CofounderTransactions) {
-                                try {
-                                  if (tx.amount && tx.amount > 0) {
-                                    const commission = (tx.amount * commissionRates.generation3) / 100;
-                                    
-                                    const gen3CofounderReferralTxData = {
-                                      beneficiary: referrer._id,
-                                      referredUser: gen3User._id,
-                                      amount: commission,
-                                      currency: tx.currency || 'USD',
-                                      generation: 3,
-                                      purchaseType: 'cofounder',
-                                      sourceTransaction: tx._id,
-                                      sourceTransactionModel: 'PaymentTransaction',
-                                      status: 'completed',
-                                      metadata: {
-                                        shares: tx.shares,
-                                        originalAmount: tx.amount,
-                                        commissionRate: commissionRates.generation3,
-                                        processedAt: new Date(),
-                                        version: 'v3.0'
-                                      },
-                                      createdAt: tx.createdAt
-                                    };
-                                    
-                                    if (!gen3CofounderReferralTxData.beneficiary || !gen3CofounderReferralTxData.referredUser) continue;
-                                    
-                                    const gen3CofounderReferralTx = new ReferralTransaction(gen3CofounderReferralTxData);
-                                    await gen3CofounderReferralTx.save();
-                                    
-                                    userStats.transactions++;
-                                    userStats.cofounderTransactions++;
-                                    userStats.gen3Earnings += commission;
-                                    userStats.totalEarnings += commission;
-                                    
-                                    stats.totalReferralTransactions++;
-                                    stats.totalEarningsGenerated += commission;
-                                    stats.cofounderTransactionsProcessed++;
-                                  }
-                                } catch (gen3CofounderTxError) {
-                                  console.error(`          Gen 3 co-founder transaction error: ${gen3CofounderTxError.message}`);
-                                  stats.processingErrors++;
-                                }
-                              }
-                            } catch (gen3CofounderError) {
-                              console.error(`        Gen 3 co-founder processing error: ${gen3CofounderError.message}`);
-                              stats.processingErrors++;
-                            }
-
-                          } catch (gen3UserError) {
-                            console.error(`        Gen 3 user processing error: ${gen3UserError.message}`);
+                          } catch (gen3TxError) {
+                            console.error(`          Gen 3 share transaction error: ${gen3TxError.message}`);
                             stats.processingErrors++;
                           }
                         }
                       }
-                    } catch (gen3Error) {
-                      console.error(`      Gen 3 processing error: ${gen3Error.message}`);
+
+                      // Process Gen3 co-founder transactions
+                      try {
+                        const gen3CofounderTransactions = await PaymentTransaction.find({
+                          userId: gen3User._id,
+                          type: 'co-founder',
+                          status: 'completed'
+                        });
+
+                        for (const tx of gen3CofounderTransactions) {
+                          try {
+                            if (tx.amount && tx.amount > 0) {
+                              const commission = (tx.amount * commissionRates.generation3) / 100;
+                              
+                              const gen3CofounderReferralTxData = {
+                                beneficiary: referrer._id,
+                                referredUser: gen3User._id,
+                                amount: commission,
+                                currency: tx.currency || 'USD',
+                                generation: 3,
+                                purchaseType: 'cofounder',
+                                sourceTransaction: tx._id,
+                                sourceTransactionModel: 'PaymentTransaction',
+                                status: 'completed',
+                                metadata: {
+                                  shares: tx.shares,
+                                  originalAmount: tx.amount,
+                                  commissionRate: commissionRates.generation3
+                                },
+                                createdAt: tx.createdAt
+                              };
+                              
+                              await ReferralTransaction.create(gen3CofounderReferralTxData);
+                              
+                              userStats.transactions++;
+                              userStats.gen3Earnings += commission;
+                              userStats.totalEarnings += commission;
+                              
+                              stats.totalReferralTransactions++;
+                              stats.totalEarningsGenerated += commission;
+                              stats.cofounderTransactionsProcessed++;
+                              
+                              console.log(`          Gen3 Cofounder: ${gen3User.userName} → $${commission.toFixed(2)} from $${tx.amount}`);
+                            }
+                          } catch (gen3CofounderTxError) {
+                            console.error(`          Gen 3 co-founder transaction error: ${gen3CofounderTxError.message}`);
+                            stats.processingErrors++;
+                          }
+                        }
+                      } catch (gen3CofounderError) {
+                        console.error(`        Gen 3 co-founder processing error: ${gen3CofounderError.message}`);
+                        stats.processingErrors++;
+                      }
+
+                    } catch (gen3UserError) {
+                      console.error(`        Gen 3 user processing error: ${gen3UserError.message}`);
                       stats.processingErrors++;
                     }
-                    
-                  } catch (gen2UserError) {
-                    console.error(`      Gen 2 user processing error: ${gen2UserError.message}`);
-                    stats.processingErrors++;
                   }
                 }
+              } catch (gen3Error) {
+                console.error(`      Gen 3 processing error: ${gen3Error.message}`);
+                stats.processingErrors++;
               }
-            } catch (gen2Error) {
-              console.error(`    Gen 2 processing error: ${gen2Error.message}`);
-              stats.processingErrors++;
             }
-            
-          } catch (userError) {
-            console.error(`    Error processing user ${user.name}: ${userError.message}`);
+          } catch (gen3OuterError) {
+            console.error(`    Outer Gen 3 processing error: ${gen3OuterError.message}`);
             stats.processingErrors++;
           }
         }
@@ -546,37 +505,6 @@ async function fixAllUsersReferralEarnings() {
         try {
           console.log(`  Updating referral stats for ${referrer.userName}...`);
           
-          let referralStats = await Referral.findOne({ user: referrer._id });
-          
-          // Count Gen 2 users
-          let gen2Count = 0;
-          for (const gen1User of gen1Users) {
-            try {
-              const count = await User.countDocuments({ 'referralInfo.code': gen1User.userName });
-              gen2Count += count;
-            } catch (countError) {
-              console.error(`    Error counting Gen 2 users for ${gen1User.userName}: ${countError.message}`);
-            }
-          }
-          
-          // Count Gen 3 users
-          let gen3Count = 0;
-          for (const gen1User of gen1Users) {
-            try {
-              const gen2Users = await User.find({ 'referralInfo.code': gen1User.userName });
-              for (const gen2User of gen2Users) {
-                try {
-                  const count = await User.countDocuments({ 'referralInfo.code': gen2User.userName });
-                  gen3Count += count;
-                } catch (gen3CountError) {
-                  console.error(`    Error counting Gen 3 users: ${gen3CountError.message}`);
-                }
-              }
-            } catch (gen2CountError) {
-              console.error(`    Error processing Gen 2 count: ${gen2CountError.message}`);
-            }
-          }
-          
           const referralStatsData = {
             user: referrer._id,
             referredUsers: gen1Users.length,
@@ -586,15 +514,14 @@ async function fixAllUsersReferralEarnings() {
             generation3: { count: gen3Count, earnings: userStats.gen3Earnings }
           };
           
-          if (referralStats) {
-            Object.assign(referralStats, referralStatsData);
-            await referralStats.save();
-          } else {
-            const newReferralStats = new Referral(referralStatsData);
-            await newReferralStats.save();
-          }
+          // Use findOneAndUpdate with upsert for better reliability
+          await Referral.findOneAndUpdate(
+            { user: referrer._id },
+            referralStatsData,
+            { upsert: true, new: true }
+          );
 
-          console.log(`  ✓ ${referrer.userName}: Earnings=$${userStats.totalEarnings.toFixed(2)}, Transactions=${userStats.transactions}, Cofounder=${userStats.cofounderTransactions}`);
+          console.log(`  ✓ ${referrer.userName}: Earnings=$${userStats.totalEarnings.toFixed(2)}, Transactions=${userStats.transactions}`);
         } catch (statsError) {
           console.error(`  Error updating referral stats for ${referrer.userName}: ${statsError.message}`);
           stats.processingErrors++;
@@ -612,12 +539,12 @@ async function fixAllUsersReferralEarnings() {
     const duration = ((Date.now() - startTime) / 1000).toFixed(2);
     
     console.log('======================================');
-    console.log('REFERRAL SYNC SUMMARY V3.0:');
+    console.log('REFERRAL SYNC SUMMARY:');
     console.log(`⏱️  Duration: ${duration} seconds`);
     console.log(`✓ Users processed: ${stats.totalProcessed}`);
     console.log(`✓ Users with referrals: ${stats.usersWithReferrals}`);
     console.log(`✓ Users skipped: ${stats.skippedUsers}`);
-    console.log(`✓ Share transactions created: ${stats.totalReferralTransactions - stats.cofounderTransactionsProcessed}`);
+    console.log(`✓ Share transactions created: ${stats.shareTransactionsProcessed}`);
     console.log(`✓ Co-founder transactions created: ${stats.cofounderTransactionsProcessed}`);
     console.log(`✓ Total transactions created: ${stats.totalReferralTransactions}`);
     console.log(`✓ Total earnings generated: $${stats.totalEarningsGenerated.toFixed(2)}`);
@@ -626,7 +553,7 @@ async function fixAllUsersReferralEarnings() {
     
     return stats;
   } catch (error) {
-    console.error('❌ FATAL ERROR in referral earnings sync V3.0:', error.message);
+    console.error('❌ FATAL ERROR in referral earnings sync:', error.message);
     console.error('Stack trace:', error.stack);
     throw error;
   } finally {
@@ -635,27 +562,25 @@ async function fixAllUsersReferralEarnings() {
 }
 
 // ========================================
-// CRON SCHEDULING (KEPT AT 2 MINUTES AS REQUESTED)
+// CRON SCHEDULING
 // ========================================
 
-// Main referral sync job - runs every 2 minutes with overlap prevention
+// Main referral sync job - runs every 2 minutes
 const referralSyncJob = cron.schedule('*/2 * * * *', async () => {
-  // Runs every 2 minutes with enhanced processing
   try {
-    console.log('🔄 Running 2-minute referral sync V3.0...');
+    console.log('🔄 Running 2-minute referral sync...');
     await fixAllUsersReferralEarnings();
   } catch (error) {
     console.error('❌ 2-minute referral sync failed:', error.message);
   }
 }, {
-  scheduled: false // Don't start immediately
+  scheduled: false
 });
 
 // Daily comprehensive sync job (backup)
 const dailyReferralSyncJob = cron.schedule('0 2 * * *', async () => {
-  // Runs daily at 2 AM as backup
-  console.log('🔄 Running DAILY comprehensive referral sync V3.0...');
   try {
+    console.log('🔄 Running DAILY comprehensive referral sync...');
     await fixAllUsersReferralEarnings();
   } catch (error) {
     console.error('❌ Daily referral sync failed:', error.message);
@@ -674,19 +599,19 @@ module.exports = {
   
   // Start all referral cron jobs
   startReferralJobs() {
-    console.log('🚀 Starting referral sync cron jobs V3.0...');
+    console.log('🚀 Starting referral sync cron jobs...');
     referralSyncJob.start();
     dailyReferralSyncJob.start();
-    console.log('✅ Referral sync jobs started V3.0:');
+    console.log('✅ Referral sync jobs started:');
     console.log('   📅 Primary sync: Every 2 minutes (with overlap prevention)');
     console.log('   📅 Backup sync: Daily at 2:00 AM UTC');
-    console.log('   🎯 Features: Co-founder support, overlap prevention, enhanced processing');
+    console.log('   🎯 Features: Co-founder support, overlap prevention');
     console.log('   🛡️ Safety: Won\'t run multiple syncs simultaneously');
   },
   
   // Stop all referral cron jobs
   stopReferralJobs() {
-    console.log('🛑 Stopping referral sync cron jobs V3.0...');
+    console.log('🛑 Stopping referral sync cron jobs...');
     referralSyncJob.stop();
     dailyReferralSyncJob.stop();
     console.log('✅ Referral sync jobs stopped');
@@ -697,14 +622,13 @@ module.exports = {
     return {
       isProcessing,
       lastProcessedTime,
-      version: 'v3.0',
       schedule: 'Every 2 minutes + Daily backup',
       features: [
         'Co-founder transaction support',
-        'Overlap prevention (won\'t run if already processing)',
+        'Overlap prevention',
         'Enhanced error handling',
-        'Performance monitoring',
-        'Database protection (pauses every 20 users)'
+        'Complete generation processing',
+        'Accurate referral calculations'
       ]
     };
   }
