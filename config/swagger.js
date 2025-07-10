@@ -6,7 +6,7 @@ const getBaseUrl = () => {
     // Priority: Custom BASE_URL > Render URL > fallback
     return process.env.BASE_URL || 
            process.env.RENDER_EXTERNAL_URL || 
-           `https://afrimo-database-1.onrender.com`;
+           `https://afrimobile-d240af77c383.herokuapp.com/`;
   }
   return `http://localhost:${process.env.PORT || 5000}`;
 };
@@ -25,7 +25,7 @@ const swaggerOptions = {
     },
     servers: [
       {
-        url: 'https://afrimo-database-1.onrender.com/api',
+        url: 'https://afrimobile-d240af77c383.herokuapp.com//api',
         description: 'Production server'
       },
       {
@@ -509,7 +509,7 @@ const getSwaggerSpec = () => {
   // Provide multiple server options for easy switching
   const servers = [
     {
-      url: 'https://afrimo-database-1.onrender.com/api',
+      url: 'https://afrimobile-d240af77c383.herokuapp.com//api',
       description: 'Production server (Live)'
     },
     {
@@ -527,7 +527,7 @@ const getSwaggerSpec = () => {
   }
 
   // Add custom server if BASE_URL is different from production
-  if (process.env.BASE_URL && process.env.BASE_URL !== 'https://afrimo-database-1.onrender.com') {
+  if (process.env.BASE_URL && process.env.BASE_URL !== 'https://afrimobile-d240af77c383.herokuapp.com/') {
     servers.unshift({
       url: `${process.env.BASE_URL}/api`,
       description: 'Custom server'
