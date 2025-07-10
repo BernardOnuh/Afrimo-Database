@@ -19,7 +19,6 @@ app.set('trust proxy', 1);
 
 // 🔧 FIX 2: Global mongoose settings (ADD THIS BEFORE CONNECTION)
 mongoose.set('strictQuery', true);
-mongoose.set('bufferCommands', false);
 
 
 // Display important environment variables
@@ -115,49 +114,91 @@ app.use(limiter);
 // Database connection with health monitor integration
 const connectDB = async () => {
   try {
+    // Check if already connected
+    if (mongoose.connection.readyState === 1) {
+      console.log('✅ Already connected to MongoDB');
+      return;
+    }
+
+    console.log('🔄 Attempting to connect to MongoDB...');
+    
     const mongoUri = process.env.MONGODB_URI || 
                     process.env.MONGO_URI || 
-                    process.env.DATABASE_URL ||
-                    'mongodb://localhost:27017/afrimobile';
+                    process.env.DATABASE_URL;
     
-    // Updated MongoDB connection options for Heroku
+    if (!mongoUri) {
+      throw new Error('No MongoDB connection string found in environment variables');
+    }
+
+    console.log('📍 MongoDB URI found:', mongoUri.includes('@') ? 'mongodb+srv://***:***@' + mongoUri.split('@')[1] : mongoUri);
+    
+    // Simplified connection options for better compatibility
     const options = {
       useNewUrlParser: true,
       useUnifiedTopology: true,
-      maxPoolSize: 5, // Reduced for Heroku
+      
+      // Connection timeouts
+      serverSelectionTimeoutMS: 10000, // 10 seconds for initial connection
+      socketTimeoutMS: 45000,
+      connectTimeoutMS: 10000,
+      
+      // Connection pool
+      maxPoolSize: 10,
       minPoolSize: 1,
-      serverSelectionTimeoutMS: 30000, // Increased from 5000ms
-      socketTimeoutMS: 75000, // Increased from 45000ms
-      connectTimeoutMS: 30000,
-      heartbeatFrequencyMS: 30000, // Increased from 10000ms
-      maxIdleTimeMS: 60000, // Increased from 30000ms
+      
+      // Retry settings
       retryWrites: true,
       retryReads: true,
+      
+      // Keep alive
       keepAlive: true,
       keepAliveInitialDelay: 300000,
-      // 🔧 REMOVED: bufferMaxEntries: 0 (this was causing the error)
     };
+    
+    console.log('⏳ Connecting with timeout: 10 seconds...');
     
     await mongoose.connect(mongoUri, options);
     
-    console.log('✅ Connected to MongoDB');
+    console.log('✅ Successfully connected to MongoDB');
     console.log(`📊 Database: ${mongoose.connection.name}`);
-    console.log(`🔗 Connection URI: ${mongoUri.split('@')[1] || 'localhost'}`);
+    console.log(`🏠 Host: ${mongoose.connection.host}`);
+    console.log(`🔌 Connection state: ${mongoose.connection.readyState}`);
     
     // Re-enable buffering after successful connection
     mongoose.set('bufferCommands', true);
     
     // Initialize health monitor after database connection
-    initializeHealthMonitor();
+    try {
+      initializeHealthMonitor();
+    } catch (error) {
+      console.error('⚠️ Health monitor initialization failed:', error.message);
+    }
     
   } catch (error) {
-    console.error('❌ Database connection failed:', error.message);
-    console.error('🔄 Retrying connection in 10 seconds...');
+    console.error('\n❌ Database connection failed:');
+    console.error('Error message:', error.message);
     
+    // Log specific error types
+    if (error.message.includes('ENOTFOUND')) {
+      console.error('🌐 DNS resolution failed - check your MongoDB URI');
+    } else if (error.message.includes('authentication failed')) {
+      console.error('🔐 Authentication failed - check username/password');
+    } else if (error.message.includes('timeout')) {
+      console.error('⏰ Connection timeout - check network connectivity');
+    } else if (error.message.includes('No MongoDB connection string')) {
+      console.error('🔧 Missing MONGODB_URI environment variable');
+      console.error('Available env vars:', Object.keys(process.env).filter(key => 
+        key.toLowerCase().includes('mongo') || key.toLowerCase().includes('database')
+      ));
+    }
+    
+    console.error('🔄 Will retry connection in 15 seconds...');
+    
+    // Longer retry interval for better stability
     setTimeout(() => {
-      console.log('🔄 Attempting to reconnect to database...');
+      console.log('🔄 Retrying database connection...');
       connectDB();
-    }, 10000); // Increased retry interval
+    }, 15000);
   }
 };
 
