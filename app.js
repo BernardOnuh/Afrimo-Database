@@ -329,47 +329,7 @@ function setupDatabaseMonitoring() {
   });
 }
 
-// Enhanced Health monitor function
-function initializeHealthMonitor() {
-  if (process.env.NODE_ENV !== 'test' && mongoose.connection.readyState === 1) {
-    try {
-      console.log('🏥 Initializing System Health Monitor...');
-      const healthMonitor = require('./scripts/systemHealthMonitor');
-      
-      if (!healthMonitor || typeof healthMonitor.startMonitoring !== 'function') {
-        throw new Error('Health monitor module not properly loaded');
-      }
-      
-      healthMonitor.startMonitoring();
-      console.log('✅ System Health Monitor started successfully');
-      global.healthMonitor = healthMonitor;
-      
-      // Enhanced health monitoring with system metrics
-      setInterval(() => {
-        const memUsage = process.memoryUsage();
-        const cpuUsage = process.cpuUsage();
-        
-        logger.debug('System metrics', {
-          memory: memUsage,
-          cpu: cpuUsage,
-          uptime: process.uptime()
-        });
-        
-        // Alert on high memory usage
-        if (memUsage.heapUsed / memUsage.heapTotal > 0.9) {
-          logger.warn('High memory usage detected', { memUsage });
-        }
-      }, 60000); // Every minute
-      
-    } catch (error) {
-      console.error('❌ Failed to start Health Monitor:', error.message);
-      logger.error('Health monitor initialization failed', { error: error.message });
-      global.healthMonitor = null;
-    }
-  } else {
-    console.log('⏳ Database not ready - Health Monitor will start after connection');
-  }
-}
+
 
 // Enhanced Middleware
 app.use(express.json({ 
@@ -828,9 +788,7 @@ async function startApp() {
     }
     
     // Step 2: Initialize health monitor after DB connection
-    if (dbConnected) {
-      initializeHealthMonitor();
-    }
+   
     
     // Step 3: Start the server
     const PORT = AppConfig.PORT;

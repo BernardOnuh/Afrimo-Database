@@ -1,7 +1,7 @@
+// Enhanced ReferralTransaction Schema with duplicate prevention
 const mongoose = require('mongoose');
 
 const ReferralTransactionSchema = new mongoose.Schema({
-  // User who receives the commission
   beneficiary: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'User',
@@ -9,7 +9,6 @@ const ReferralTransactionSchema = new mongoose.Schema({
     index: true
   },
   
-  // User who made the purchase that generated this commission
   referredUser: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'User',
@@ -17,21 +16,18 @@ const ReferralTransactionSchema = new mongoose.Schema({
     index: true
   },
   
-  // Amount of commission earned
   amount: {
     type: Number,
     required: true,
     min: 0
   },
   
-  // Currency of the commission
   currency: {
     type: String,
     enum: ['naira', 'usdt', 'USD'],
     default: 'naira'
   },
   
-  // Generation level (1, 2, or 3)
   generation: {
     type: Number,
     enum: [1, 2, 3],
@@ -39,27 +35,25 @@ const ReferralTransactionSchema = new mongoose.Schema({
     index: true
   },
   
-  // FIXED: Original transaction that generated this commission - now supports both ObjectId and String
+  // FIXED: Normalize to string for consistent matching
   sourceTransaction: {
-    type: mongoose.Schema.Types.Mixed, // Changed from ObjectId to Mixed to support both
+    type: String,
+    required: true,
     index: true
   },
   
-  // Model type for the source transaction
   sourceTransactionModel: {
     type: String,
     enum: ['Transaction', 'PaymentTransaction', 'UserShare'],
     default: 'PaymentTransaction'
   },
   
-  // Purchase type that generated this commission
   purchaseType: {
     type: String,
     enum: ['share', 'cofounder', 'other'],
     default: 'share'
   },
   
-  // Status of the referral transaction
   status: {
     type: String,
     enum: ['pending', 'completed', 'failed', 'rolled_back'],
@@ -67,108 +61,174 @@ const ReferralTransactionSchema = new mongoose.Schema({
     index: true
   },
   
-  // Timestamp when transaction was rolled back (if applicable)
   rolledBackAt: {
     type: Date,
     default: null
   },
   
-  // Additional notes or comments
   notes: {
     type: String,
     maxlength: 500
   },
   
-  // Metadata for additional information
   metadata: {
-    actualShares: {
-      type: Number,
-      min: 0
-    },
-    equivalentShares: {
-      type: Number,
-      min: 0
-    },
-    conversionRatio: {
-      type: Number,
-      min: 1,
-      default: 29
-    },
-    originalAmount: {
-      type: Number,
-      min: 0
-    },
-    commissionRate: {
-      type: Number,
-      min: 0,
-      max: 100
-    },
-    additionalData: {
-      type: mongoose.Schema.Types.Mixed
-    }
+    actualShares: { type: Number, min: 0 },
+    equivalentShares: { type: Number, min: 0 },
+    conversionRatio: { type: Number, min: 1, default: 29 },
+    originalAmount: { type: Number, min: 0 },
+    commissionRate: { type: Number, min: 0, max: 100 },
+    additionalData: { type: mongoose.Schema.Types.Mixed }
   },
   
-  // Processing details
   processedBy: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'User'
   },
   
-  // Commission calculation details
   commissionDetails: {
-    baseAmount: {
-      type: Number,
-      min: 0
-    },
-    commissionRate: {
-      type: Number,
-      min: 0,
-      max: 100
-    },
-    calculatedAt: {
-      type: Date,
-      default: Date.now
-    }
+    baseAmount: { type: Number, min: 0 },
+    commissionRate: { type: Number, min: 0, max: 100 },
+    calculatedAt: { type: Date, default: Date.now }
   }
 }, {
   timestamps: true
 });
 
-// Compound indexes for better query performance
+// CRITICAL: Add compound unique index to prevent duplicates
+ReferralTransactionSchema.index({ 
+  beneficiary: 1, 
+  sourceTransaction: 1, 
+  generation: 1 
+}, { 
+  unique: true,
+  name: 'prevent_duplicate_commissions'
+});
+
+// Other indexes for performance
 ReferralTransactionSchema.index({ beneficiary: 1, status: 1 });
 ReferralTransactionSchema.index({ beneficiary: 1, generation: 1, status: 1 });
-ReferralTransactionSchema.index({ sourceTransaction: 1, sourceTransactionModel: 1 });
 ReferralTransactionSchema.index({ referredUser: 1, generation: 1 });
 ReferralTransactionSchema.index({ createdAt: -1 });
 
-// Virtual for formatted amount display
-ReferralTransactionSchema.virtual('formattedAmount').get(function() {
-  const symbol = this.currency === 'naira' ? '₦' : this.currency === 'usdt' ? '$' : '$';
-  return `${symbol}${this.amount.toFixed(2)}`;
-});
-
-// Instance method to check if transaction can be rolled back
-ReferralTransactionSchema.methods.canRollback = function() {
-  return this.status === 'completed' && !this.rolledBackAt;
+// FIXED: Safe commission creation with duplicate prevention
+ReferralTransactionSchema.statics.createCommission = async function(commissionData) {
+  try {
+    // Normalize sourceTransaction to string
+    const normalizedData = {
+      ...commissionData,
+      sourceTransaction: commissionData.sourceTransaction.toString()
+    };
+    
+    // Check if commission already exists
+    const existing = await this.findOne({
+      beneficiary: normalizedData.beneficiary,
+      sourceTransaction: normalizedData.sourceTransaction,
+      generation: normalizedData.generation
+    });
+    
+    if (existing) {
+      console.log(`Commission already exists for beneficiary ${normalizedData.beneficiary}, transaction ${normalizedData.sourceTransaction}, generation ${normalizedData.generation}`);
+      return { success: false, message: 'Commission already exists', existing };
+    }
+    
+    // Create new commission
+    const commission = new this(normalizedData);
+    await commission.save();
+    
+    console.log(`Created commission: ${commission._id} - ${commission.formattedAmount} for generation ${commission.generation}`);
+    return { success: true, commission };
+    
+  } catch (error) {
+    if (error.code === 11000) {
+      console.log('Duplicate commission prevented by unique index');
+      return { success: false, message: 'Duplicate commission prevented' };
+    }
+    throw error;
+  }
 };
 
-// Instance method to rollback transaction
-ReferralTransactionSchema.methods.rollback = function(reason = 'Transaction rollback') {
-  this.status = 'rolled_back';
-  this.rolledBackAt = new Date();
-  this.notes = reason;
-  return this.save();
+// FIXED: Batch commission creation with validation
+ReferralTransactionSchema.statics.createBatchCommissions = async function(commissionsData) {
+  const results = {
+    created: [],
+    duplicates: [],
+    errors: []
+  };
+  
+  for (const commissionData of commissionsData) {
+    try {
+      const result = await this.createCommission(commissionData);
+      
+      if (result.success) {
+        results.created.push(result.commission);
+      } else {
+        results.duplicates.push({
+          data: commissionData,
+          reason: result.message
+        });
+      }
+    } catch (error) {
+      results.errors.push({
+        data: commissionData,
+        error: error.message
+      });
+    }
+  }
+  
+  return results;
 };
 
-// FIXED: Static method to find commissions by source transaction (handles both ObjectId and String)
+// Enhanced method to find commissions by source transaction
 ReferralTransactionSchema.statics.findBySourceTransaction = function(transactionId, sourceModel) {
   return this.find({
-    sourceTransaction: transactionId, // Works with both ObjectId and String now
+    sourceTransaction: transactionId.toString(), // Normalize to string
     sourceTransactionModel: sourceModel
   });
 };
 
-// Static method to calculate total earnings for a user
+// Method to detect and fix duplicate commissions
+ReferralTransactionSchema.statics.findAndFixDuplicates = async function() {
+  console.log('🔍 Scanning for duplicate commissions...');
+  
+  const duplicates = await this.aggregate([
+    {
+      $group: {
+        _id: {
+          beneficiary: '$beneficiary',
+          sourceTransaction: '$sourceTransaction',
+          generation: '$generation'
+        },
+        count: { $sum: 1 },
+        docs: { $push: '$$ROOT' }
+      }
+    },
+    {
+      $match: {
+        count: { $gt: 1 }
+      }
+    }
+  ]);
+  
+  console.log(`Found ${duplicates.length} sets of duplicate commissions`);
+  
+  let removedCount = 0;
+  
+  for (const duplicate of duplicates) {
+    // Keep the first one, remove the rest
+    const toRemove = duplicate.docs.slice(1);
+    
+    for (const doc of toRemove) {
+      await this.findByIdAndDelete(doc._id);
+      removedCount++;
+      console.log(`Removed duplicate commission: ${doc._id}`);
+    }
+  }
+  
+  console.log(`Removed ${removedCount} duplicate commissions`);
+  return { duplicatesFound: duplicates.length, removedCount };
+};
+
+// Calculate total earnings for a user with validation
 ReferralTransactionSchema.statics.calculateUserEarnings = function(userId) {
   return this.aggregate([
     {
@@ -190,15 +250,30 @@ ReferralTransactionSchema.statics.calculateUserEarnings = function(userId) {
         generation3Earnings: {
           $sum: { $cond: [{ $eq: ['$generation', 3] }, '$amount', 0] }
         },
-        transactionCount: { $sum: 1 }
+        transactionCount: { $sum: 1 },
+        // Count by generation
+        generation1Count: {
+          $sum: { $cond: [{ $eq: ['$generation', 1] }, 1, 0] }
+        },
+        generation2Count: {
+          $sum: { $cond: [{ $eq: ['$generation', 2] }, 1, 0] }
+        },
+        generation3Count: {
+          $sum: { $cond: [{ $eq: ['$generation', 3] }, 1, 0] }
+        }
       }
     }
   ]);
 };
 
-// Pre-save middleware to validate commission details
+// Pre-save middleware with enhanced validation
 ReferralTransactionSchema.pre('save', function(next) {
-  // Ensure commission details are consistent
+  // Normalize sourceTransaction to string
+  if (this.sourceTransaction) {
+    this.sourceTransaction = this.sourceTransaction.toString();
+  }
+  
+  // Validate commission details
   if (this.commissionDetails && this.commissionDetails.baseAmount && this.commissionDetails.commissionRate) {
     const expectedAmount = (this.commissionDetails.baseAmount * this.commissionDetails.commissionRate) / 100;
     if (Math.abs(this.amount - expectedAmount) > 0.01) {
@@ -206,7 +281,7 @@ ReferralTransactionSchema.pre('save', function(next) {
     }
   }
   
-  // Set default commission rates based on generation if not provided
+  // Set default commission rates
   if (!this.commissionDetails || !this.commissionDetails.commissionRate) {
     const defaultRates = { 1: 15, 2: 3, 3: 2 };
     if (!this.commissionDetails) {
@@ -218,9 +293,10 @@ ReferralTransactionSchema.pre('save', function(next) {
   next();
 });
 
-// Post-save middleware for logging
-ReferralTransactionSchema.post('save', function(doc) {
-  console.log(`ReferralTransaction saved: ${doc._id} - ${doc.formattedAmount} commission for generation ${doc.generation} (${doc.purchaseType})`);
+// Virtual for formatted amount display
+ReferralTransactionSchema.virtual('formattedAmount').get(function() {
+  const symbol = this.currency === 'naira' ? '₦' : this.currency === 'usdt' ? '$' : '$';
+  return `${symbol}${this.amount.toFixed(2)}`;
 });
 
 const ReferralTransaction = mongoose.model('ReferralTransaction', ReferralTransactionSchema);

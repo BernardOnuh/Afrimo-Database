@@ -992,11 +992,15 @@ const adjustUserEarnings = async (req, res) => {
 };
 
 // Adjust specific referral transaction
+// Fixed adjustReferralTransaction function
 const adjustReferralTransaction = async (req, res) => {
   try {
     const adminId = req.user.id;
     const { transactionId } = req.params;
     const { newAmount, newStatus, adjustmentReason, notifyUser = true } = req.body;
+    
+    console.log('🔧 Adjusting transaction:', transactionId);
+    console.log('📤 Request body:', req.body);
     
     // Verify admin
     const admin = await User.findById(adminId);
@@ -1007,43 +1011,102 @@ const adjustReferralTransaction = async (req, res) => {
       });
     }
 
+    // Validate input data
+    if (newAmount !== undefined) {
+      const parsedAmount = parseFloat(newAmount);
+      if (isNaN(parsedAmount) || parsedAmount < 0) {
+        return res.status(400).json({
+          success: false,
+          message: 'Invalid amount provided. Amount must be a valid number greater than or equal to 0.'
+        });
+      }
+    }
+
+    if (newStatus && !['completed', 'pending', 'failed', 'cancelled', 'adjusted'].includes(newStatus)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid status. Must be one of: completed, pending, failed, cancelled, adjusted'
+      });
+    }
+
+    if (!newAmount && newAmount !== 0 && !newStatus) {
+      return res.status(400).json({
+        success: false,
+        message: 'Either newAmount or newStatus must be provided'
+      });
+    }
+
+    if (!adjustmentReason || adjustmentReason.trim().length < 3) {
+      return res.status(400).json({
+        success: false,
+        message: 'Adjustment reason is required (minimum 3 characters)'
+      });
+    }
+
     // Find transaction
+    console.log('🔍 Looking for transaction:', transactionId);
     const transaction = await ReferralTransaction.findById(transactionId)
       .populate('beneficiary', 'name email');
     
     if (!transaction) {
+      console.log('❌ Transaction not found:', transactionId);
       return res.status(404).json({
         success: false,
         message: 'Transaction not found'
       });
     }
 
-    // Store original values
+    console.log('✅ Transaction found:', transaction);
+
+    // Store original values for audit
     const originalAmount = transaction.originalAmount || transaction.amount;
     const oldAmount = transaction.amount;
     const oldStatus = transaction.status;
 
-    // Update transaction
+    console.log('📊 Original values:', { originalAmount, oldAmount, oldStatus });
+
+    // Check if there are actually changes to make
+    const amountChanged = newAmount !== undefined && parseFloat(newAmount) !== oldAmount;
+    const statusChanged = newStatus && newStatus !== oldStatus;
+
+    if (!amountChanged && !statusChanged) {
+      return res.status(400).json({
+        success: false,
+        message: 'No changes detected. New values are the same as current values.'
+      });
+    }
+
+    // Update transaction fields
     if (newAmount !== undefined) {
       transaction.originalAmount = originalAmount;
       transaction.amount = parseFloat(newAmount);
+      console.log('💰 Amount updated:', oldAmount, '→', parseFloat(newAmount));
     }
 
     if (newStatus) {
       transaction.status = newStatus;
+      console.log('📋 Status updated:', oldStatus, '→', newStatus);
     }
 
     transaction.adjustedBy = adminId;
-    transaction.adjustmentReason = adjustmentReason;
+    transaction.adjustmentReason = adjustmentReason.trim();
+    
+    // Save the transaction
+    console.log('💾 Saving transaction...');
     await transaction.save();
+    console.log('✅ Transaction saved successfully');
 
     // Update user's referral stats if amount changed
-    if (newAmount !== undefined && newAmount !== oldAmount) {
+    if (amountChanged) {
+      console.log('📈 Updating user referral stats...');
+      
       const referralData = await Referral.findOne({ user: transaction.beneficiary._id });
       
       if (referralData) {
         const amountDifference = parseFloat(newAmount) - oldAmount;
+        console.log('💵 Amount difference:', amountDifference);
         
+        // Update total earnings
         referralData.totalEarnings += amountDifference;
         
         // Update generation-specific earnings
@@ -1053,6 +1116,9 @@ const adjustReferralTransaction = async (req, res) => {
         }
         
         await referralData.save();
+        console.log('✅ User referral stats updated');
+      } else {
+        console.log('⚠️ No referral data found for user');
       }
     }
 
@@ -1060,15 +1126,16 @@ const adjustReferralTransaction = async (req, res) => {
     await createAuditLog(adminId, 'transaction_adjustment', transaction.beneficiary._id, {
       transactionId,
       oldAmount,
-      newAmount,
+      newAmount: newAmount !== undefined ? parseFloat(newAmount) : oldAmount,
       oldStatus,
-      newStatus,
-      adjustmentReason
+      newStatus: newStatus || oldStatus,
+      adjustmentReason: adjustmentReason.trim()
     }, req.ip);
 
-    // Notify user if requested
+    // Notify user if requested and email exists
     if (notifyUser && transaction.beneficiary.email) {
       try {
+        console.log('📧 Sending notification email...');
         await sendEmail({
           email: transaction.beneficiary.email,
           subject: 'AfriMobile - Referral Transaction Adjustment',
@@ -1083,45 +1150,69 @@ const adjustReferralTransaction = async (req, res) => {
               ${newAmount !== undefined ? `<li>New Amount: $${parseFloat(newAmount).toFixed(2)}</li>` : ''}
               ${newStatus ? `<li>Previous Status: ${oldStatus}</li>` : ''}
               ${newStatus ? `<li>New Status: ${newStatus}</li>` : ''}
-              <li>Reason: ${adjustmentReason || 'No reason provided'}</li>
+              <li>Reason: ${adjustmentReason}</li>
             </ul>
             <p>If you have any questions about this adjustment, please contact our support team.</p>
             <p>Best regards,<br>AfriMobile Team</p>
           `
         });
+        console.log('✅ Email sent successfully');
       } catch (emailError) {
-        console.error('Error sending transaction adjustment notification email:', emailError);
+        console.error('❌ Error sending transaction adjustment notification email:', emailError);
+        // Don't fail the whole operation if email fails
       }
     }
 
+    // Prepare response
+    const responseData = {
+      id: transaction._id,
+      beneficiary: {
+        id: transaction.beneficiary._id,
+        name: transaction.beneficiary.name,
+        email: transaction.beneficiary.email
+      },
+      amount: transaction.amount,
+      originalAmount: transaction.originalAmount,
+      status: transaction.status,
+      generation: transaction.generation,
+      purchaseType: transaction.purchaseType,
+      adjustedBy: adminId,
+      adjustmentReason: transaction.adjustmentReason,
+      createdAt: transaction.createdAt,
+      updatedAt: new Date()
+    };
+
+    console.log('✅ Transaction adjustment completed successfully');
+    
     res.status(200).json({
       success: true,
       message: 'Transaction adjusted successfully',
-      transaction: {
-        id: transaction._id,
-        beneficiary: {
-          id: transaction.beneficiary._id,
-          name: transaction.beneficiary.name,
-          email: transaction.beneficiary.email
-        },
-        amount: transaction.amount,
-        originalAmount: transaction.originalAmount,
-        status: transaction.status,
-        generation: transaction.generation,
-        purchaseType: transaction.purchaseType,
-        adjustedBy: adminId,
-        adjustmentReason: transaction.adjustmentReason,
-        createdAt: transaction.createdAt,
-        updatedAt: new Date()
-      }
+      transaction: responseData
     });
 
   } catch (error) {
-    console.error('Error adjusting referral transaction:', error);
+    console.error('❌ Error adjusting referral transaction:', error);
+    console.error('❌ Error stack:', error.stack);
+    
+    // Check for specific MongoDB errors
+    if (error.name === 'ValidationError') {
+      return res.status(400).json({
+        success: false,
+        message: 'Validation error: ' + Object.values(error.errors).map(e => e.message).join(', ')
+      });
+    }
+    
+    if (error.name === 'CastError') {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid ID format provided'
+      });
+    }
+    
     res.status(500).json({
       success: false,
       message: 'Failed to adjust referral transaction',
-      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+      error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
     });
   }
 };
