@@ -73,20 +73,6 @@ const AppConfig = {
 if (AppConfig.IS_PRODUCTION) {
   app.set('trust proxy', 1);
 }
-if (AppConfig.IS_DEVELOPMENT) {
-  app.use((req, res, next) => {
-    res.header('Access-Control-Allow-Origin', req.headers.origin || '*');
-    res.header('Access-Control-Allow-Methods', 'GET,PUT,POST,DELETE,PATCH,OPTIONS');
-    res.header('Access-Control-Allow-Headers', 'Origin,X-Requested-With,Content-Type,Accept,Authorization,Cache-Control,X-Access-Token,X-API-Key');
-    res.header('Access-Control-Allow-Credentials', 'true');
-    
-    if (req.method === 'OPTIONS') {
-      return res.status(200).end();
-    }
-    next();
-  });
-  console.log('🔓 Development CORS override enabled');
-}
 
 
 
@@ -106,6 +92,7 @@ console.log('======================================');
 // Enhanced CORS configuration
 const corsOptions = {
   origin: function (origin, callback) {
+    // Allow requests with no origin (like mobile apps or curl requests)
     if (!origin) return callback(null, true);
     
     const allowedOrigins = [
@@ -114,7 +101,6 @@ const corsOptions = {
       'http://localhost:5000',
       'http://localhost:8080',
       'https://afrimobile-d240af77c383.herokuapp.com',
-      'https://afrimobile-d240af77c383.herokuapp.com/api/shares/manual/submit',
       'https://www.afrimobil.com',
       'https://afrimobil.com',
       'https://www.afrimobiletech.com',
@@ -124,18 +110,24 @@ const corsOptions = {
       ...(process.env.ALLOWED_ORIGINS ? process.env.ALLOWED_ORIGINS.split(',') : [])
     ];
     
+    // In development, allow all localhost origins
     if (AppConfig.IS_DEVELOPMENT) {
-      const localhostRegex = /^http:\/\/localhost:\d+$/;
+      const localhostRegex = /^https?:\/\/localhost(:\d+)?$/;
       if (localhostRegex.test(origin)) {
         return callback(null, true);
       }
     }
     
-    if (allowedOrigins.indexOf(origin) !== -1) {
+    if (allowedOrigins.includes(origin)) {
       callback(null, true);
     } else {
-      logger.warn(`CORS blocked origin: ${origin}`);
-      callback(new Error('Not allowed by CORS'));
+      console.log(`CORS blocked origin: ${origin}`);
+      // In development, allow it anyway
+      if (AppConfig.IS_DEVELOPMENT) {
+        callback(null, true);
+      } else {
+        callback(new Error('Not allowed by CORS'));
+      }
     }
   },
   credentials: true,
@@ -155,6 +147,10 @@ const corsOptions = {
   optionsSuccessStatus: 200,
   maxAge: 86400 // 24 hours
 };
+
+// Apply CORS middleware early
+app.use(cors(corsOptions));
+app.options('*', cors(corsOptions));
 
 app.use(cors(corsOptions));
 app.options('*', cors(corsOptions));
@@ -433,16 +429,6 @@ app.use((req, res, next) => {
   next();
 });
 
-// Development CORS (enhanced)
-if (AppConfig.IS_DEVELOPMENT) {
-  app.use((req, res, next) => {
-    res.header('Access-Control-Allow-Origin', '*');
-    res.header('Access-Control-Allow-Methods', '*');
-    res.header('Access-Control-Allow-Headers', '*');
-    next();
-  });
-  console.log('🔓 Development mode: Permissive CORS enabled');
-}
 
 // Enhanced Static file serving
 const staticOptions = {
@@ -518,11 +504,8 @@ app.use('/api', (req, res, next) => {
     });
   }
   
-  res.header('Access-Control-Allow-Origin', req.headers.origin || '*');
-  res.header('Access-Control-Allow-Credentials', 'true');
-  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, PATCH, OPTIONS');
-  res.header('Access-Control-Allow-Headers', corsOptions.allowedHeaders.join(', '));
-  
+  // CORS is already handled by the main middleware above
+  // Just handle OPTIONS requests if they somehow get here
   if (req.method === 'OPTIONS') {
     return res.status(200).end();
   }
