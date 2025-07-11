@@ -113,7 +113,7 @@ const corsOptions = {
       'http://localhost:3001', 
       'http://localhost:5000',
       'http://localhost:8080',
-      'https://afrimobile-d240af77c383.herokuapp.com/',
+      'https://afrimobile-d240af77c383.herokuapp.com',
       'https://afrimobile-d240af77c383.herokuapp.com/api/shares/manual/submit',
       'https://www.afrimobil.com',
       'https://afrimobil.com',

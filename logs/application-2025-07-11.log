@@ -859,3 +859,5 @@
 {"level":"info","message":"✅ Started job: verifyProcessingWithdrawals","timestamp":"2025-07-11T13:33:14.589Z"}
 {"level":"info","message":"✅ Started job: verifyPendingWithdrawals","timestamp":"2025-07-11T13:33:14.589Z"}
 {"level":"info","message":"Application startup completed successfully","timestamp":"2025-07-11T13:33:14.589Z"}
+{"environment":"development","level":"info","memoryUsage":{"arrayBuffers":19089281,"external":22653067,"heapTotal":208732160,"heapUsed":66416224,"rss":184287232},"message":"Server started successfully","port":5001,"processId":98364,"timestamp":"2025-07-11T14:01:29.713Z"}
+{"level":"info","message":"Enhanced startup information displayed","timestamp":"2025-07-11T14:01:29.735Z"}
