@@ -993,6 +993,7 @@ const adjustUserEarnings = async (req, res) => {
 
 // Adjust specific referral transaction
 // Fixed adjustReferralTransaction function
+// Fixed adjustReferralTransaction function
 const adjustReferralTransaction = async (req, res) => {
   try {
     const adminId = req.user.id;
@@ -1029,7 +1030,8 @@ const adjustReferralTransaction = async (req, res) => {
       });
     }
 
-    if (!newAmount && newAmount !== 0 && !newStatus) {
+    // Fixed validation: Check if at least one field is provided
+    if (newAmount === undefined && !newStatus) {
       return res.status(400).json({
         success: false,
         message: 'Either newAmount or newStatus must be provided'
