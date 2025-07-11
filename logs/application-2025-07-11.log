@@ -1,0 +1,105 @@
+{"timestamp":"2025-07-11T05:32:54.534Z","level":"info","message":"🚀 Application starting...","nodeVersion":"v24.2.0","platform":"darwin","environment":"development","port":5001,"clusterMode":false,"processId":81799}
+{"timestamp":"2025-07-11T05:32:54.536Z","level":"info","message":"🚀 Starting AfriMobile API - Advanced Version..."}
+{"timestamp":"2025-07-11T05:32:54.538Z","level":"info","message":"🔄 Attempting to connect to MongoDB..."}
+{"timestamp":"2025-07-11T05:32:54.538Z","level":"info","message":"📍 MongoDB URI: mongodb+srv://***:***@cluster0.uvjmhm9.mongodb.net/test"}
+{"timestamp":"2025-07-11T05:32:54.541Z","level":"error","message":"❌ Database connection failed","error":"option buffermaxentries is not supported","attempt":1,"maxAttempts":10}
+{"timestamp":"2025-07-11T05:32:54.542Z","level":"info","message":"🔄 Scheduling reconnection attempt 1 in 5000ms"}
+{"timestamp":"2025-07-11T05:32:54.542Z","level":"warn","message":"❌ Database connection failed. Starting with limited functionality."}
+{"timestamp":"2025-07-11T05:32:54.543Z","level":"info","message":"📁 File serving configured"}
+{"timestamp":"2025-07-11T05:32:54.737Z","level":"info","message":"📚 Swagger documentation configured"}
+{"timestamp":"2025-07-11T05:32:55.060Z","level":"info","message":"🎉 Server started successfully","port":5001,"environment":"development","processId":81799,"memoryUsage":{"rss":192856064,"heapTotal":123453440,"heapUsed":69226536,"external":22447895,"arrayBuffers":19055476},"nodeVersion":"v24.2.0"}
+{"timestamp":"2025-07-11T05:32:59.541Z","level":"info","message":"🔄 Retrying database connection..."}
+{"timestamp":"2025-07-11T05:32:59.542Z","level":"info","message":"🔄 Attempting to connect to MongoDB..."}
+{"timestamp":"2025-07-11T05:32:59.542Z","level":"info","message":"📍 MongoDB URI: mongodb+srv://***:***@cluster0.uvjmhm9.mongodb.net/test"}
+{"timestamp":"2025-07-11T05:32:59.543Z","level":"error","message":"❌ Database connection failed","error":"option buffermaxentries is not supported","attempt":2,"maxAttempts":10}
+{"timestamp":"2025-07-11T05:32:59.543Z","level":"info","message":"🔄 Scheduling reconnection attempt 2 in 10000ms"}
+{"timestamp":"2025-07-11T05:33:09.544Z","level":"info","message":"🔄 Retrying database connection..."}
+{"timestamp":"2025-07-11T05:33:09.544Z","level":"info","message":"🔄 Attempting to connect to MongoDB..."}
+{"timestamp":"2025-07-11T05:33:09.544Z","level":"info","message":"📍 MongoDB URI: mongodb+srv://***:***@cluster0.uvjmhm9.mongodb.net/test"}
+{"timestamp":"2025-07-11T05:33:09.545Z","level":"error","message":"❌ Database connection failed","error":"option buffermaxentries is not supported","attempt":3,"maxAttempts":10}
+{"timestamp":"2025-07-11T05:33:09.546Z","level":"info","message":"🔄 Scheduling reconnection attempt 3 in 15000ms"}
+{"timestamp":"2025-07-11T05:33:24.547Z","level":"info","message":"🔄 Retrying database connection..."}
+{"timestamp":"2025-07-11T05:33:24.548Z","level":"info","message":"🔄 Attempting to connect to MongoDB..."}
+{"timestamp":"2025-07-11T05:33:24.548Z","level":"info","message":"📍 MongoDB URI: mongodb+srv://***:***@cluster0.uvjmhm9.mongodb.net/test"}
+{"timestamp":"2025-07-11T05:33:24.550Z","level":"error","message":"❌ Database connection failed","error":"option buffermaxentries is not supported","attempt":4,"maxAttempts":10}
+{"timestamp":"2025-07-11T05:33:24.551Z","level":"info","message":"🔄 Scheduling reconnection attempt 4 in 20000ms"}
+{"timestamp":"2025-07-11T05:33:44.551Z","level":"info","message":"🔄 Retrying database connection..."}
+{"timestamp":"2025-07-11T05:33:44.552Z","level":"info","message":"🔄 Attempting to connect to MongoDB..."}
+{"timestamp":"2025-07-11T05:33:44.552Z","level":"info","message":"📍 MongoDB URI: mongodb+srv://***:***@cluster0.uvjmhm9.mongodb.net/test"}
+{"timestamp":"2025-07-11T05:33:44.554Z","level":"error","message":"❌ Database connection failed","error":"option buffermaxentries is not supported","attempt":5,"maxAttempts":10}
+{"timestamp":"2025-07-11T05:33:44.554Z","level":"info","message":"🔄 Scheduling reconnection attempt 5 in 25000ms"}
+{"timestamp":"2025-07-11T05:34:09.555Z","level":"info","message":"🔄 Retrying database connection..."}
+{"timestamp":"2025-07-11T05:34:09.556Z","level":"info","message":"🔄 Attempting to connect to MongoDB..."}
+{"timestamp":"2025-07-11T05:34:09.556Z","level":"info","message":"📍 MongoDB URI: mongodb+srv://***:***@cluster0.uvjmhm9.mongodb.net/test"}
+{"timestamp":"2025-07-11T05:34:09.558Z","level":"error","message":"❌ Database connection failed","error":"option buffermaxentries is not supported","attempt":6,"maxAttempts":10}
+{"timestamp":"2025-07-11T05:34:09.558Z","level":"info","message":"🔄 Scheduling reconnection attempt 6 in 30000ms"}
+{"timestamp":"2025-07-11T05:34:39.559Z","level":"info","message":"🔄 Retrying database connection..."}
+{"timestamp":"2025-07-11T05:34:39.560Z","level":"info","message":"🔄 Attempting to connect to MongoDB..."}
+{"timestamp":"2025-07-11T05:34:39.560Z","level":"info","message":"📍 MongoDB URI: mongodb+srv://***:***@cluster0.uvjmhm9.mongodb.net/test"}
+{"timestamp":"2025-07-11T05:34:39.563Z","level":"error","message":"❌ Database connection failed","error":"option buffermaxentries is not supported","attempt":7,"maxAttempts":10}
+{"timestamp":"2025-07-11T05:34:39.563Z","level":"info","message":"🔄 Scheduling reconnection attempt 7 in 35000ms"}
+{"timestamp":"2025-07-11T05:35:30.723Z","level":"info","message":"🚀 Application starting...","nodeVersion":"v24.2.0","platform":"darwin","environment":"development","port":5001,"clusterMode":false,"processId":81951}
+{"timestamp":"2025-07-11T05:35:30.725Z","level":"info","message":"🚀 Starting AfriMobile API - Advanced Version..."}
+{"timestamp":"2025-07-11T05:35:30.727Z","level":"info","message":"🔄 Attempting to connect to MongoDB..."}
+{"timestamp":"2025-07-11T05:35:30.727Z","level":"info","message":"📍 MongoDB URI: mongodb+srv://***:***@cluster0.uvjmhm9.mongodb.net/test"}
+{"timestamp":"2025-07-11T05:35:30.730Z","level":"error","message":"❌ Database connection failed","error":"option buffermaxentries is not supported","attempt":1,"maxAttempts":10}
+{"timestamp":"2025-07-11T05:35:30.730Z","level":"info","message":"🔄 Scheduling reconnection attempt 1 in 5000ms"}
+{"timestamp":"2025-07-11T05:35:30.730Z","level":"warn","message":"❌ Database connection failed. Starting with limited functionality."}
+{"timestamp":"2025-07-11T05:35:30.731Z","level":"info","message":"📁 File serving configured"}
+{"timestamp":"2025-07-11T05:35:31.019Z","level":"info","message":"📚 Swagger documentation configured"}
+{"timestamp":"2025-07-11T05:35:31.340Z","level":"info","message":"🎉 Server started successfully","port":5001,"environment":"development","processId":81951,"memoryUsage":{"rss":195559424,"heapTotal":191086592,"heapUsed":69750152,"external":22447895,"arrayBuffers":19055476},"nodeVersion":"v24.2.0"}
+{"timestamp":"2025-07-11T05:35:35.732Z","level":"info","message":"🔄 Retrying database connection..."}
+{"timestamp":"2025-07-11T05:35:35.733Z","level":"info","message":"🔄 Attempting to connect to MongoDB..."}
+{"timestamp":"2025-07-11T05:35:35.733Z","level":"info","message":"📍 MongoDB URI: mongodb+srv://***:***@cluster0.uvjmhm9.mongodb.net/test"}
+{"timestamp":"2025-07-11T05:35:35.734Z","level":"error","message":"❌ Database connection failed","error":"option buffermaxentries is not supported","attempt":2,"maxAttempts":10}
+{"timestamp":"2025-07-11T05:35:35.734Z","level":"info","message":"🔄 Scheduling reconnection attempt 2 in 10000ms"}
+{"timestamp":"2025-07-11T05:35:45.736Z","level":"info","message":"🔄 Retrying database connection..."}
+{"timestamp":"2025-07-11T05:35:45.737Z","level":"info","message":"🔄 Attempting to connect to MongoDB..."}
+{"timestamp":"2025-07-11T05:35:45.737Z","level":"info","message":"📍 MongoDB URI: mongodb+srv://***:***@cluster0.uvjmhm9.mongodb.net/test"}
+{"timestamp":"2025-07-11T05:35:45.739Z","level":"error","message":"❌ Database connection failed","error":"option buffermaxentries is not supported","attempt":3,"maxAttempts":10}
+{"timestamp":"2025-07-11T05:35:45.739Z","level":"info","message":"🔄 Scheduling reconnection attempt 3 in 15000ms"}
+{"timestamp":"2025-07-11T05:36:00.740Z","level":"info","message":"🔄 Retrying database connection..."}
+{"timestamp":"2025-07-11T05:36:00.741Z","level":"info","message":"🔄 Attempting to connect to MongoDB..."}
+{"timestamp":"2025-07-11T05:36:00.741Z","level":"info","message":"📍 MongoDB URI: mongodb+srv://***:***@cluster0.uvjmhm9.mongodb.net/test"}
+{"timestamp":"2025-07-11T05:36:00.742Z","level":"error","message":"❌ Database connection failed","error":"option buffermaxentries is not supported","attempt":4,"maxAttempts":10}
+{"timestamp":"2025-07-11T05:36:00.742Z","level":"info","message":"🔄 Scheduling reconnection attempt 4 in 20000ms"}
+{"timestamp":"2025-07-11T05:36:20.743Z","level":"info","message":"🔄 Retrying database connection..."}
+{"timestamp":"2025-07-11T05:36:20.744Z","level":"info","message":"🔄 Attempting to connect to MongoDB..."}
+{"timestamp":"2025-07-11T05:36:20.744Z","level":"info","message":"📍 MongoDB URI: mongodb+srv://***:***@cluster0.uvjmhm9.mongodb.net/test"}
+{"timestamp":"2025-07-11T05:36:20.745Z","level":"error","message":"❌ Database connection failed","error":"option buffermaxentries is not supported","attempt":5,"maxAttempts":10}
+{"timestamp":"2025-07-11T05:36:20.748Z","level":"info","message":"🔄 Scheduling reconnection attempt 5 in 25000ms"}
+{"timestamp":"2025-07-11T05:36:45.750Z","level":"info","message":"🔄 Retrying database connection..."}
+{"timestamp":"2025-07-11T05:36:45.751Z","level":"info","message":"🔄 Attempting to connect to MongoDB..."}
+{"timestamp":"2025-07-11T05:36:45.751Z","level":"info","message":"📍 MongoDB URI: mongodb+srv://***:***@cluster0.uvjmhm9.mongodb.net/test"}
+{"timestamp":"2025-07-11T05:36:45.753Z","level":"error","message":"❌ Database connection failed","error":"option buffermaxentries is not supported","attempt":6,"maxAttempts":10}
+{"timestamp":"2025-07-11T05:36:45.754Z","level":"info","message":"🔄 Scheduling reconnection attempt 6 in 30000ms"}
+{"timestamp":"2025-07-11T05:37:15.754Z","level":"info","message":"🔄 Retrying database connection..."}
+{"timestamp":"2025-07-11T05:37:15.754Z","level":"info","message":"🔄 Attempting to connect to MongoDB..."}
+{"timestamp":"2025-07-11T05:37:15.755Z","level":"info","message":"📍 MongoDB URI: mongodb+srv://***:***@cluster0.uvjmhm9.mongodb.net/test"}
+{"timestamp":"2025-07-11T05:37:15.755Z","level":"error","message":"❌ Database connection failed","error":"option buffermaxentries is not supported","attempt":7,"maxAttempts":10}
+{"timestamp":"2025-07-11T05:37:15.755Z","level":"info","message":"🔄 Scheduling reconnection attempt 7 in 35000ms"}
+{"timestamp":"2025-07-11T05:37:50.759Z","level":"info","message":"🔄 Retrying database connection..."}
+{"timestamp":"2025-07-11T05:37:50.782Z","level":"info","message":"🔄 Attempting to connect to MongoDB..."}
+{"timestamp":"2025-07-11T05:37:50.783Z","level":"info","message":"📍 MongoDB URI: mongodb+srv://***:***@cluster0.uvjmhm9.mongodb.net/test"}
+{"timestamp":"2025-07-11T05:37:50.785Z","level":"error","message":"❌ Database connection failed","error":"option buffermaxentries is not supported","attempt":8,"maxAttempts":10}
+{"timestamp":"2025-07-11T05:37:50.785Z","level":"info","message":"🔄 Scheduling reconnection attempt 8 in 40000ms"}
+{"timestamp":"2025-07-11T05:38:30.787Z","level":"info","message":"🔄 Retrying database connection..."}
+{"timestamp":"2025-07-11T05:38:30.788Z","level":"info","message":"🔄 Attempting to connect to MongoDB..."}
+{"timestamp":"2025-07-11T05:38:30.788Z","level":"info","message":"📍 MongoDB URI: mongodb+srv://***:***@cluster0.uvjmhm9.mongodb.net/test"}
+{"timestamp":"2025-07-11T05:38:30.791Z","level":"error","message":"❌ Database connection failed","error":"option buffermaxentries is not supported","attempt":9,"maxAttempts":10}
+{"timestamp":"2025-07-11T05:38:30.791Z","level":"info","message":"🔄 Scheduling reconnection attempt 9 in 45000ms"}
+{"level":"error","message":"Database connection failed during startup","timestamp":"2025-07-11T05:40:07.974Z"}
+{"environment":"development","level":"info","memoryUsage":{"arrayBuffers":19055591,"external":22448010,"heapTotal":123453440,"heapUsed":69591784,"rss":192839680},"message":"Server started successfully","port":5001,"processId":82160,"timestamp":"2025-07-11T05:40:07.976Z"}
+{"level":"info","message":"Enhanced startup information displayed","timestamp":"2025-07-11T05:40:11.975Z"}
+{"level":"error","message":"Database connection failed during startup","timestamp":"2025-07-11T05:42:27.636Z"}
+{"environment":"development","level":"info","memoryUsage":{"arrayBuffers":19055591,"external":22448010,"heapTotal":120307712,"heapUsed":69697208,"rss":192954368},"message":"Server started successfully","port":5001,"processId":82311,"timestamp":"2025-07-11T05:42:27.638Z"}
+{"level":"info","message":"Enhanced startup information displayed","timestamp":"2025-07-11T05:42:31.640Z"}
+{"error":"Invalid regular expression flags","level":"error","message":"Health monitor initialization failed","timestamp":"2025-07-11T05:45:23.558Z"}
+{"environment":"development","level":"info","memoryUsage":{"arrayBuffers":19100343,"external":22664129,"heapTotal":123650048,"heapUsed":72593680,"rss":167559168},"message":"Server started successfully","port":5001,"processId":82487,"timestamp":"2025-07-11T05:45:23.561Z"}
+{"error":"setUserAsAdmin is not a function","level":"error","message":"Admin setup failed","timestamp":"2025-07-11T05:45:26.561Z"}
+{"level":"info","message":"Background job registered: verifyProcessingWithdrawals","timestamp":"2025-07-11T05:45:26.564Z"}
+{"level":"info","message":"Background job registered: verifyPendingWithdrawals","timestamp":"2025-07-11T05:45:26.564Z"}
+{"level":"info","message":"Withdrawal verification jobs started","timestamp":"2025-07-11T05:45:26.564Z"}
+{"level":"info","message":"✅ Started job: verifyProcessingWithdrawals","timestamp":"2025-07-11T05:45:26.564Z"}
+{"level":"info","message":"✅ Started job: verifyPendingWithdrawals","timestamp":"2025-07-11T05:45:26.565Z"}
+{"level":"info","message":"Application startup completed successfully","timestamp":"2025-07-11T05:45:26.565Z"}
