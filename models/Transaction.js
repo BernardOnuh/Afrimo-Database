@@ -1,4 +1,4 @@
-// models/Transaction.js - UPDATED WITH SHARE SUPPORT
+// CORRECTED: Transaction Model (models/Transaction.js) - CLEAN VERSION
 const mongoose = require('mongoose');
 
 const TransactionSchema = new mongoose.Schema({
@@ -9,7 +9,7 @@ const TransactionSchema = new mongoose.Schema({
   },
   type: {
     type: String,
-    enum: ['paystack', 'crypto', 'web3', 'co-founder', 'share'], // ✅ ADDED 'share' type
+    enum: ['paystack', 'crypto', 'web3', 'co-founder', 'share'], // ✅ Includes 'share' type
     required: true
   },
   
@@ -48,29 +48,53 @@ const TransactionSchema = new mongoose.Schema({
     required: true
   },
   
-  // ADDED: File storage path for payment proofs (manual payments)
+  // ✅ ENHANCED: Multiple storage options for payment proofs
+  
+  // Option 1: GridFS storage (recommended for production)
+  paymentProofGridFS: {
+    type: String,
+    sparse: true,
+    trim: true,
+    comment: "GridFS filename for payment proof"
+  },
+  paymentProofFileId: {
+    type: mongoose.Schema.Types.ObjectId,
+    sparse: true,
+    comment: "GridFS file ObjectId"
+  },
+  
+  // Option 2: Direct MongoDB storage (alternative for small files)
   paymentProofData: {
     type: Buffer,
-    required: false
+    required: false,
+    comment: "Binary data stored directly in MongoDB"
   },
   paymentProofContentType: {
     type: String,
-    required: false
-  },
-  // Keep paymentProofPath for backward compatibility
-  paymentProofPath: {
-    type: String,
-    required: false
+    required: false,
+    trim: true,
+    comment: "MIME type of the stored file"
   },
   
-  // ✅ ADDED: Additional file metadata for better file handling
+  // Option 3: Legacy file system storage (keep for backward compatibility)
+  paymentProofPath: {
+    type: String,
+    required: false,
+    trim: true,
+    comment: "Legacy file system path"
+  },
+  
+  // ✅ ENHANCED: Additional file metadata for better file handling
   paymentProofFilename: {
     type: String,
-    required: false
+    required: false,
+    trim: true
   },
   paymentProofOriginalName: {
     type: String,
-    required: false
+    required: false,
+    trim: true,
+    comment: "Original filename of uploaded file"
   },
     
   // ADDED: Manual payment details structure
@@ -194,6 +218,9 @@ TransactionSchema.index({ createdAt: -1 });
 TransactionSchema.index({ type: 1, status: 1 }); // Compound index for common queries
 TransactionSchema.index({ type: 1, paymentMethod: 1 }); // For manual payment queries
 TransactionSchema.index({ centiivOrderId: 1 }); // ✅ ADDED for Centiiv lookups
+// ✅ NEW: GridFS indexes
+TransactionSchema.index({ paymentProofGridFS: 1 });
+TransactionSchema.index({ paymentProofFileId: 1 });
 
 // ADDED: Pre-save middleware to ensure updatedAt is set
 TransactionSchema.pre('save', function(next) {
@@ -214,12 +241,16 @@ TransactionSchema.methods.getCleanPaymentMethod = function() {
   return this.paymentMethod;
 };
 
-// ADDED: Instance method to check if transaction has payment proof
+// ✅ ENHANCED: Instance method to check if transaction has payment proof (any storage method)
 TransactionSchema.methods.hasPaymentProof = function() {
-  return !!(this.paymentProofPath && this.paymentProofPath.trim() !== '');
+  return !!(
+    this.paymentProofGridFS ||     // GridFS storage
+    this.paymentProofData ||       // MongoDB buffer storage
+    this.paymentProofPath          // Legacy file system storage
+  );
 };
 
-// ✅ UPDATED: Instance method to get payment proof URL
+// ✅ ENHANCED: Instance method to get payment proof URL
 TransactionSchema.methods.getPaymentProofUrl = function() {
   if (this.hasPaymentProof() && this.transactionId) {
     if (this.type === 'co-founder') {
@@ -230,6 +261,65 @@ TransactionSchema.methods.getPaymentProofUrl = function() {
     return `/payment-proof/${this.transactionId}`;
   }
   return null;
+};
+
+// ✅ NEW: Method to get payment proof info with all storage types
+TransactionSchema.methods.getPaymentProofInfo = function() {
+  // Determine storage type and location
+  let storageType = 'none';
+  let storageLocation = null;
+  let url = null;
+  
+  if (this.paymentProofGridFS) {
+    storageType = 'gridfs';
+    storageLocation = this.paymentProofGridFS;
+    url = this.getPaymentProofUrl();
+  } else if (this.paymentProofData) {
+    storageType = 'mongodb';
+    storageLocation = 'stored_in_document';
+    url = this.getPaymentProofUrl();
+  } else if (this.paymentProofPath) {
+    storageType = 'filesystem';
+    storageLocation = this.paymentProofPath;
+    url = this.getPaymentProofUrl();
+  }
+  
+  return {
+    hasProof: this.hasPaymentProof(),
+    storageType,
+    storageLocation,
+    contentType: this.paymentProofContentType,
+    originalName: this.paymentProofOriginalName,
+    url,
+    storageMethods: {
+      gridfs: !!this.paymentProofGridFS,
+      mongodb: !!this.paymentProofData,
+      filesystem: !!this.paymentProofPath
+    }
+  };
+};
+
+// ✅ NEW: Method to get payment proof data based on storage type
+TransactionSchema.methods.getPaymentProofData = async function() {
+  // If stored in MongoDB buffer, return it directly
+  if (this.paymentProofData) {
+    return {
+      data: this.paymentProofData,
+      contentType: this.paymentProofContentType || 'application/octet-stream',
+      originalName: this.paymentProofOriginalName,
+      storageType: 'mongodb'
+    };
+  }
+  
+  // For GridFS or filesystem, return metadata (actual data fetching handled by controllers)
+  return {
+    data: null,
+    contentType: this.paymentProofContentType,
+    originalName: this.paymentProofOriginalName,
+    storageType: this.paymentProofGridFS ? 'gridfs' : 'filesystem',
+    gridfsFilename: this.paymentProofGridFS,
+    filePath: this.paymentProofPath
+  };
 };
 
 // ADDED: Static method to find manual payments
@@ -296,6 +386,76 @@ TransactionSchema.statics.findByCentiivOrderId = function(orderId) {
   });
 };
 
+// ✅ NEW: Static method to store payment proof in MongoDB buffer
+TransactionSchema.statics.storePaymentProofInMongoDB = async function(transactionId, buffer, contentType, originalName) {
+  const transaction = await this.findOne({ transactionId });
+  
+  if (!transaction) {
+    throw new Error('Transaction not found');
+  }
+  
+  // Store in MongoDB buffer
+  transaction.paymentProofData = buffer;
+  transaction.paymentProofContentType = contentType;
+  transaction.paymentProofOriginalName = originalName;
+  
+  // Clear other storage methods if they exist
+  transaction.paymentProofGridFS = undefined;
+  transaction.paymentProofFileId = undefined;
+  transaction.paymentProofPath = undefined;
+  transaction.paymentProofFilename = undefined;
+  
+  await transaction.save();
+  
+  return transaction;
+};
+
+// ✅ NEW: Static method to store payment proof in GridFS
+TransactionSchema.statics.storePaymentProofInGridFS = async function(transactionId, gridfsFilename, fileId, originalName) {
+  const transaction = await this.findOne({ transactionId });
+  
+  if (!transaction) {
+    throw new Error('Transaction not found');
+  }
+  
+  // Store GridFS info
+  transaction.paymentProofGridFS = gridfsFilename;
+  transaction.paymentProofFileId = fileId;
+  transaction.paymentProofOriginalName = originalName;
+  
+  // Clear other storage methods if they exist
+  transaction.paymentProofData = undefined;
+  transaction.paymentProofContentType = undefined;
+  transaction.paymentProofPath = undefined;
+  transaction.paymentProofFilename = undefined;
+  
+  await transaction.save();
+  
+  return transaction;
+};
+
+// ✅ NEW: Static method to find transactions with payment proofs
+TransactionSchema.statics.findWithPaymentProofs = function(storageType = null) {
+  let query = {};
+  
+  if (storageType === 'gridfs') {
+    query.paymentProofGridFS = { $exists: true, $ne: null };
+  } else if (storageType === 'mongodb') {
+    query.paymentProofData = { $exists: true, $ne: null };
+  } else if (storageType === 'filesystem') {
+    query.paymentProofPath = { $exists: true, $ne: null };
+  } else {
+    // Any storage type
+    query.$or = [
+      { paymentProofGridFS: { $exists: true, $ne: null } },
+      { paymentProofData: { $exists: true, $ne: null } },
+      { paymentProofPath: { $exists: true, $ne: null } }
+    ];
+  }
+  
+  return this.find(query);
+};
+
 // ADDED: Static method to get transaction statistics
 TransactionSchema.statics.getTransactionStats = async function(type = null) {
   const matchStage = type ? { type } : {};
@@ -353,6 +513,85 @@ TransactionSchema.statics.getSharePurchaseStats = async function() {
   return stats.length > 0 ? stats[0] : null;
 };
 
+// ✅ NEW: Static method to get storage statistics
+TransactionSchema.statics.getStorageStats = async function() {
+  const stats = await this.aggregate([
+    {
+      $group: {
+        _id: null,
+        total: { $sum: 1 },
+        gridfsCount: {
+          $sum: {
+            $cond: [
+              { $and: [{ $ne: ['$paymentProofGridFS', null] }, { $ne: ['$paymentProofGridFS', ''] }] },
+              1,
+              0
+            ]
+          }
+        },
+        mongodbCount: {
+          $sum: {
+            $cond: [
+              { $ne: ['$paymentProofData', null] },
+              1,
+              0
+            ]
+          }
+        },
+        filesystemCount: {
+          $sum: {
+            $cond: [
+              { $and: [{ $ne: ['$paymentProofPath', null] }, { $ne: ['$paymentProofPath', ''] }] },
+              1,
+              0
+            ]
+          }
+        },
+        totalWithProofs: {
+          $sum: {
+            $cond: [
+              {
+                $or: [
+                  { $and: [{ $ne: ['$paymentProofGridFS', null] }, { $ne: ['$paymentProofGridFS', ''] }] },
+                  { $ne: ['$paymentProofData', null] },
+                  { $and: [{ $ne: ['$paymentProofPath', null] }, { $ne: ['$paymentProofPath', ''] }] }
+                ]
+              },
+              1,
+              0
+            ]
+          }
+        }
+      }
+    }
+  ]);
+
+  const result = stats[0] || {
+    total: 0,
+    gridfsCount: 0,
+    mongodbCount: 0,
+    filesystemCount: 0,
+    totalWithProofs: 0
+  };
+
+  return {
+    totalTransactions: result.total,
+    transactionsWithProofs: result.totalWithProofs,
+    transactionsWithoutProofs: result.total - result.totalWithProofs,
+    storageBreakdown: {
+      gridfs: result.gridfsCount,
+      mongodb: result.mongodbCount,
+      filesystem: result.filesystemCount
+    },
+    percentages: {
+      withProofs: result.total > 0 ? ((result.totalWithProofs / result.total) * 100).toFixed(2) : 0,
+      gridfs: result.total > 0 ? ((result.gridfsCount / result.total) * 100).toFixed(2) : 0,
+      mongodb: result.total > 0 ? ((result.mongodbCount / result.total) * 100).toFixed(2) : 0,
+      filesystem: result.total > 0 ? ((result.filesystemCount / result.total) * 100).toFixed(2) : 0
+    }
+  };
+};
+
 // ADDED: Virtual for formatted amount display
 TransactionSchema.virtual('formattedAmount').get(function() {
   const symbol = this.currency === 'naira' ? '₦' : '$';
@@ -399,6 +638,20 @@ TransactionSchema.virtual('sharesDisplay').get(function() {
   return `${this.shares} Share${this.shares !== 1 ? 's' : ''}`;
 });
 
+// ✅ NEW: Virtual for storage info display
+TransactionSchema.virtual('storageDisplay').get(function() {
+  const info = this.getPaymentProofInfo();
+  if (!info.hasProof) return 'No payment proof';
+  
+  const storageLabels = {
+    'gridfs': 'GridFS (Recommended)',
+    'mongodb': 'MongoDB Document',
+    'filesystem': 'File System (Legacy)'
+  };
+  
+  return storageLabels[info.storageType] || info.storageType;
+});
+
 // ADDED: Ensure virtual fields are serialized
 TransactionSchema.set('toJSON', { 
   virtuals: true,
@@ -416,7 +669,7 @@ TransactionSchema.set('toObject', { virtuals: true });
 TransactionSchema.pre('validate', function(next) {
   // If it's a manual payment, ensure we have either payment proof or admin notes
   if (this.isManualPayment() && this.status === 'pending') {
-    if (!this.paymentProofPath && !this.adminNotes) {
+    if (!this.hasPaymentProof() && !this.adminNotes) {
       return next(new Error('Manual payments require either payment proof or admin notes'));
     }
   }
@@ -432,9 +685,10 @@ TransactionSchema.pre('validate', function(next) {
   }
   
   // ✅ ADDED: Validation for share transactions
-  if (this.type === 'share' && (!this.tierBreakdown || 
-      (this.tierBreakdown.tier1 + this.tierBreakdown.tier2 + this.tierBreakdown.tier3) !== this.shares)) {
-    return next(new Error('Share transactions require valid tier breakdown'));
+  if (this.type === 'share' && this.tierBreakdown && 
+      (this.tierBreakdown.tier1 + this.tierBreakdown.tier2 + this.tierBreakdown.tier3) > 0 &&
+      (this.tierBreakdown.tier1 + this.tierBreakdown.tier2 + this.tierBreakdown.tier3) !== this.shares) {
+    return next(new Error('Share transactions require valid tier breakdown that matches total shares'));
   }
   
   next();
@@ -442,13 +696,17 @@ TransactionSchema.pre('validate', function(next) {
 
 // ✅ ADDED: Post-save middleware for logging
 TransactionSchema.post('save', function(doc) {
-  console.log(`[Transaction] ${doc.type} transaction ${doc.transactionId} saved with status: ${doc.status}`);
+  const storageInfo = doc.getPaymentProofInfo();
+  const storageText = storageInfo.hasProof ? ` (${storageInfo.storageType} storage)` : '';
+  console.log(`[Transaction] ${doc.type} transaction ${doc.transactionId} saved with status: ${doc.status}${storageText}`);
 });
 
 // ✅ ADDED: Post-update middleware for logging
 TransactionSchema.post('findOneAndUpdate', function(doc) {
   if (doc) {
-    console.log(`[Transaction] ${doc.type} transaction ${doc.transactionId} updated with status: ${doc.status}`);
+    const storageInfo = doc.getPaymentProofInfo();
+    const storageText = storageInfo.hasProof ? ` (${storageInfo.storageType} storage)` : '';
+    console.log(`[Transaction] ${doc.type} transaction ${doc.transactionId} updated with status: ${doc.status}${storageText}`);
   }
 });
 

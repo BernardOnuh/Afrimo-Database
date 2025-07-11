@@ -993,7 +993,6 @@ const adjustUserEarnings = async (req, res) => {
 
 // Adjust specific referral transaction
 // Fixed adjustReferralTransaction function
-// Fixed adjustReferralTransaction function
 const adjustReferralTransaction = async (req, res) => {
   try {
     const adminId = req.user.id;

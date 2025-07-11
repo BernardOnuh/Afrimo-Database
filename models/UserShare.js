@@ -1,4 +1,4 @@
-// CORRECTED: UserShare Model (models/UserShare.js)
+// COMPLETE: UserShare Model (models/UserShare.js) with GridFS and MongoDB Storage
 const mongoose = require('mongoose');
 
 const userShareSchema = new mongoose.Schema({
@@ -66,7 +66,7 @@ const userShareSchema = new mongoose.Schema({
     },
     paymentMethod: {
       type: String,
-      enum: ['paystack', 'crypto', 'web3', 'manual_bank_transfer', 'manual_cash', 'manual_other', 'co-founder'],
+      enum: ['paystack', 'crypto', 'web3', 'manual_bank_transfer', 'manual_cash', 'manual_other', 'co-founder', 'centiiv'],
       required: true
     },
     status: {
@@ -85,24 +85,62 @@ const userShareSchema = new mongoose.Schema({
       default: false
     },
     adminNote: String,
-    txHash: String,
+    txHash: {
+      type: String,
+      sparse: true
+    },
     
-    // UPDATED: MongoDB image storage fields
+    // ✅ MULTIPLE STORAGE OPTIONS: GridFS (recommended), MongoDB Buffer, or File Path
+    
+    // Option 1: GridFS storage (recommended for production)
+    paymentProofGridFS: {
+      type: String,
+      sparse: true,
+      index: true,
+      comment: "GridFS filename for payment proof"
+    },
+    paymentProofFileId: {
+      type: mongoose.Schema.Types.ObjectId,
+      sparse: true,
+      comment: "GridFS file ObjectId"
+    },
+    paymentProofOriginalName: {
+      type: String,
+      sparse: true,
+      comment: "Original filename of uploaded file"
+    },
+    
+    // Option 2: Direct MongoDB storage (alternative for small files)
     paymentProofData: {
       type: Buffer,
-      required: false
+      required: false,
+      comment: "Binary data stored directly in MongoDB"
     },
     paymentProofContentType: {
       type: String,
-      required: false
+      required: false,
+      comment: "MIME type of the stored file"
     },
-    // Keep existing paymentProofPath for backward compatibility
-    paymentProofPath: String,
+    
+    // Option 3: Legacy file system storage (keep for backward compatibility)
+    paymentProofPath: {
+      type: String,
+      sparse: true,
+      comment: "Legacy file system path"
+    },
     
     manualPaymentDetails: {
       bankName: String,
       accountName: String,
       reference: String
+    },
+    centiivOrderId: {
+      type: String,
+      sparse: true
+    },
+    centiivInvoiceUrl: {
+      type: String,
+      sparse: true
     },
     createdAt: {
       type: Date,
@@ -267,9 +305,6 @@ userShareSchema.statics.updateTransactionStatus = async function(userId, transac
 
 // CORRECTED: Get user's comprehensive share breakdown
 userShareSchema.methods.getShareBreakdown = function() {
-  // Get current co-founder ratio for calculations
-  const CoFounderShare = require('./CoFounderShare');
-  
   return {
     // Direct regular shares purchased
     directRegularShares: this.totalShares,
@@ -328,32 +363,170 @@ userShareSchema.methods.getSharesByType = function() {
   };
 };
 
-// UPDATED: Method to check if transaction has payment proof (MongoDB or file)
+// ✅ ENHANCED: Method to check if transaction has payment proof (any storage method)
 userShareSchema.methods.hasPaymentProof = function(transactionId) {
   const transaction = this.transactions.find(t => t.transactionId === transactionId);
   if (!transaction) return false;
   
-  return !!(transaction.paymentProofData || transaction.paymentProofPath);
+  return !!(
+    transaction.paymentProofGridFS ||     // GridFS storage
+    transaction.paymentProofData ||       // MongoDB buffer storage
+    transaction.paymentProofPath          // Legacy file system storage
+  );
 };
 
-// UPDATED: Method to get payment proof info
+// ✅ ENHANCED: Method to get payment proof info with all storage types
 userShareSchema.methods.getPaymentProofInfo = function(transactionId) {
   const transaction = this.transactions.find(t => t.transactionId === transactionId);
   if (!transaction) return null;
   
+  // Determine storage type and location
+  let storageType = 'none';
+  let storageLocation = null;
+  let url = null;
+  
+  if (transaction.paymentProofGridFS) {
+    storageType = 'gridfs';
+    storageLocation = transaction.paymentProofGridFS;
+    url = `/api/shares/payment-proof/${transactionId}`;
+  } else if (transaction.paymentProofData) {
+    storageType = 'mongodb';
+    storageLocation = 'stored_in_document';
+    url = `/api/shares/payment-proof/${transactionId}`;
+  } else if (transaction.paymentProofPath) {
+    storageType = 'filesystem';
+    storageLocation = transaction.paymentProofPath;
+    url = `/api/shares/payment-proof/${transactionId}`;
+  }
+  
   return {
-    hasProof: !!(transaction.paymentProofData || transaction.paymentProofPath),
-    storedInMongoDB: !!transaction.paymentProofData,
-    storedInFileSystem: !!transaction.paymentProofPath,
+    hasProof: this.hasPaymentProof(transactionId),
+    storageType,
+    storageLocation,
     contentType: transaction.paymentProofContentType,
-    url: this.hasPaymentProof(transactionId) ? `/uploads/payment-proofs/${transactionId}` : null
+    originalName: transaction.paymentProofOriginalName,
+    url,
+    storageMethods: {
+      gridfs: !!transaction.paymentProofGridFS,
+      mongodb: !!transaction.paymentProofData,
+      filesystem: !!transaction.paymentProofPath
+    }
   };
+};
+
+// ✅ NEW: Method to get payment proof data based on storage type
+userShareSchema.methods.getPaymentProofData = async function(transactionId) {
+  const transaction = this.transactions.find(t => t.transactionId === transactionId);
+  if (!transaction) return null;
+  
+  // If stored in MongoDB buffer, return it directly
+  if (transaction.paymentProofData) {
+    return {
+      data: transaction.paymentProofData,
+      contentType: transaction.paymentProofContentType || 'application/octet-stream',
+      originalName: transaction.paymentProofOriginalName,
+      storageType: 'mongodb'
+    };
+  }
+  
+  // For GridFS or filesystem, return metadata (actual data fetching handled by controllers)
+  return {
+    data: null,
+    contentType: transaction.paymentProofContentType,
+    originalName: transaction.paymentProofOriginalName,
+    storageType: transaction.paymentProofGridFS ? 'gridfs' : 'filesystem',
+    gridfsFilename: transaction.paymentProofGridFS,
+    filePath: transaction.paymentProofPath
+  };
+};
+
+// ✅ NEW: Static method to store payment proof in MongoDB buffer
+userShareSchema.statics.storePaymentProofInMongoDB = async function(userId, transactionId, buffer, contentType, originalName) {
+  const userShares = await this.findOne({ 
+    user: userId, 
+    'transactions.transactionId': transactionId 
+  });
+  
+  if (!userShares) {
+    throw new Error('User or transaction not found');
+  }
+  
+  const transaction = userShares.transactions.find(t => t.transactionId === transactionId);
+  
+  if (!transaction) {
+    throw new Error('Transaction not found');
+  }
+  
+  // Store in MongoDB buffer
+  transaction.paymentProofData = buffer;
+  transaction.paymentProofContentType = contentType;
+  transaction.paymentProofOriginalName = originalName;
+  
+  // Clear other storage methods if they exist
+  transaction.paymentProofGridFS = undefined;
+  transaction.paymentProofFileId = undefined;
+  transaction.paymentProofPath = undefined;
+  
+  userShares.updatedAt = Date.now();
+  await userShares.save();
+  
+  return userShares;
+};
+
+// ✅ NEW: Static method to store payment proof in GridFS
+userShareSchema.statics.storePaymentProofInGridFS = async function(userId, transactionId, gridfsFilename, fileId, originalName) {
+  const userShares = await this.findOne({ 
+    user: userId, 
+    'transactions.transactionId': transactionId 
+  });
+  
+  if (!userShares) {
+    throw new Error('User or transaction not found');
+  }
+  
+  const transaction = userShares.transactions.find(t => t.transactionId === transactionId);
+  
+  if (!transaction) {
+    throw new Error('Transaction not found');
+  }
+  
+  // Store GridFS info
+  transaction.paymentProofGridFS = gridfsFilename;
+  transaction.paymentProofFileId = fileId;
+  transaction.paymentProofOriginalName = originalName;
+  
+  // Clear other storage methods if they exist
+  transaction.paymentProofData = undefined;
+  transaction.paymentProofContentType = undefined;
+  transaction.paymentProofPath = undefined;
+  
+  userShares.updatedAt = Date.now();
+  await userShares.save();
+  
+  return userShares;
+};
+
+// ✅ NEW: Method to migrate payment proof between storage types
+userShareSchema.methods.migratePaymentProofStorage = async function(transactionId, targetStorageType) {
+  const transaction = this.transactions.find(t => t.transactionId === transactionId);
+  if (!transaction) {
+    throw new Error('Transaction not found');
+  }
+  
+  // Implementation would handle migration between storage types
+  // This is a placeholder for the migration logic
+  console.log(`Migration from current storage to ${targetStorageType} for transaction ${transactionId}`);
+  
+  // Return current state for now
+  return this.getPaymentProofInfo(transactionId);
 };
 
 // Index for better performance
 userShareSchema.index({ user: 1 });
 userShareSchema.index({ 'transactions.transactionId': 1 });
 userShareSchema.index({ 'transactions.status': 1 });
+userShareSchema.index({ 'transactions.paymentProofGridFS': 1 });
+userShareSchema.index({ 'transactions.paymentProofFileId': 1 });
 
 const UserShare = mongoose.model('UserShare', userShareSchema);
 

@@ -4,6 +4,7 @@ const shareController = require('../controller/shareController');
 const { protect, adminProtect } = require('../middleware/auth');
 const upload = require('../middleware/upload');
 const multer = require('multer');
+const gridfsUpload = require('../middleware/gridfsUpload');
 
 const logUpload = (req, res, next) => {
   console.log('\n=== UPLOAD MIDDLEWARE DEBUG ===');
@@ -97,18 +98,21 @@ const debugRequest = (req, res, next) => {
     fieldname: req.file.fieldname,
     originalname: req.file.originalname,
     mimetype: req.file.mimetype,
-    size: req.file.size
+    size: req.file.size,
+    gridfsFilename: req.file.gridfsFilename
   } : 'No file');
+  console.log('GridFS file:', req.gridfsFile || 'No GridFS file');
   console.log('Body content:', req.body);
   console.log('=====================================\n');
   next();
 };
 
-// Validation middleware for manual payment
+// Enhanced validation middleware for manual payment
 const validateManualPayment = (req, res, next) => {
   console.log('\n=== VALIDATION MIDDLEWARE ===');
   console.log('Body:', req.body);
   console.log('File:', req.file);
+  console.log('GridFS File:', req.gridfsFile);
   
   const { quantity, currency, paymentMethod } = req.body;
   
@@ -123,7 +127,8 @@ const validateManualPayment = (req, res, next) => {
         quantity: !!quantity,
         currency: !!currency,
         paymentMethod: !!paymentMethod,
-        file: !!req.file
+        file: !!req.file,
+        gridfsFile: !!req.gridfsFile
       }
     });
   }
@@ -157,16 +162,16 @@ const validateManualPayment = (req, res, next) => {
     });
   }
   
-  // Check if file is present
-  if (!req.file) {
+  // Check if GridFS file was uploaded
+  if (!req.gridfsFile || !req.file.gridfsFilename) {
     return res.status(400).json({
       success: false,
-      message: 'Payment proof image is required',
-      error: 'MISSING_FILE'
+      message: 'Payment proof image is required and must be uploaded successfully',
+      error: 'MISSING_GRIDFS_FILE'
     });
   }
   
-  console.log('Validation passed');
+  console.log('Validation passed - GridFS file uploaded successfully');
   console.log('============================\n');
   next();
 };
@@ -781,8 +786,8 @@ router.get('/user/shares', protect, shareController.getUserShares);
  * /shares/manual/submit:
  *   post:
  *     tags: [Shares - Manual Payment]
- *     summary: Submit manual payment
- *     description: Submit a manual payment with proof for share purchase
+ *     summary: Submit manual payment with GridFS
+ *     description: Submit a manual payment with proof stored in MongoDB GridFS
  *     security:
  *       - bearerAuth: []
  *     requestBody:
@@ -827,10 +832,10 @@ router.get('/user/shares', protect, shareController.getUserShares);
  *               paymentProof:
  *                 type: string
  *                 format: binary
- *                 description: Payment proof image (max 5MB)
+ *                 description: Payment proof image (max 5MB) - stored in MongoDB GridFS
  *     responses:
  *       200:
- *         description: Manual payment submitted successfully
+ *         description: Manual payment submitted successfully to GridFS
  *         content:
  *           application/json:
  *             schema:
@@ -859,34 +864,19 @@ router.get('/user/shares', protect, shareController.getUserShares);
  *                       example: "pending"
  *                     fileUrl:
  *                       type: string
- *                       example: "/uploads/payment-proofs/payment-1234567890.jpg"
- *       400:
- *         description: Bad Request - Invalid parameters
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 success:
- *                   type: boolean
- *                   example: false
- *                 message:
- *                   type: string
- *                   example: "Please provide quantity, payment method, and payment proof image"
- *       401:
- *         $ref: '#/components/responses/UnauthorizedError'
- *       500:
- *         $ref: '#/components/responses/ServerError'
+ *                       example: "/api/shares/payment-proof/TXN-A1B2-123456"
+ *                       description: URL to access the file from GridFS
+ *                     gridfsFilename:
+ *                       type: string
+ *                       example: "payment-1641234567890-abc123.jpg"
+ *                       description: GridFS filename for the uploaded file
  */
-
 router.post('/manual/submit', 
-  protect,                              // Auth middleware first
-  debugRequest,                         // Debug incoming request
-  upload.single('paymentProof'),        // ✅ NEW: Smart upload middleware
-  handleUploadError,                    // Handle multer-specific errors
-  logUpload,                           // Log upload details
-  validateManualPayment,               // Validate required fields
-  shareController.submitManualPayment  // Controller function
+  protect,                                    // Auth middleware first
+  debugRequest,                               // Debug incoming request
+  gridfsUpload.handleUpload('paymentProof'),  // ✅ NEW: GridFS upload middleware
+  validateManualPayment,                      // Validate required fields and GridFS upload
+  shareController.submitManualPayment         // Controller function
 );
 
 /**
@@ -894,8 +884,8 @@ router.post('/manual/submit',
  * /shares/payment-proof/{transactionId}:
  *   get:
  *     tags: [Shares - Manual Payment]
- *     summary: Get payment proof
- *     description: Retrieve payment proof image for a transaction
+ *     summary: Get payment proof from GridFS
+ *     description: Retrieve payment proof image from MongoDB GridFS for a transaction
  *     security:
  *       - bearerAuth: []
  *     parameters:
@@ -908,22 +898,117 @@ router.post('/manual/submit',
  *         example: "TXN-A1B2-123456"
  *     responses:
  *       200:
- *         description: Payment proof retrieved successfully
+ *         description: Payment proof retrieved successfully from GridFS
  *         content:
  *           image/*:
+ *             schema:
+ *               type: string
+ *               format: binary
+ *           application/pdf:
+ *             schema:
+ *               type: string
+ *               format: binary
+ *         headers:
+ *           Content-Type:
+ *             description: MIME type of the file
+ *             schema:
+ *               type: string
+ *               example: "image/jpeg"
+ *           Content-Length:
+ *             description: Size of the file in bytes
+ *             schema:
+ *               type: integer
+ *           Content-Disposition:
+ *             description: Filename for download
+ *             schema:
+ *               type: string
+ *               example: 'inline; filename="receipt.jpg"'
+ *           Cache-Control:
+ *             description: Cache control header
+ *             schema:
+ *               type: string
+ *               example: "public, max-age=3600"
+ *       401:
+ *         $ref: '#/components/responses/UnauthorizedError'
+ *       403:
+ *         description: Access denied - user doesn't own this transaction
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: false
+ *                 message:
+ *                   type: string
+ *                   example: "Access denied"
+ *       404:
+ *         description: Transaction or file not found
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: false
+ *                 message:
+ *                   type: string
+ *                   example: "Transaction not found or payment proof not available"
+ *       500:
+ *         $ref: '#/components/responses/ServerError'
+ */
+router.get('/payment-proof/:transactionId', protect, shareController.getPaymentProof);
+// Admin routes
+
+/**
+ * @swagger
+ * /shares/gridfs/{filename}:
+ *   get:
+ *     tags: [Shares - GridFS]
+ *     summary: Serve file directly from GridFS
+ *     description: Directly serve a file from MongoDB GridFS by filename (admin or file owner only)
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: filename
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: GridFS filename
+ *         example: "payment-1641234567890-abc123.jpg"
+ *     responses:
+ *       200:
+ *         description: File served successfully from GridFS
+ *         content:
+ *       
  *             schema:
  *               type: string
  *               format: binary
  *       401:
  *         $ref: '#/components/responses/UnauthorizedError'
  *       404:
- *         $ref: '#/components/responses/NotFoundError'
+ *         description: File not found in GridFS
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: false
+ *                 message:
+ *                   type: string
+ *                   example: "File not found"
+ *                 error:
+ *                   type: string
+ *                   example: "FILE_NOT_FOUND"
  *       500:
  *         $ref: '#/components/responses/ServerError'
  */
-router.get('/payment-proof/:transactionId', protect, shareController.getPaymentProof);
-
-// Admin routes
+router.get('/gridfs/:filename', protect, gridfsUpload.serveFile());
 
 /**
  * @swagger

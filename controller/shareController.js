@@ -12,6 +12,7 @@ const SiteConfig = require('../models/SiteConfig');
 const CoFounderShare = require('../models/CoFounderShare');
 const PaymentTransaction = require('../models/Transaction');
 const { processReferralCommission, rollbackReferralCommission } = require('../utils/referralUtils');
+const gridfsUpload = require('../middleware/gridfsUpload');
 
 // Generate a unique transaction ID
 const generateTransactionId = () => {
@@ -2058,14 +2059,7 @@ exports.submitManualPayment = async (req, res) => {
   try {
     console.log('[SHARES] Manual payment submission started');
     console.log('[SHARES] req.body:', req.body);
-    console.log('[SHARES] req.file:', req.file ? {
-      originalname: req.file.originalname,
-      mimetype: req.file.mimetype,
-      size: req.file.size,
-      filename: req.file.filename,
-      path: req.file.path,
-      destination: req.file.destination
-    } : 'No file');
+    console.log('[SHARES] GridFS file info:', req.gridfsFile);
     
     const userId = req.user.id;
     const { quantity, currency, paymentMethod, bankName, accountName, reference } = req.body;
@@ -2080,90 +2074,13 @@ exports.submitManualPayment = async (req, res) => {
       });
     }
     
-    // Validate file upload
-    if (!req.file) {
-      console.error('[SHARES] No payment proof uploaded');
+    // Validate GridFS file upload
+    if (!req.gridfsFile || !req.file.gridfsFilename) {
+      console.error('[SHARES] No payment proof uploaded to GridFS');
       return res.status(400).json({
         success: false,
         message: 'Please upload payment proof',
         error: 'MISSING_FILE'
-      });
-    }
-    
-    // ✅ ENHANCED: Multiple file path validation for different environments
-    let validFilePath = null;
-    const fs = require('fs');
-    
-    // Check if file exists - try multiple possible paths
-    const pathsToCheck = [];
-    
-    if (req.file.path) {
-      pathsToCheck.push(req.file.path);
-    }
-    
-    // If we have buffer but no valid path (memory storage fallback)
-    if (req.file.buffer && !req.file.path) {
-      console.log('[SHARES] File is in memory buffer, saving to disk...');
-      
-      const path = require('path');
-      const uploadDir = process.env.NODE_ENV === 'production' 
-        ? '/tmp/uploads/payment-proofs' 
-        : path.join(process.cwd(), 'uploads', 'payment-proofs');
-      
-      // Ensure directory exists
-      if (!fs.existsSync(uploadDir)) {
-        fs.mkdirSync(uploadDir, { recursive: true });
-      }
-      
-      const timestamp = Date.now();
-      const random = Math.random().toString(36).substring(2, 15);
-      const ext = path.extname(req.file.originalname);
-      const filename = `payment-${timestamp}-${random}${ext}`;
-      const filepath = path.join(uploadDir, filename);
-      
-      // Write buffer to disk
-      fs.writeFileSync(filepath, req.file.buffer);
-      
-      // Update req.file object
-      req.file.path = filepath;
-      req.file.filename = filename;
-      req.file.destination = uploadDir;
-      
-      console.log('[SHARES] File saved from buffer to:', filepath);
-      pathsToCheck.push(filepath);
-    }
-    
-    // Validate file exists on disk
-    for (const testPath of pathsToCheck) {
-      try {
-        if (fs.existsSync(testPath)) {
-          const stats = fs.statSync(testPath);
-          if (stats.isFile() && stats.size > 0) {
-            validFilePath = testPath;
-            console.log(`[SHARES] Valid file found at: ${validFilePath}, size: ${stats.size} bytes`);
-            break;
-          }
-        }
-      } catch (error) {
-        console.log(`[SHARES] Error checking path ${testPath}: ${error.message}`);
-      }
-    }
-    
-    if (!validFilePath) {
-      console.error('[SHARES] File validation failed');
-      console.error('[SHARES] Checked paths:', pathsToCheck);
-      console.error('[SHARES] req.file object:', req.file);
-      
-      return res.status(400).json({
-        success: false,
-        message: 'File upload failed - file not saved',
-        error: 'FILE_NOT_SAVED',
-        debug: process.env.NODE_ENV === 'development' ? {
-          checkedPaths: pathsToCheck,
-          fileObject: req.file,
-          platform: process.platform,
-          nodeEnv: process.env.NODE_ENV
-        } : undefined
       });
     }
     
@@ -2172,6 +2089,15 @@ exports.submitManualPayment = async (req, res) => {
     
     if (!purchaseDetails.success) {
       console.error('[SHARES] Share calculation failed:', purchaseDetails.message);
+      
+      // Clean up uploaded file on error
+      try {
+        await gridfsUpload.deleteFromGridFS(req.file.gridfsFilename);
+        console.log('[SHARES] Cleaned up GridFS file after calculation error');
+      } catch (cleanupError) {
+        console.error('[SHARES] Error cleaning up GridFS file:', cleanupError);
+      }
+      
       return res.status(400).json({
         success: false,
         message: purchaseDetails.message
@@ -2181,7 +2107,7 @@ exports.submitManualPayment = async (req, res) => {
     // Generate transaction ID
     const transactionId = generateTransactionId();
     
-    // ✅ FIXED: Create PaymentTransaction record (like co-founder)
+    // Create PaymentTransaction record with GridFS filename
     const paymentTransaction = new PaymentTransaction({
       userId,
       transactionId,
@@ -2191,8 +2117,8 @@ exports.submitManualPayment = async (req, res) => {
       currency,
       paymentMethod: `manual_${paymentMethod}`,
       status: 'pending',
-      paymentProofPath: validFilePath, // Use the validated path
-      paymentProofFilename: req.file.filename,
+      paymentProofGridFS: req.file.gridfsFilename, // Store GridFS filename
+      paymentProofFileId: req.gridfsFile.fileId, // Store GridFS file ID
       paymentProofOriginalName: req.file.originalname,
       tierBreakdown: purchaseDetails.tierBreakdown,
       manualPaymentDetails: {
@@ -2215,7 +2141,8 @@ exports.submitManualPayment = async (req, res) => {
       paymentMethod: `manual_${paymentMethod}`,
       status: 'pending',
       tierBreakdown: purchaseDetails.tierBreakdown,
-      paymentProofPath: validFilePath // Store the same validated path
+      paymentProofGridFS: req.file.gridfsFilename, // Store GridFS filename instead of path
+      paymentProofOriginalName: req.file.originalname
     });
     
     console.log('[SHARES] UserShare record created');
@@ -2230,9 +2157,9 @@ exports.submitManualPayment = async (req, res) => {
         amount: purchaseDetails.totalPrice,
         currency,
         status: 'pending',
-        fileUrl: `/shares/payment-proof/${transactionId}`,
+        fileUrl: `/api/shares/payment-proof/${transactionId}`, // This will now serve from GridFS
         paymentMethod: `manual_${paymentMethod}`,
-        filePath: validFilePath, // Include for debugging
+        gridfsFilename: req.file.gridfsFilename,
         fileSize: req.file.size
       }
     });
@@ -2240,13 +2167,13 @@ exports.submitManualPayment = async (req, res) => {
   } catch (error) {
     console.error('[SHARES] Manual payment submission error:', error);
     
-    // Clean up uploaded file if transaction creation failed
-    if (req.file && req.file.path && fs.existsSync(req.file.path)) {
+    // Clean up uploaded GridFS file if transaction creation failed
+    if (req.file && req.file.gridfsFilename) {
       try {
-        fs.unlinkSync(req.file.path);
-        console.log('[SHARES] Cleaned up uploaded file after error');
+        await gridfsUpload.deleteFromGridFS(req.file.gridfsFilename);
+        console.log('[SHARES] Cleaned up GridFS file after error');
       } catch (cleanupError) {
-        console.error('[SHARES] Error cleaning up file:', cleanupError);
+        console.error('[SHARES] Error cleaning up GridFS file:', cleanupError);
       }
     }
     
@@ -2254,6 +2181,119 @@ exports.submitManualPayment = async (req, res) => {
       success: false,
       message: 'Failed to submit manual payment',
       error: error.message
+    });
+  }
+};
+
+// Updated getPaymentProof function
+exports.getPaymentProof = async (req, res) => {
+  try {
+    const { transactionId } = req.params;
+    const userId = req.user.id;
+    
+    console.log(`[getPaymentProof] Request for transaction: ${transactionId} from user: ${userId}`);
+    
+    // Look in both UserShare and PaymentTransaction for GridFS filename
+    let gridfsFilename = null;
+    let originalName = null;
+    let userShareRecord = null;
+
+    // First check UserShare (for backward compatibility)
+    userShareRecord = await UserShare.findOne({
+      'transactions.transactionId': transactionId
+    });
+
+    if (userShareRecord) {
+      const transaction = userShareRecord.transactions.find(
+        t => t.transactionId === transactionId
+      );
+      
+      if (transaction) {
+        gridfsFilename = transaction.paymentProofGridFS;
+        originalName = transaction.paymentProofOriginalName;
+      }
+    }
+
+    // If not found in UserShare, check PaymentTransaction
+    if (!gridfsFilename) {
+      const paymentTransaction = await PaymentTransaction.findOne({
+        transactionId,
+        type: 'share'
+      });
+      
+      if (paymentTransaction) {
+        gridfsFilename = paymentTransaction.paymentProofGridFS;
+        originalName = paymentTransaction.paymentProofOriginalName;
+        
+        // Check if user owns this transaction
+        const user = await User.findById(userId);
+        if (!(user && (user.isAdmin || paymentTransaction.userId.toString() === userId))) {
+          console.error('[SHARES] Access denied - user does not own transaction');
+          return res.status(403).json({
+            success: false,
+            message: 'Access denied'
+          });
+        }
+      }
+    }
+
+    if (!gridfsFilename) {
+      console.error('[SHARES] Transaction not found or no GridFS file:', transactionId);
+      return res.status(404).json({
+        success: false,
+        message: 'Transaction not found or payment proof not available'
+      });
+    }
+
+    // Check if user is admin or transaction owner (for UserShare transactions)
+    if (userShareRecord) {
+      const user = await User.findById(userId);
+      if (!(user && (user.isAdmin || userShareRecord.user.toString() === userId))) {
+        console.log(`[getPaymentProof] Unauthorized access: ${userId}`);
+        return res.status(403).json({
+          success: false,
+          message: 'Unauthorized: You do not have permission to view this payment proof'
+        });
+      }
+    }
+
+    console.log(`[getPaymentProof] Serving GridFS file: ${gridfsFilename}`);
+
+    // Download file from GridFS
+    try {
+      const { buffer, fileInfo, contentType } = await gridfsUpload.downloadFromGridFS(gridfsFilename);
+      
+      // Set headers
+      res.setHeader('Content-Type', contentType);
+      res.setHeader('Content-Length', buffer.length);
+      res.setHeader('Content-Disposition', `inline; filename="${originalName || gridfsFilename}"`);
+      res.setHeader('Cache-Control', 'public, max-age=3600'); // Cache for 1 hour
+      
+      // Send the file
+      res.send(buffer);
+      
+    } catch (gridfsError) {
+      console.error(`[getPaymentProof] GridFS error: ${gridfsError.message}`);
+      
+      if (gridfsError.message.includes('FileNotFound') || gridfsError.message.includes('file not found')) {
+        return res.status(404).json({
+          success: false,
+          message: 'Payment proof file not found in database'
+        });
+      }
+      
+      return res.status(500).json({
+        success: false,
+        message: 'Error retrieving payment proof from database'
+      });
+    }
+    
+  } catch (error) {
+    console.error(`[getPaymentProof] Server error: ${error.message}`, error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch payment proof',
+      error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
     });
   }
 };
@@ -2475,200 +2515,7 @@ exports.adminVerifyManualPayment = async (req, res) => {
   }
 };
 
-/**
- * @desc    Get payment proof image - Fixed for render.com deployments
- * @route   GET /api/shares/payment-proof/:transactionId
- * @access  Private (Admin or transaction owner)
- */
-exports.getPaymentProof = async (req, res) => {
-  try {
-    const { transactionId } = req.params;
-    const userId = req.user.id;
-    
-    console.log(`[getPaymentProof] Request for transaction: ${transactionId} from user: ${userId}`);
-    
-    // ✅ FIXED: Look in both UserShare and PaymentTransaction
-    let transaction = null;
-    let userShareRecord = null;
 
-    // First check UserShare (for backward compatibility)
-    userShareRecord = await UserShare.findOne({
-      'transactions.transactionId': transactionId
-    });
-
-    if (userShareRecord) {
-      transaction = userShareRecord.transactions.find(
-        t => t.transactionId === transactionId
-      );
-    }
-
-    // If not found in UserShare, check PaymentTransaction
-    if (!transaction) {
-      const paymentTransaction = await PaymentTransaction.findOne({
-        transactionId,
-        type: 'share'
-      });
-      
-      if (paymentTransaction) {
-        transaction = paymentTransaction;
-        // Check if user owns this transaction
-        const user = await User.findById(userId);
-        if (!(user && (user.isAdmin || paymentTransaction.userId.toString() === userId))) {
-          console.error('[SHARES] Access denied - user does not own transaction');
-          return res.status(403).json({
-            success: false,
-            message: 'Access denied'
-          });
-        }
-      }
-    }
-
-    if (!transaction) {
-      console.error('[SHARES] Transaction not found:', transactionId);
-      return res.status(404).json({
-        success: false,
-        message: 'Transaction not found'
-      });
-    }
-
-    // Check if user is admin or transaction owner (for UserShare transactions)
-    if (userShareRecord) {
-      const user = await User.findById(userId);
-      if (!(user && (user.isAdmin || userShareRecord.user.toString() === userId))) {
-        console.log(`[getPaymentProof] Unauthorized access: ${userId}`);
-        return res.status(403).json({
-          success: false,
-          message: 'Unauthorized: You do not have permission to view this payment proof'
-        });
-      }
-    }
-
-    // Check if payment proof exists
-    if (!transaction.paymentProofPath) {
-      console.log(`[getPaymentProof] Payment proof path not found for transaction: ${transactionId}`);
-      return res.status(404).json({
-        success: false,
-        message: 'Payment proof path not found for this transaction'
-      });
-    }
-
-    console.log(`[getPaymentProof] Original payment proof path: ${transaction.paymentProofPath}`);
-
-    // ✅ ENHANCED: File path resolution for multiple environments
-    const fs = require('fs');
-    const path = require('path');
-    
-    // Create an array of possible paths to check
-    const possiblePaths = [];
-    
-    // 1. Original path as stored in DB
-    possiblePaths.push(transaction.paymentProofPath);
-    
-    // 2. Relative to current working directory
-    possiblePaths.push(path.join(process.cwd(), transaction.paymentProofPath));
-    
-    // 3. If path has 'uploads', extract that part and try both ways
-    if (transaction.paymentProofPath.includes('uploads')) {
-      const uploadsPart = transaction.paymentProofPath.substring(
-        transaction.paymentProofPath.indexOf('uploads')
-      );
-      possiblePaths.push(path.join(process.cwd(), uploadsPart));
-      possiblePaths.push(uploadsPart);
-    }
-    
-    // 4. Try /opt/render/project/src/ path (common for render.com)
-    if (process.env.NODE_ENV === 'production') {
-      possiblePaths.push(path.join('/opt/render/project/src/', transaction.paymentProofPath));
-      
-      if (transaction.paymentProofPath.includes('uploads')) {
-        const uploadsPart = transaction.paymentProofPath.substring(
-          transaction.paymentProofPath.indexOf('uploads')
-        );
-        possiblePaths.push(path.join('/opt/render/project/src/', uploadsPart));
-      }
-    }
-
-    // 5. Try /tmp path (render.com sometimes uses this for temp storage)
-    if (process.env.NODE_ENV === 'production') {
-      possiblePaths.push(path.join('/tmp/', path.basename(transaction.paymentProofPath)));
-    }
-    
-    console.log('[getPaymentProof] Checking possible file paths:', JSON.stringify(possiblePaths));
-    
-    // Check each path
-    let validFilePath = null;
-    
-    for (const testPath of possiblePaths) {
-      try {
-        if (fs.existsSync(testPath)) {
-          const stats = fs.statSync(testPath);
-          if (stats.isFile()) {
-            validFilePath = testPath;
-            console.log(`[getPaymentProof] Found file at: ${validFilePath}, size: ${stats.size} bytes`);
-            break;
-          }
-        }
-      } catch (err) {
-        console.log(`[getPaymentProof] Error checking path ${testPath}: ${err.message}`);
-      }
-    }
-    
-    if (!validFilePath) {
-      console.error('[getPaymentProof] File not found at any checked location');
-      
-      // Return detailed debugging info in development
-      if (process.env.NODE_ENV === 'development') {
-        return res.status(404).json({
-          success: false,
-          message: 'Payment proof file not found on server',
-          debug: {
-            originalPath: transaction.paymentProofPath,
-            checkedPaths: possiblePaths,
-            cwd: process.cwd(),
-            env: process.env.NODE_ENV,
-            platform: process.platform
-          }
-        });
-      } else {
-        return res.status(404).json({
-          success: false,
-          message: 'Payment proof file not found on server'
-        });
-      }
-    }
-    
-    // Determine content type
-    const ext = path.extname(validFilePath).toLowerCase();
-    let contentType = 'application/octet-stream'; // Default
-    
-    if (ext === '.jpg' || ext === '.jpeg') contentType = 'image/jpeg';
-    else if (ext === '.png') contentType = 'image/png';
-    else if (ext === '.gif') contentType = 'image/gif';
-    else if (ext === '.pdf') contentType = 'application/pdf';
-    
-    console.log(`[getPaymentProof] Serving file with content type: ${contentType}`);
-    
-    // Get file stats for headers
-    const stats = fs.statSync(validFilePath);
-    
-    // Set headers
-    res.setHeader('Content-Type', contentType);
-    res.setHeader('Content-Length', stats.size);
-    res.setHeader('Content-Disposition', `inline; filename="${transaction.paymentProofOriginalName || path.basename(validFilePath)}"`);
-    
-    // Stream the file
-    const fileStream = fs.createReadStream(validFilePath);
-    fileStream.pipe(res);
-    
-  } catch (error) {
-    console.error(`[getPaymentProof] Server error: ${error.message}`, error);
-    res.status(500).json({
-      success: false,
-      message: 'Failed to fetch payment proof',
-      error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
-    });
-  }
-};
 /**
  * @desc    Admin: Cancel approved manual payment
  * @route   POST /api/shares/admin/manual/cancel
@@ -2848,7 +2695,7 @@ exports.adminDeleteManualPayment = async (req, res) => {
       currency: transaction.currency,
       status: transaction.status,
       tierBreakdown: transaction.tierBreakdown,
-      paymentProofPath: transaction.paymentProofPath
+      paymentProofGridFS: transaction.paymentProofGridFS
     };
     
     // If transaction was completed, rollback global share counts
@@ -2893,49 +2740,45 @@ exports.adminDeleteManualPayment = async (req, res) => {
     
     await userShareRecord.save();
     
-    // Delete payment proof file if it exists
-    if (transactionDetails.paymentProofPath) {
+    // Delete GridFS file if it exists
+    if (transactionDetails.paymentProofGridFS) {
       try {
-        const fs = require('fs');
-        const path = require('path');
-        
-        // Try multiple possible file paths
-        const possiblePaths = [
-          transactionDetails.paymentProofPath,
-          path.join(process.cwd(), transactionDetails.paymentProofPath),
-          path.join('/opt/render/project/src/', transactionDetails.paymentProofPath)
-        ];
-        
-        // If path contains 'uploads', also try that part
-        if (transactionDetails.paymentProofPath.includes('uploads')) {
-          const uploadsPart = transactionDetails.paymentProofPath.substring(
-            transactionDetails.paymentProofPath.indexOf('uploads')
-          );
-          possiblePaths.push(path.join(process.cwd(), uploadsPart));
-          possiblePaths.push(path.join('/opt/render/project/src/', uploadsPart));
+        const deleted = await gridfsUpload.deleteFromGridFS(transactionDetails.paymentProofGridFS);
+        if (deleted) {
+          console.log(`Payment proof file deleted from GridFS: ${transactionDetails.paymentProofGridFS}`);
+        } else {
+          console.log(`Payment proof file not found in GridFS: ${transactionDetails.paymentProofGridFS}`);
         }
-        
-        let fileDeleted = false;
-        for (const filePath of possiblePaths) {
+      } catch (fileError) {
+        console.error('Error deleting payment proof file from GridFS:', fileError);
+        // Continue with deletion even if file deletion fails
+      }
+    }
+    
+    // Also delete from PaymentTransaction model if it exists
+    try {
+      const paymentTransaction = await PaymentTransaction.findOne({
+        transactionId,
+        type: 'share'
+      });
+      
+      if (paymentTransaction) {
+        // Delete GridFS file from PaymentTransaction as well
+        if (paymentTransaction.paymentProofGridFS && 
+            paymentTransaction.paymentProofGridFS !== transactionDetails.paymentProofGridFS) {
           try {
-            if (fs.existsSync(filePath)) {
-              fs.unlinkSync(filePath);
-              console.log(`Payment proof file deleted: ${filePath}`);
-              fileDeleted = true;
-              break;
-            }
-          } catch (deleteErr) {
-            console.log(`Failed to delete file at ${filePath}: ${deleteErr.message}`);
+            await gridfsUpload.deleteFromGridFS(paymentTransaction.paymentProofGridFS);
+            console.log(`Payment proof file deleted from GridFS (PaymentTransaction): ${paymentTransaction.paymentProofGridFS}`);
+          } catch (fileError) {
+            console.error('Error deleting PaymentTransaction GridFS file:', fileError);
           }
         }
         
-        if (!fileDeleted) {
-          console.log(`Payment proof file not found or already deleted: ${transactionDetails.paymentProofPath}`);
-        }
-      } catch (fileError) {
-        console.error('Error deleting payment proof file:', fileError);
-        // Continue with deletion even if file deletion fails
+        await PaymentTransaction.deleteOne({ _id: paymentTransaction._id });
+        console.log('PaymentTransaction record deleted');
       }
+    } catch (ptError) {
+      console.error('Error deleting PaymentTransaction record:', ptError);
     }
     
     // Get user details for notification
@@ -2980,6 +2823,7 @@ exports.adminDeleteManualPayment = async (req, res) => {
       shares: transactionDetails.shares,
       amount: transactionDetails.totalAmount,
       currency: transactionDetails.currency,
+      gridfsFileDeleted: !!transactionDetails.paymentProofGridFS,
       timestamp: new Date().toISOString()
     });
     
@@ -2998,7 +2842,8 @@ exports.adminDeleteManualPayment = async (req, res) => {
         userUpdates: {
           newTotalShares: userShareRecord.totalShares,
           sharesRemoved: transactionDetails.status === 'completed' ? transactionDetails.shares : 0
-        }
+        },
+        fileDeleted: !!transactionDetails.paymentProofGridFS
       }
     });
   } catch (error) {

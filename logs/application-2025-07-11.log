@@ -177,3 +177,631 @@
 {"level":"info","message":"✅ Started job: verifyProcessingWithdrawals","timestamp":"2025-07-11T08:45:31.797Z"}
 {"level":"info","message":"✅ Started job: verifyPendingWithdrawals","timestamp":"2025-07-11T08:45:31.797Z"}
 {"level":"info","message":"Application startup completed successfully","timestamp":"2025-07-11T08:45:31.797Z"}
+{"environment":"development","level":"info","memoryUsage":{"arrayBuffers":19100343,"external":22664129,"heapTotal":123011072,"heapUsed":73025096,"rss":162889728},"message":"Server started successfully","port":5001,"processId":89190,"timestamp":"2025-07-11T08:47:25.641Z"}
+{"error":"setUserAsAdmin is not a function","level":"error","message":"Admin setup failed","timestamp":"2025-07-11T08:47:28.620Z"}
+{"level":"info","message":"Background job registered: verifyProcessingWithdrawals","timestamp":"2025-07-11T08:47:28.623Z"}
+{"level":"info","message":"Background job registered: verifyPendingWithdrawals","timestamp":"2025-07-11T08:47:28.624Z"}
+{"level":"info","message":"Withdrawal verification jobs started","timestamp":"2025-07-11T08:47:28.624Z"}
+{"level":"info","message":"✅ Started job: verifyProcessingWithdrawals","timestamp":"2025-07-11T08:47:28.624Z"}
+{"level":"info","message":"✅ Started job: verifyPendingWithdrawals","timestamp":"2025-07-11T08:47:28.624Z"}
+{"level":"info","message":"Application startup completed successfully","timestamp":"2025-07-11T08:47:28.624Z"}
+{"level":"info","message":"Database reconnected successfully","timestamp":"2025-07-11T09:12:49.241Z"}
+{"level":"info","message":"Database reconnected successfully","timestamp":"2025-07-11T09:12:49.243Z"}
+{"level":"warn","message":"Database disconnected","timestamp":"2025-07-11T11:26:00.519Z"}
+{"level":"warn","message":"Database disconnected","timestamp":"2025-07-11T11:26:05.547Z"}
+{"error":"querySrv ECONNREFUSED _mongodb._tcp.cluster0.uvjmhm9.mongodb.net","level":"error","message":"Database connection error","timestamp":"2025-07-11T11:26:05.548Z"}
+{"level":"warn","message":"Database disconnected","timestamp":"2025-07-11T11:26:10.551Z"}
+{"error":"querySrv ECONNREFUSED _mongodb._tcp.cluster0.uvjmhm9.mongodb.net","level":"error","message":"Database connection error","timestamp":"2025-07-11T11:26:10.551Z"}
+{"level":"warn","message":"Database disconnected","timestamp":"2025-07-11T11:26:15.549Z"}
+{"error":"querySrv ECONNREFUSED _mongodb._tcp.cluster0.uvjmhm9.mongodb.net","level":"error","message":"Database connection error","timestamp":"2025-07-11T11:26:15.549Z"}
+{"level":"warn","message":"Database disconnected","timestamp":"2025-07-11T11:26:15.551Z"}
+{"error":"querySrv ECONNREFUSED _mongodb._tcp.cluster0.uvjmhm9.mongodb.net","level":"error","message":"Database connection error","timestamp":"2025-07-11T11:26:15.551Z"}
+{"level":"warn","message":"Database disconnected","timestamp":"2025-07-11T11:26:20.553Z"}
+{"error":"querySrv ECONNREFUSED _mongodb._tcp.cluster0.uvjmhm9.mongodb.net","level":"error","message":"Database connection error","timestamp":"2025-07-11T11:26:20.553Z"}
+{"level":"warn","message":"Database disconnected","timestamp":"2025-07-11T11:26:20.555Z"}
+{"level":"warn","message":"Database disconnected","timestamp":"2025-07-11T11:26:20.555Z"}
+{"error":"querySrv ECONNREFUSED _mongodb._tcp.cluster0.uvjmhm9.mongodb.net","level":"error","message":"Database connection error","timestamp":"2025-07-11T11:26:20.555Z"}
+{"error":"querySrv ECONNREFUSED _mongodb._tcp.cluster0.uvjmhm9.mongodb.net","level":"error","message":"Database connection error","timestamp":"2025-07-11T11:26:20.555Z"}
+{"level":"warn","message":"Database disconnected","timestamp":"2025-07-11T11:26:25.555Z"}
+{"level":"warn","message":"Database disconnected","timestamp":"2025-07-11T11:26:25.555Z"}
+{"level":"warn","message":"Database disconnected","timestamp":"2025-07-11T11:26:25.555Z"}
+{"error":"querySrv ECONNREFUSED _mongodb._tcp.cluster0.uvjmhm9.mongodb.net","level":"error","message":"Database connection error","timestamp":"2025-07-11T11:26:25.556Z"}
+{"error":"querySrv ECONNREFUSED _mongodb._tcp.cluster0.uvjmhm9.mongodb.net","level":"error","message":"Database connection error","timestamp":"2025-07-11T11:26:25.556Z"}
+{"error":"querySrv ECONNREFUSED _mongodb._tcp.cluster0.uvjmhm9.mongodb.net","level":"error","message":"Database connection error","timestamp":"2025-07-11T11:26:25.556Z"}
+{"level":"warn","message":"Database disconnected","timestamp":"2025-07-11T11:26:25.557Z"}
+{"level":"warn","message":"Database disconnected","timestamp":"2025-07-11T11:26:25.557Z"}
+{"level":"warn","message":"Database disconnected","timestamp":"2025-07-11T11:26:25.557Z"}
+{"error":"querySrv ECONNREFUSED _mongodb._tcp.cluster0.uvjmhm9.mongodb.net","level":"error","message":"Database connection error","timestamp":"2025-07-11T11:26:25.557Z"}
+{"error":"querySrv ECONNREFUSED _mongodb._tcp.cluster0.uvjmhm9.mongodb.net","level":"error","message":"Database connection error","timestamp":"2025-07-11T11:26:25.557Z"}
+{"error":"querySrv ECONNREFUSED _mongodb._tcp.cluster0.uvjmhm9.mongodb.net","level":"error","message":"Database connection error","timestamp":"2025-07-11T11:26:25.557Z"}
+{"level":"warn","message":"Database disconnected","timestamp":"2025-07-11T11:26:30.559Z"}
+{"level":"warn","message":"Database disconnected","timestamp":"2025-07-11T11:26:30.559Z"}
+{"level":"warn","message":"Database disconnected","timestamp":"2025-07-11T11:26:30.559Z"}
+{"error":"querySrv ECONNREFUSED _mongodb._tcp.cluster0.uvjmhm9.mongodb.net","level":"error","message":"Database connection error","timestamp":"2025-07-11T11:26:30.559Z"}
+{"error":"querySrv ECONNREFUSED _mongodb._tcp.cluster0.uvjmhm9.mongodb.net","level":"error","message":"Database connection error","timestamp":"2025-07-11T11:26:30.559Z"}
+{"error":"querySrv ECONNREFUSED _mongodb._tcp.cluster0.uvjmhm9.mongodb.net","level":"error","message":"Database connection error","timestamp":"2025-07-11T11:26:30.559Z"}
+{"level":"warn","message":"Database disconnected","timestamp":"2025-07-11T11:26:30.562Z"}
+{"level":"warn","message":"Database disconnected","timestamp":"2025-07-11T11:26:30.562Z"}
+{"level":"warn","message":"Database disconnected","timestamp":"2025-07-11T11:26:30.562Z"}
+{"level":"warn","message":"Database disconnected","timestamp":"2025-07-11T11:26:30.562Z"}
+{"error":"querySrv ECONNREFUSED _mongodb._tcp.cluster0.uvjmhm9.mongodb.net","level":"error","message":"Database connection error","timestamp":"2025-07-11T11:26:30.562Z"}
+{"error":"querySrv ECONNREFUSED _mongodb._tcp.cluster0.uvjmhm9.mongodb.net","level":"error","message":"Database connection error","timestamp":"2025-07-11T11:26:30.563Z"}
+{"error":"querySrv ECONNREFUSED _mongodb._tcp.cluster0.uvjmhm9.mongodb.net","level":"error","message":"Database connection error","timestamp":"2025-07-11T11:26:30.563Z"}
+{"error":"querySrv ECONNREFUSED _mongodb._tcp.cluster0.uvjmhm9.mongodb.net","level":"error","message":"Database connection error","timestamp":"2025-07-11T11:26:30.563Z"}
+{"error":"connection 84 to 65.62.47.147:27017 timed out","level":"warn","message":"Database health check failed","timestamp":"2025-07-11T11:26:34.477Z"}
+{"level":"warn","message":"Database disconnected","timestamp":"2025-07-11T11:26:35.572Z"}
+{"level":"warn","message":"Database disconnected","timestamp":"2025-07-11T11:26:35.573Z"}
+{"level":"warn","message":"Database disconnected","timestamp":"2025-07-11T11:26:35.573Z"}
+{"level":"warn","message":"Database disconnected","timestamp":"2025-07-11T11:26:35.573Z"}
+{"error":"querySrv ECONNREFUSED _mongodb._tcp.cluster0.uvjmhm9.mongodb.net","level":"error","message":"Database connection error","timestamp":"2025-07-11T11:26:35.573Z"}
+{"error":"querySrv ECONNREFUSED _mongodb._tcp.cluster0.uvjmhm9.mongodb.net","level":"error","message":"Database connection error","timestamp":"2025-07-11T11:26:35.573Z"}
+{"error":"querySrv ECONNREFUSED _mongodb._tcp.cluster0.uvjmhm9.mongodb.net","level":"error","message":"Database connection error","timestamp":"2025-07-11T11:26:35.573Z"}
+{"error":"querySrv ECONNREFUSED _mongodb._tcp.cluster0.uvjmhm9.mongodb.net","level":"error","message":"Database connection error","timestamp":"2025-07-11T11:26:35.573Z"}
+{"level":"warn","message":"Database disconnected","timestamp":"2025-07-11T11:26:35.577Z"}
+{"level":"warn","message":"Database disconnected","timestamp":"2025-07-11T11:26:35.577Z"}
+{"level":"warn","message":"Database disconnected","timestamp":"2025-07-11T11:26:35.577Z"}
+{"level":"warn","message":"Database disconnected","timestamp":"2025-07-11T11:26:35.578Z"}
+{"error":"querySrv ECONNREFUSED _mongodb._tcp.cluster0.uvjmhm9.mongodb.net","level":"error","message":"Database connection error","timestamp":"2025-07-11T11:26:35.578Z"}
+{"error":"querySrv ECONNREFUSED _mongodb._tcp.cluster0.uvjmhm9.mongodb.net","level":"error","message":"Database connection error","timestamp":"2025-07-11T11:26:35.578Z"}
+{"error":"querySrv ECONNREFUSED _mongodb._tcp.cluster0.uvjmhm9.mongodb.net","level":"error","message":"Database connection error","timestamp":"2025-07-11T11:26:35.578Z"}
+{"error":"querySrv ECONNREFUSED _mongodb._tcp.cluster0.uvjmhm9.mongodb.net","level":"error","message":"Database connection error","timestamp":"2025-07-11T11:26:35.578Z"}
+{"level":"warn","message":"Database disconnected","timestamp":"2025-07-11T11:26:40.567Z"}
+{"level":"warn","message":"Database disconnected","timestamp":"2025-07-11T11:26:40.567Z"}
+{"level":"warn","message":"Database disconnected","timestamp":"2025-07-11T11:26:40.567Z"}
+{"level":"warn","message":"Database disconnected","timestamp":"2025-07-11T11:26:40.567Z"}
+{"error":"querySrv ECONNREFUSED _mongodb._tcp.cluster0.uvjmhm9.mongodb.net","level":"error","message":"Database connection error","timestamp":"2025-07-11T11:26:40.568Z"}
+{"error":"querySrv ECONNREFUSED _mongodb._tcp.cluster0.uvjmhm9.mongodb.net","level":"error","message":"Database connection error","timestamp":"2025-07-11T11:26:40.568Z"}
+{"error":"querySrv ECONNREFUSED _mongodb._tcp.cluster0.uvjmhm9.mongodb.net","level":"error","message":"Database connection error","timestamp":"2025-07-11T11:26:40.568Z"}
+{"error":"querySrv ECONNREFUSED _mongodb._tcp.cluster0.uvjmhm9.mongodb.net","level":"error","message":"Database connection error","timestamp":"2025-07-11T11:26:40.568Z"}
+{"level":"warn","message":"Database disconnected","timestamp":"2025-07-11T11:26:40.569Z"}
+{"level":"warn","message":"Database disconnected","timestamp":"2025-07-11T11:26:40.569Z"}
+{"level":"warn","message":"Database disconnected","timestamp":"2025-07-11T11:26:40.569Z"}
+{"level":"warn","message":"Database disconnected","timestamp":"2025-07-11T11:26:40.569Z"}
+{"error":"querySrv ECONNREFUSED _mongodb._tcp.cluster0.uvjmhm9.mongodb.net","level":"error","message":"Database connection error","timestamp":"2025-07-11T11:26:40.569Z"}
+{"error":"querySrv ECONNREFUSED _mongodb._tcp.cluster0.uvjmhm9.mongodb.net","level":"error","message":"Database connection error","timestamp":"2025-07-11T11:26:40.569Z"}
+{"error":"querySrv ECONNREFUSED _mongodb._tcp.cluster0.uvjmhm9.mongodb.net","level":"error","message":"Database connection error","timestamp":"2025-07-11T11:26:40.569Z"}
+{"error":"querySrv ECONNREFUSED _mongodb._tcp.cluster0.uvjmhm9.mongodb.net","level":"error","message":"Database connection error","timestamp":"2025-07-11T11:26:40.569Z"}
+{"level":"warn","message":"Database disconnected","timestamp":"2025-07-11T11:26:40.575Z"}
+{"level":"warn","message":"Database disconnected","timestamp":"2025-07-11T11:26:40.575Z"}
+{"level":"warn","message":"Database disconnected","timestamp":"2025-07-11T11:26:40.575Z"}
+{"level":"warn","message":"Database disconnected","timestamp":"2025-07-11T11:26:40.575Z"}
+{"error":"querySrv ECONNREFUSED _mongodb._tcp.cluster0.uvjmhm9.mongodb.net","level":"error","message":"Database connection error","timestamp":"2025-07-11T11:26:40.575Z"}
+{"error":"querySrv ECONNREFUSED _mongodb._tcp.cluster0.uvjmhm9.mongodb.net","level":"error","message":"Database connection error","timestamp":"2025-07-11T11:26:40.575Z"}
+{"error":"querySrv ECONNREFUSED _mongodb._tcp.cluster0.uvjmhm9.mongodb.net","level":"error","message":"Database connection error","timestamp":"2025-07-11T11:26:40.575Z"}
+{"error":"querySrv ECONNREFUSED _mongodb._tcp.cluster0.uvjmhm9.mongodb.net","level":"error","message":"Database connection error","timestamp":"2025-07-11T11:26:40.575Z"}
+{"level":"warn","message":"Database disconnected","timestamp":"2025-07-11T11:26:40.577Z"}
+{"level":"warn","message":"Database disconnected","timestamp":"2025-07-11T11:26:40.577Z"}
+{"level":"warn","message":"Database disconnected","timestamp":"2025-07-11T11:26:40.577Z"}
+{"level":"warn","message":"Database disconnected","timestamp":"2025-07-11T11:26:40.577Z"}
+{"error":"querySrv ECONNREFUSED _mongodb._tcp.cluster0.uvjmhm9.mongodb.net","level":"error","message":"Database connection error","timestamp":"2025-07-11T11:26:40.578Z"}
+{"error":"querySrv ECONNREFUSED _mongodb._tcp.cluster0.uvjmhm9.mongodb.net","level":"error","message":"Database connection error","timestamp":"2025-07-11T11:26:40.578Z"}
+{"error":"querySrv ECONNREFUSED _mongodb._tcp.cluster0.uvjmhm9.mongodb.net","level":"error","message":"Database connection error","timestamp":"2025-07-11T11:26:40.578Z"}
+{"error":"querySrv ECONNREFUSED _mongodb._tcp.cluster0.uvjmhm9.mongodb.net","level":"error","message":"Database connection error","timestamp":"2025-07-11T11:26:40.578Z"}
+{"level":"warn","message":"Database disconnected","timestamp":"2025-07-11T11:26:40.579Z"}
+{"level":"warn","message":"Database disconnected","timestamp":"2025-07-11T11:26:40.579Z"}
+{"level":"warn","message":"Database disconnected","timestamp":"2025-07-11T11:26:40.579Z"}
+{"level":"warn","message":"Database disconnected","timestamp":"2025-07-11T11:26:40.579Z"}
+{"error":"querySrv ECONNREFUSED _mongodb._tcp.cluster0.uvjmhm9.mongodb.net","level":"error","message":"Database connection error","timestamp":"2025-07-11T11:26:40.579Z"}
+{"error":"querySrv ECONNREFUSED _mongodb._tcp.cluster0.uvjmhm9.mongodb.net","level":"error","message":"Database connection error","timestamp":"2025-07-11T11:26:40.579Z"}
+{"error":"querySrv ECONNREFUSED _mongodb._tcp.cluster0.uvjmhm9.mongodb.net","level":"error","message":"Database connection error","timestamp":"2025-07-11T11:26:40.579Z"}
+{"error":"querySrv ECONNREFUSED _mongodb._tcp.cluster0.uvjmhm9.mongodb.net","level":"error","message":"Database connection error","timestamp":"2025-07-11T11:26:40.579Z"}
+{"level":"warn","message":"Database disconnected","timestamp":"2025-07-11T11:26:45.569Z"}
+{"level":"warn","message":"Database disconnected","timestamp":"2025-07-11T11:26:45.569Z"}
+{"level":"warn","message":"Database disconnected","timestamp":"2025-07-11T11:26:45.570Z"}
+{"level":"warn","message":"Database disconnected","timestamp":"2025-07-11T11:26:45.570Z"}
+{"error":"querySrv ECONNREFUSED _mongodb._tcp.cluster0.uvjmhm9.mongodb.net","level":"error","message":"Database connection error","timestamp":"2025-07-11T11:26:45.570Z"}
+{"error":"querySrv ECONNREFUSED _mongodb._tcp.cluster0.uvjmhm9.mongodb.net","level":"error","message":"Database connection error","timestamp":"2025-07-11T11:26:45.570Z"}
+{"error":"querySrv ECONNREFUSED _mongodb._tcp.cluster0.uvjmhm9.mongodb.net","level":"error","message":"Database connection error","timestamp":"2025-07-11T11:26:45.570Z"}
+{"error":"querySrv ECONNREFUSED _mongodb._tcp.cluster0.uvjmhm9.mongodb.net","level":"error","message":"Database connection error","timestamp":"2025-07-11T11:26:45.570Z"}
+{"level":"warn","message":"Database disconnected","timestamp":"2025-07-11T11:26:45.571Z"}
+{"level":"warn","message":"Database disconnected","timestamp":"2025-07-11T11:26:45.571Z"}
+{"level":"warn","message":"Database disconnected","timestamp":"2025-07-11T11:26:45.571Z"}
+{"level":"warn","message":"Database disconnected","timestamp":"2025-07-11T11:26:45.571Z"}
+{"error":"querySrv ECONNREFUSED _mongodb._tcp.cluster0.uvjmhm9.mongodb.net","level":"error","message":"Database connection error","timestamp":"2025-07-11T11:26:45.571Z"}
+{"error":"querySrv ECONNREFUSED _mongodb._tcp.cluster0.uvjmhm9.mongodb.net","level":"error","message":"Database connection error","timestamp":"2025-07-11T11:26:45.571Z"}
+{"error":"querySrv ECONNREFUSED _mongodb._tcp.cluster0.uvjmhm9.mongodb.net","level":"error","message":"Database connection error","timestamp":"2025-07-11T11:26:45.571Z"}
+{"error":"querySrv ECONNREFUSED _mongodb._tcp.cluster0.uvjmhm9.mongodb.net","level":"error","message":"Database connection error","timestamp":"2025-07-11T11:26:45.571Z"}
+{"level":"warn","message":"Database disconnected","timestamp":"2025-07-11T11:26:45.574Z"}
+{"level":"warn","message":"Database disconnected","timestamp":"2025-07-11T11:26:45.574Z"}
+{"level":"warn","message":"Database disconnected","timestamp":"2025-07-11T11:26:45.574Z"}
+{"level":"warn","message":"Database disconnected","timestamp":"2025-07-11T11:26:45.574Z"}
+{"error":"querySrv ECONNREFUSED _mongodb._tcp.cluster0.uvjmhm9.mongodb.net","level":"error","message":"Database connection error","timestamp":"2025-07-11T11:26:45.575Z"}
+{"error":"querySrv ECONNREFUSED _mongodb._tcp.cluster0.uvjmhm9.mongodb.net","level":"error","message":"Database connection error","timestamp":"2025-07-11T11:26:45.575Z"}
+{"error":"querySrv ECONNREFUSED _mongodb._tcp.cluster0.uvjmhm9.mongodb.net","level":"error","message":"Database connection error","timestamp":"2025-07-11T11:26:45.575Z"}
+{"error":"querySrv ECONNREFUSED _mongodb._tcp.cluster0.uvjmhm9.mongodb.net","level":"error","message":"Database connection error","timestamp":"2025-07-11T11:26:45.575Z"}
+{"level":"warn","message":"Database disconnected","timestamp":"2025-07-11T11:26:45.577Z"}
+{"level":"warn","message":"Database disconnected","timestamp":"2025-07-11T11:26:45.577Z"}
+{"level":"warn","message":"Database disconnected","timestamp":"2025-07-11T11:26:45.577Z"}
+{"level":"warn","message":"Database disconnected","timestamp":"2025-07-11T11:26:45.577Z"}
+{"error":"querySrv ECONNREFUSED _mongodb._tcp.cluster0.uvjmhm9.mongodb.net","level":"error","message":"Database connection error","timestamp":"2025-07-11T11:26:45.577Z"}
+{"error":"querySrv ECONNREFUSED _mongodb._tcp.cluster0.uvjmhm9.mongodb.net","level":"error","message":"Database connection error","timestamp":"2025-07-11T11:26:45.577Z"}
+{"error":"querySrv ECONNREFUSED _mongodb._tcp.cluster0.uvjmhm9.mongodb.net","level":"error","message":"Database connection error","timestamp":"2025-07-11T11:26:45.577Z"}
+{"error":"querySrv ECONNREFUSED _mongodb._tcp.cluster0.uvjmhm9.mongodb.net","level":"error","message":"Database connection error","timestamp":"2025-07-11T11:26:45.577Z"}
+{"level":"warn","message":"Database disconnected","timestamp":"2025-07-11T11:26:45.578Z"}
+{"level":"warn","message":"Database disconnected","timestamp":"2025-07-11T11:26:45.578Z"}
+{"level":"warn","message":"Database disconnected","timestamp":"2025-07-11T11:26:45.578Z"}
+{"level":"warn","message":"Database disconnected","timestamp":"2025-07-11T11:26:45.578Z"}
+{"error":"querySrv ECONNREFUSED _mongodb._tcp.cluster0.uvjmhm9.mongodb.net","level":"error","message":"Database connection error","timestamp":"2025-07-11T11:26:45.578Z"}
+{"error":"querySrv ECONNREFUSED _mongodb._tcp.cluster0.uvjmhm9.mongodb.net","level":"error","message":"Database connection error","timestamp":"2025-07-11T11:26:45.578Z"}
+{"error":"querySrv ECONNREFUSED _mongodb._tcp.cluster0.uvjmhm9.mongodb.net","level":"error","message":"Database connection error","timestamp":"2025-07-11T11:26:45.578Z"}
+{"error":"querySrv ECONNREFUSED _mongodb._tcp.cluster0.uvjmhm9.mongodb.net","level":"error","message":"Database connection error","timestamp":"2025-07-11T11:26:45.578Z"}
+{"level":"warn","message":"Database disconnected","timestamp":"2025-07-11T11:26:45.578Z"}
+{"level":"warn","message":"Database disconnected","timestamp":"2025-07-11T11:26:45.578Z"}
+{"level":"warn","message":"Database disconnected","timestamp":"2025-07-11T11:26:45.578Z"}
+{"level":"warn","message":"Database disconnected","timestamp":"2025-07-11T11:26:45.579Z"}
+{"error":"querySrv ECONNREFUSED _mongodb._tcp.cluster0.uvjmhm9.mongodb.net","level":"error","message":"Database connection error","timestamp":"2025-07-11T11:26:45.579Z"}
+{"error":"querySrv ECONNREFUSED _mongodb._tcp.cluster0.uvjmhm9.mongodb.net","level":"error","message":"Database connection error","timestamp":"2025-07-11T11:26:45.579Z"}
+{"error":"querySrv ECONNREFUSED _mongodb._tcp.cluster0.uvjmhm9.mongodb.net","level":"error","message":"Database connection error","timestamp":"2025-07-11T11:26:45.579Z"}
+{"error":"querySrv ECONNREFUSED _mongodb._tcp.cluster0.uvjmhm9.mongodb.net","level":"error","message":"Database connection error","timestamp":"2025-07-11T11:26:45.579Z"}
+{"level":"warn","message":"Database disconnected","timestamp":"2025-07-11T11:26:45.579Z"}
+{"level":"warn","message":"Database disconnected","timestamp":"2025-07-11T11:26:45.579Z"}
+{"level":"warn","message":"Database disconnected","timestamp":"2025-07-11T11:26:45.579Z"}
+{"level":"warn","message":"Database disconnected","timestamp":"2025-07-11T11:26:45.579Z"}
+{"error":"querySrv ECONNREFUSED _mongodb._tcp.cluster0.uvjmhm9.mongodb.net","level":"error","message":"Database connection error","timestamp":"2025-07-11T11:26:45.579Z"}
+{"error":"querySrv ECONNREFUSED _mongodb._tcp.cluster0.uvjmhm9.mongodb.net","level":"error","message":"Database connection error","timestamp":"2025-07-11T11:26:45.579Z"}
+{"error":"querySrv ECONNREFUSED _mongodb._tcp.cluster0.uvjmhm9.mongodb.net","level":"error","message":"Database connection error","timestamp":"2025-07-11T11:26:45.579Z"}
+{"error":"querySrv ECONNREFUSED _mongodb._tcp.cluster0.uvjmhm9.mongodb.net","level":"error","message":"Database connection error","timestamp":"2025-07-11T11:26:45.579Z"}
+{"level":"warn","message":"Database disconnected","timestamp":"2025-07-11T11:26:50.571Z"}
+{"level":"warn","message":"Database disconnected","timestamp":"2025-07-11T11:26:50.571Z"}
+{"level":"warn","message":"Database disconnected","timestamp":"2025-07-11T11:26:50.571Z"}
+{"level":"warn","message":"Database disconnected","timestamp":"2025-07-11T11:26:50.572Z"}
+{"error":"querySrv ECONNREFUSED _mongodb._tcp.cluster0.uvjmhm9.mongodb.net","level":"error","message":"Database connection error","timestamp":"2025-07-11T11:26:50.572Z"}
+{"error":"querySrv ECONNREFUSED _mongodb._tcp.cluster0.uvjmhm9.mongodb.net","level":"error","message":"Database connection error","timestamp":"2025-07-11T11:26:50.572Z"}
+{"error":"querySrv ECONNREFUSED _mongodb._tcp.cluster0.uvjmhm9.mongodb.net","level":"error","message":"Database connection error","timestamp":"2025-07-11T11:26:50.572Z"}
+{"error":"querySrv ECONNREFUSED _mongodb._tcp.cluster0.uvjmhm9.mongodb.net","level":"error","message":"Database connection error","timestamp":"2025-07-11T11:26:50.572Z"}
+{"level":"warn","message":"Database disconnected","timestamp":"2025-07-11T11:26:50.573Z"}
+{"level":"warn","message":"Database disconnected","timestamp":"2025-07-11T11:26:50.573Z"}
+{"level":"warn","message":"Database disconnected","timestamp":"2025-07-11T11:26:50.573Z"}
+{"level":"warn","message":"Database disconnected","timestamp":"2025-07-11T11:26:50.573Z"}
+{"level":"warn","message":"Database disconnected","timestamp":"2025-07-11T11:26:50.573Z"}
+{"error":"querySrv ECONNREFUSED _mongodb._tcp.cluster0.uvjmhm9.mongodb.net","level":"error","message":"Database connection error","timestamp":"2025-07-11T11:26:50.573Z"}
+{"error":"querySrv ECONNREFUSED _mongodb._tcp.cluster0.uvjmhm9.mongodb.net","level":"error","message":"Database connection error","timestamp":"2025-07-11T11:26:50.573Z"}
+{"error":"querySrv ECONNREFUSED _mongodb._tcp.cluster0.uvjmhm9.mongodb.net","level":"error","message":"Database connection error","timestamp":"2025-07-11T11:26:50.573Z"}
+{"error":"querySrv ECONNREFUSED _mongodb._tcp.cluster0.uvjmhm9.mongodb.net","level":"error","message":"Database connection error","timestamp":"2025-07-11T11:26:50.573Z"}
+{"error":"querySrv ECONNREFUSED _mongodb._tcp.cluster0.uvjmhm9.mongodb.net","level":"error","message":"Database connection error","timestamp":"2025-07-11T11:26:50.573Z"}
+{"level":"warn","message":"Database disconnected","timestamp":"2025-07-11T11:26:50.576Z"}
+{"level":"warn","message":"Database disconnected","timestamp":"2025-07-11T11:26:50.576Z"}
+{"level":"warn","message":"Database disconnected","timestamp":"2025-07-11T11:26:50.576Z"}
+{"level":"warn","message":"Database disconnected","timestamp":"2025-07-11T11:26:50.576Z"}
+{"level":"warn","message":"Database disconnected","timestamp":"2025-07-11T11:26:50.576Z"}
+{"error":"querySrv ECONNREFUSED _mongodb._tcp.cluster0.uvjmhm9.mongodb.net","level":"error","message":"Database connection error","timestamp":"2025-07-11T11:26:50.576Z"}
+{"error":"querySrv ECONNREFUSED _mongodb._tcp.cluster0.uvjmhm9.mongodb.net","level":"error","message":"Database connection error","timestamp":"2025-07-11T11:26:50.576Z"}
+{"error":"querySrv ECONNREFUSED _mongodb._tcp.cluster0.uvjmhm9.mongodb.net","level":"error","message":"Database connection error","timestamp":"2025-07-11T11:26:50.576Z"}
+{"error":"querySrv ECONNREFUSED _mongodb._tcp.cluster0.uvjmhm9.mongodb.net","level":"error","message":"Database connection error","timestamp":"2025-07-11T11:26:50.576Z"}
+{"error":"querySrv ECONNREFUSED _mongodb._tcp.cluster0.uvjmhm9.mongodb.net","level":"error","message":"Database connection error","timestamp":"2025-07-11T11:26:50.576Z"}
+{"level":"warn","message":"Database disconnected","timestamp":"2025-07-11T11:26:50.577Z"}
+{"level":"warn","message":"Database disconnected","timestamp":"2025-07-11T11:26:50.577Z"}
+{"level":"warn","message":"Database disconnected","timestamp":"2025-07-11T11:26:50.577Z"}
+{"level":"warn","message":"Database disconnected","timestamp":"2025-07-11T11:26:50.577Z"}
+{"level":"warn","message":"Database disconnected","timestamp":"2025-07-11T11:26:50.578Z"}
+{"error":"querySrv ECONNREFUSED _mongodb._tcp.cluster0.uvjmhm9.mongodb.net","level":"error","message":"Database connection error","timestamp":"2025-07-11T11:26:50.578Z"}
+{"error":"querySrv ECONNREFUSED _mongodb._tcp.cluster0.uvjmhm9.mongodb.net","level":"error","message":"Database connection error","timestamp":"2025-07-11T11:26:50.578Z"}
+{"error":"querySrv ECONNREFUSED _mongodb._tcp.cluster0.uvjmhm9.mongodb.net","level":"error","message":"Database connection error","timestamp":"2025-07-11T11:26:50.578Z"}
+{"error":"querySrv ECONNREFUSED _mongodb._tcp.cluster0.uvjmhm9.mongodb.net","level":"error","message":"Database connection error","timestamp":"2025-07-11T11:26:50.578Z"}
+{"error":"querySrv ECONNREFUSED _mongodb._tcp.cluster0.uvjmhm9.mongodb.net","level":"error","message":"Database connection error","timestamp":"2025-07-11T11:26:50.578Z"}
+{"level":"warn","message":"Database disconnected","timestamp":"2025-07-11T11:26:50.579Z"}
+{"level":"warn","message":"Database disconnected","timestamp":"2025-07-11T11:26:50.579Z"}
+{"level":"warn","message":"Database disconnected","timestamp":"2025-07-11T11:26:50.579Z"}
+{"level":"warn","message":"Database disconnected","timestamp":"2025-07-11T11:26:50.579Z"}
+{"level":"warn","message":"Database disconnected","timestamp":"2025-07-11T11:26:50.579Z"}
+{"level":"warn","message":"Database disconnected","timestamp":"2025-07-11T11:26:50.579Z"}
+{"error":"querySrv ECONNREFUSED _mongodb._tcp.cluster0.uvjmhm9.mongodb.net","level":"error","message":"Database connection error","timestamp":"2025-07-11T11:26:50.579Z"}
+{"error":"querySrv ECONNREFUSED _mongodb._tcp.cluster0.uvjmhm9.mongodb.net","level":"error","message":"Database connection error","timestamp":"2025-07-11T11:26:50.579Z"}
+{"error":"querySrv ECONNREFUSED _mongodb._tcp.cluster0.uvjmhm9.mongodb.net","level":"error","message":"Database connection error","timestamp":"2025-07-11T11:26:50.579Z"}
+{"error":"querySrv ECONNREFUSED _mongodb._tcp.cluster0.uvjmhm9.mongodb.net","level":"error","message":"Database connection error","timestamp":"2025-07-11T11:26:50.579Z"}
+{"error":"querySrv ECONNREFUSED _mongodb._tcp.cluster0.uvjmhm9.mongodb.net","level":"error","message":"Database connection error","timestamp":"2025-07-11T11:26:50.579Z"}
+{"error":"querySrv ECONNREFUSED _mongodb._tcp.cluster0.uvjmhm9.mongodb.net","level":"error","message":"Database connection error","timestamp":"2025-07-11T11:26:50.579Z"}
+{"level":"warn","message":"Database disconnected","timestamp":"2025-07-11T11:26:50.580Z"}
+{"level":"warn","message":"Database disconnected","timestamp":"2025-07-11T11:26:50.580Z"}
+{"level":"warn","message":"Database disconnected","timestamp":"2025-07-11T11:26:50.580Z"}
+{"level":"warn","message":"Database disconnected","timestamp":"2025-07-11T11:26:50.580Z"}
+{"level":"warn","message":"Database disconnected","timestamp":"2025-07-11T11:26:50.580Z"}
+{"level":"warn","message":"Database disconnected","timestamp":"2025-07-11T11:26:50.580Z"}
+{"level":"warn","message":"Database disconnected","timestamp":"2025-07-11T11:26:50.580Z"}
+{"error":"querySrv ECONNREFUSED _mongodb._tcp.cluster0.uvjmhm9.mongodb.net","level":"error","message":"Database connection error","timestamp":"2025-07-11T11:26:50.580Z"}
+{"error":"querySrv ECONNREFUSED _mongodb._tcp.cluster0.uvjmhm9.mongodb.net","level":"error","message":"Database connection error","timestamp":"2025-07-11T11:26:50.580Z"}
+{"error":"querySrv ECONNREFUSED _mongodb._tcp.cluster0.uvjmhm9.mongodb.net","level":"error","message":"Database connection error","timestamp":"2025-07-11T11:26:50.580Z"}
+{"error":"querySrv ECONNREFUSED _mongodb._tcp.cluster0.uvjmhm9.mongodb.net","level":"error","message":"Database connection error","timestamp":"2025-07-11T11:26:50.580Z"}
+{"error":"querySrv ECONNREFUSED _mongodb._tcp.cluster0.uvjmhm9.mongodb.net","level":"error","message":"Database connection error","timestamp":"2025-07-11T11:26:50.580Z"}
+{"error":"querySrv ECONNREFUSED _mongodb._tcp.cluster0.uvjmhm9.mongodb.net","level":"error","message":"Database connection error","timestamp":"2025-07-11T11:26:50.580Z"}
+{"error":"querySrv ECONNREFUSED _mongodb._tcp.cluster0.uvjmhm9.mongodb.net","level":"error","message":"Database connection error","timestamp":"2025-07-11T11:26:50.580Z"}
+{"level":"warn","message":"Database disconnected","timestamp":"2025-07-11T11:26:55.581Z"}
+{"level":"warn","message":"Database disconnected","timestamp":"2025-07-11T11:26:55.582Z"}
+{"level":"warn","message":"Database disconnected","timestamp":"2025-07-11T11:26:55.582Z"}
+{"level":"warn","message":"Database disconnected","timestamp":"2025-07-11T11:26:55.582Z"}
+{"level":"warn","message":"Database disconnected","timestamp":"2025-07-11T11:26:55.582Z"}
+{"level":"warn","message":"Database disconnected","timestamp":"2025-07-11T11:26:55.582Z"}
+{"level":"warn","message":"Database disconnected","timestamp":"2025-07-11T11:26:55.582Z"}
+{"level":"warn","message":"Database disconnected","timestamp":"2025-07-11T11:26:55.582Z"}
+{"error":"querySrv ECONNREFUSED _mongodb._tcp.cluster0.uvjmhm9.mongodb.net","level":"error","message":"Database connection error","timestamp":"2025-07-11T11:26:55.582Z"}
+{"error":"querySrv ECONNREFUSED _mongodb._tcp.cluster0.uvjmhm9.mongodb.net","level":"error","message":"Database connection error","timestamp":"2025-07-11T11:26:55.583Z"}
+{"error":"querySrv ECONNREFUSED _mongodb._tcp.cluster0.uvjmhm9.mongodb.net","level":"error","message":"Database connection error","timestamp":"2025-07-11T11:26:55.583Z"}
+{"error":"querySrv ECONNREFUSED _mongodb._tcp.cluster0.uvjmhm9.mongodb.net","level":"error","message":"Database connection error","timestamp":"2025-07-11T11:26:55.583Z"}
+{"error":"querySrv ECONNREFUSED _mongodb._tcp.cluster0.uvjmhm9.mongodb.net","level":"error","message":"Database connection error","timestamp":"2025-07-11T11:26:55.583Z"}
+{"error":"querySrv ECONNREFUSED _mongodb._tcp.cluster0.uvjmhm9.mongodb.net","level":"error","message":"Database connection error","timestamp":"2025-07-11T11:26:55.583Z"}
+{"error":"querySrv ECONNREFUSED _mongodb._tcp.cluster0.uvjmhm9.mongodb.net","level":"error","message":"Database connection error","timestamp":"2025-07-11T11:26:55.583Z"}
+{"error":"querySrv ECONNREFUSED _mongodb._tcp.cluster0.uvjmhm9.mongodb.net","level":"error","message":"Database connection error","timestamp":"2025-07-11T11:26:55.583Z"}
+{"level":"warn","message":"Database disconnected","timestamp":"2025-07-11T11:26:55.586Z"}
+{"level":"warn","message":"Database disconnected","timestamp":"2025-07-11T11:26:55.586Z"}
+{"level":"warn","message":"Database disconnected","timestamp":"2025-07-11T11:26:55.586Z"}
+{"level":"warn","message":"Database disconnected","timestamp":"2025-07-11T11:26:55.586Z"}
+{"level":"warn","message":"Database disconnected","timestamp":"2025-07-11T11:26:55.586Z"}
+{"level":"warn","message":"Database disconnected","timestamp":"2025-07-11T11:26:55.586Z"}
+{"level":"warn","message":"Database disconnected","timestamp":"2025-07-11T11:26:55.586Z"}
+{"level":"warn","message":"Database disconnected","timestamp":"2025-07-11T11:26:55.586Z"}
+{"level":"warn","message":"Database disconnected","timestamp":"2025-07-11T11:26:55.587Z"}
+{"level":"warn","message":"Database disconnected","timestamp":"2025-07-11T11:26:55.587Z"}
+{"level":"warn","message":"Database disconnected","timestamp":"2025-07-11T11:26:55.587Z"}
+{"level":"warn","message":"Database disconnected","timestamp":"2025-07-11T11:26:55.587Z"}
+{"level":"warn","message":"Database disconnected","timestamp":"2025-07-11T11:26:55.587Z"}
+{"error":"querySrv ECONNREFUSED _mongodb._tcp.cluster0.uvjmhm9.mongodb.net","level":"error","message":"Database connection error","timestamp":"2025-07-11T11:26:55.587Z"}
+{"error":"querySrv ECONNREFUSED _mongodb._tcp.cluster0.uvjmhm9.mongodb.net","level":"error","message":"Database connection error","timestamp":"2025-07-11T11:26:55.587Z"}
+{"error":"querySrv ECONNREFUSED _mongodb._tcp.cluster0.uvjmhm9.mongodb.net","level":"error","message":"Database connection error","timestamp":"2025-07-11T11:26:55.587Z"}
+{"error":"querySrv ECONNREFUSED _mongodb._tcp.cluster0.uvjmhm9.mongodb.net","level":"error","message":"Database connection error","timestamp":"2025-07-11T11:26:55.587Z"}
+{"error":"querySrv ECONNREFUSED _mongodb._tcp.cluster0.uvjmhm9.mongodb.net","level":"error","message":"Database connection error","timestamp":"2025-07-11T11:26:55.587Z"}
+{"error":"querySrv ECONNREFUSED _mongodb._tcp.cluster0.uvjmhm9.mongodb.net","level":"error","message":"Database connection error","timestamp":"2025-07-11T11:26:55.587Z"}
+{"error":"querySrv ECONNREFUSED _mongodb._tcp.cluster0.uvjmhm9.mongodb.net","level":"error","message":"Database connection error","timestamp":"2025-07-11T11:26:55.587Z"}
+{"error":"querySrv ECONNREFUSED _mongodb._tcp.cluster0.uvjmhm9.mongodb.net","level":"error","message":"Database connection error","timestamp":"2025-07-11T11:26:55.587Z"}
+{"error":"querySrv ECONNREFUSED _mongodb._tcp.cluster0.uvjmhm9.mongodb.net","level":"error","message":"Database connection error","timestamp":"2025-07-11T11:26:55.587Z"}
+{"error":"querySrv ECONNREFUSED _mongodb._tcp.cluster0.uvjmhm9.mongodb.net","level":"error","message":"Database connection error","timestamp":"2025-07-11T11:26:55.587Z"}
+{"error":"querySrv ECONNREFUSED _mongodb._tcp.cluster0.uvjmhm9.mongodb.net","level":"error","message":"Database connection error","timestamp":"2025-07-11T11:26:55.587Z"}
+{"error":"querySrv ECONNREFUSED _mongodb._tcp.cluster0.uvjmhm9.mongodb.net","level":"error","message":"Database connection error","timestamp":"2025-07-11T11:26:55.587Z"}
+{"error":"querySrv ECONNREFUSED _mongodb._tcp.cluster0.uvjmhm9.mongodb.net","level":"error","message":"Database connection error","timestamp":"2025-07-11T11:26:55.587Z"}
+{"level":"warn","message":"Database disconnected","timestamp":"2025-07-11T11:27:00.629Z"}
+{"level":"warn","message":"Database disconnected","timestamp":"2025-07-11T11:27:00.634Z"}
+{"level":"warn","message":"Database disconnected","timestamp":"2025-07-11T11:27:00.634Z"}
+{"level":"warn","message":"Database disconnected","timestamp":"2025-07-11T11:27:00.634Z"}
+{"level":"warn","message":"Database disconnected","timestamp":"2025-07-11T11:27:00.634Z"}
+{"level":"warn","message":"Database disconnected","timestamp":"2025-07-11T11:27:00.634Z"}
+{"level":"warn","message":"Database disconnected","timestamp":"2025-07-11T11:27:00.634Z"}
+{"level":"warn","message":"Database disconnected","timestamp":"2025-07-11T11:27:00.634Z"}
+{"level":"warn","message":"Database disconnected","timestamp":"2025-07-11T11:27:00.634Z"}
+{"level":"warn","message":"Database disconnected","timestamp":"2025-07-11T11:27:00.634Z"}
+{"level":"warn","message":"Database disconnected","timestamp":"2025-07-11T11:27:00.634Z"}
+{"level":"warn","message":"Database disconnected","timestamp":"2025-07-11T11:27:00.634Z"}
+{"level":"warn","message":"Database disconnected","timestamp":"2025-07-11T11:27:00.634Z"}
+{"error":"querySrv ECONNREFUSED _mongodb._tcp.cluster0.uvjmhm9.mongodb.net","level":"error","message":"Database connection error","timestamp":"2025-07-11T11:27:00.635Z"}
+{"error":"querySrv ECONNREFUSED _mongodb._tcp.cluster0.uvjmhm9.mongodb.net","level":"error","message":"Database connection error","timestamp":"2025-07-11T11:27:00.635Z"}
+{"error":"querySrv ECONNREFUSED _mongodb._tcp.cluster0.uvjmhm9.mongodb.net","level":"error","message":"Database connection error","timestamp":"2025-07-11T11:27:00.635Z"}
+{"error":"querySrv ECONNREFUSED _mongodb._tcp.cluster0.uvjmhm9.mongodb.net","level":"error","message":"Database connection error","timestamp":"2025-07-11T11:27:00.635Z"}
+{"error":"querySrv ECONNREFUSED _mongodb._tcp.cluster0.uvjmhm9.mongodb.net","level":"error","message":"Database connection error","timestamp":"2025-07-11T11:27:00.635Z"}
+{"error":"querySrv ECONNREFUSED _mongodb._tcp.cluster0.uvjmhm9.mongodb.net","level":"error","message":"Database connection error","timestamp":"2025-07-11T11:27:00.635Z"}
+{"error":"querySrv ECONNREFUSED _mongodb._tcp.cluster0.uvjmhm9.mongodb.net","level":"error","message":"Database connection error","timestamp":"2025-07-11T11:27:00.635Z"}
+{"error":"querySrv ECONNREFUSED _mongodb._tcp.cluster0.uvjmhm9.mongodb.net","level":"error","message":"Database connection error","timestamp":"2025-07-11T11:27:00.635Z"}
+{"error":"querySrv ECONNREFUSED _mongodb._tcp.cluster0.uvjmhm9.mongodb.net","level":"error","message":"Database connection error","timestamp":"2025-07-11T11:27:00.635Z"}
+{"error":"querySrv ECONNREFUSED _mongodb._tcp.cluster0.uvjmhm9.mongodb.net","level":"error","message":"Database connection error","timestamp":"2025-07-11T11:27:00.635Z"}
+{"error":"querySrv ECONNREFUSED _mongodb._tcp.cluster0.uvjmhm9.mongodb.net","level":"error","message":"Database connection error","timestamp":"2025-07-11T11:27:00.635Z"}
+{"error":"querySrv ECONNREFUSED _mongodb._tcp.cluster0.uvjmhm9.mongodb.net","level":"error","message":"Database connection error","timestamp":"2025-07-11T11:27:00.635Z"}
+{"error":"querySrv ECONNREFUSED _mongodb._tcp.cluster0.uvjmhm9.mongodb.net","level":"error","message":"Database connection error","timestamp":"2025-07-11T11:27:00.635Z"}
+{"level":"warn","message":"Database disconnected","timestamp":"2025-07-11T11:27:00.636Z"}
+{"level":"warn","message":"Database disconnected","timestamp":"2025-07-11T11:27:00.636Z"}
+{"level":"warn","message":"Database disconnected","timestamp":"2025-07-11T11:27:00.636Z"}
+{"level":"warn","message":"Database disconnected","timestamp":"2025-07-11T11:27:00.636Z"}
+{"level":"warn","message":"Database disconnected","timestamp":"2025-07-11T11:27:00.636Z"}
+{"level":"warn","message":"Database disconnected","timestamp":"2025-07-11T11:27:00.636Z"}
+{"level":"warn","message":"Database disconnected","timestamp":"2025-07-11T11:27:00.637Z"}
+{"level":"warn","message":"Database disconnected","timestamp":"2025-07-11T11:27:00.637Z"}
+{"level":"warn","message":"Database disconnected","timestamp":"2025-07-11T11:27:00.637Z"}
+{"level":"warn","message":"Database disconnected","timestamp":"2025-07-11T11:27:00.637Z"}
+{"level":"warn","message":"Database disconnected","timestamp":"2025-07-11T11:27:00.637Z"}
+{"level":"warn","message":"Database disconnected","timestamp":"2025-07-11T11:27:00.637Z"}
+{"level":"warn","message":"Database disconnected","timestamp":"2025-07-11T11:27:00.637Z"}
+{"level":"warn","message":"Database disconnected","timestamp":"2025-07-11T11:27:00.637Z"}
+{"level":"warn","message":"Database disconnected","timestamp":"2025-07-11T11:27:00.637Z"}
+{"level":"warn","message":"Database disconnected","timestamp":"2025-07-11T11:27:00.637Z"}
+{"level":"warn","message":"Database disconnected","timestamp":"2025-07-11T11:27:00.637Z"}
+{"error":"querySrv ECONNREFUSED _mongodb._tcp.cluster0.uvjmhm9.mongodb.net","level":"error","message":"Database connection error","timestamp":"2025-07-11T11:27:00.637Z"}
+{"error":"querySrv ECONNREFUSED _mongodb._tcp.cluster0.uvjmhm9.mongodb.net","level":"error","message":"Database connection error","timestamp":"2025-07-11T11:27:00.637Z"}
+{"error":"querySrv ECONNREFUSED _mongodb._tcp.cluster0.uvjmhm9.mongodb.net","level":"error","message":"Database connection error","timestamp":"2025-07-11T11:27:00.637Z"}
+{"error":"querySrv ECONNREFUSED _mongodb._tcp.cluster0.uvjmhm9.mongodb.net","level":"error","message":"Database connection error","timestamp":"2025-07-11T11:27:00.637Z"}
+{"error":"querySrv ECONNREFUSED _mongodb._tcp.cluster0.uvjmhm9.mongodb.net","level":"error","message":"Database connection error","timestamp":"2025-07-11T11:27:00.637Z"}
+{"error":"querySrv ECONNREFUSED _mongodb._tcp.cluster0.uvjmhm9.mongodb.net","level":"error","message":"Database connection error","timestamp":"2025-07-11T11:27:00.637Z"}
+{"error":"querySrv ECONNREFUSED _mongodb._tcp.cluster0.uvjmhm9.mongodb.net","level":"error","message":"Database connection error","timestamp":"2025-07-11T11:27:00.637Z"}
+{"error":"querySrv ECONNREFUSED _mongodb._tcp.cluster0.uvjmhm9.mongodb.net","level":"error","message":"Database connection error","timestamp":"2025-07-11T11:27:00.637Z"}
+{"error":"querySrv ECONNREFUSED _mongodb._tcp.cluster0.uvjmhm9.mongodb.net","level":"error","message":"Database connection error","timestamp":"2025-07-11T11:27:00.637Z"}
+{"error":"querySrv ECONNREFUSED _mongodb._tcp.cluster0.uvjmhm9.mongodb.net","level":"error","message":"Database connection error","timestamp":"2025-07-11T11:27:00.637Z"}
+{"error":"querySrv ECONNREFUSED _mongodb._tcp.cluster0.uvjmhm9.mongodb.net","level":"error","message":"Database connection error","timestamp":"2025-07-11T11:27:00.637Z"}
+{"error":"querySrv ECONNREFUSED _mongodb._tcp.cluster0.uvjmhm9.mongodb.net","level":"error","message":"Database connection error","timestamp":"2025-07-11T11:27:00.637Z"}
+{"error":"querySrv ECONNREFUSED _mongodb._tcp.cluster0.uvjmhm9.mongodb.net","level":"error","message":"Database connection error","timestamp":"2025-07-11T11:27:00.637Z"}
+{"error":"querySrv ECONNREFUSED _mongodb._tcp.cluster0.uvjmhm9.mongodb.net","level":"error","message":"Database connection error","timestamp":"2025-07-11T11:27:00.637Z"}
+{"error":"querySrv ECONNREFUSED _mongodb._tcp.cluster0.uvjmhm9.mongodb.net","level":"error","message":"Database connection error","timestamp":"2025-07-11T11:27:00.637Z"}
+{"error":"querySrv ECONNREFUSED _mongodb._tcp.cluster0.uvjmhm9.mongodb.net","level":"error","message":"Database connection error","timestamp":"2025-07-11T11:27:00.637Z"}
+{"error":"querySrv ECONNREFUSED _mongodb._tcp.cluster0.uvjmhm9.mongodb.net","level":"error","message":"Database connection error","timestamp":"2025-07-11T11:27:00.638Z"}
+{"level":"warn","message":"Database disconnected","timestamp":"2025-07-11T11:27:05.585Z"}
+{"level":"warn","message":"Database disconnected","timestamp":"2025-07-11T11:27:05.585Z"}
+{"level":"warn","message":"Database disconnected","timestamp":"2025-07-11T11:27:05.585Z"}
+{"level":"warn","message":"Database disconnected","timestamp":"2025-07-11T11:27:05.585Z"}
+{"level":"warn","message":"Database disconnected","timestamp":"2025-07-11T11:27:05.585Z"}
+{"level":"warn","message":"Database disconnected","timestamp":"2025-07-11T11:27:05.585Z"}
+{"level":"warn","message":"Database disconnected","timestamp":"2025-07-11T11:27:05.585Z"}
+{"level":"warn","message":"Database disconnected","timestamp":"2025-07-11T11:27:05.585Z"}
+{"level":"warn","message":"Database disconnected","timestamp":"2025-07-11T11:27:05.585Z"}
+{"level":"warn","message":"Database disconnected","timestamp":"2025-07-11T11:27:05.585Z"}
+{"level":"warn","message":"Database disconnected","timestamp":"2025-07-11T11:27:05.585Z"}
+{"level":"warn","message":"Database disconnected","timestamp":"2025-07-11T11:27:05.585Z"}
+{"level":"warn","message":"Database disconnected","timestamp":"2025-07-11T11:27:05.585Z"}
+{"level":"warn","message":"Database disconnected","timestamp":"2025-07-11T11:27:05.585Z"}
+{"level":"warn","message":"Database disconnected","timestamp":"2025-07-11T11:27:05.585Z"}
+{"level":"warn","message":"Database disconnected","timestamp":"2025-07-11T11:27:05.586Z"}
+{"level":"warn","message":"Database disconnected","timestamp":"2025-07-11T11:27:05.586Z"}
+{"error":"querySrv ECONNREFUSED _mongodb._tcp.cluster0.uvjmhm9.mongodb.net","level":"error","message":"Database connection error","timestamp":"2025-07-11T11:27:05.586Z"}
+{"error":"querySrv ECONNREFUSED _mongodb._tcp.cluster0.uvjmhm9.mongodb.net","level":"error","message":"Database connection error","timestamp":"2025-07-11T11:27:05.586Z"}
+{"error":"querySrv ECONNREFUSED _mongodb._tcp.cluster0.uvjmhm9.mongodb.net","level":"error","message":"Database connection error","timestamp":"2025-07-11T11:27:05.586Z"}
+{"error":"querySrv ECONNREFUSED _mongodb._tcp.cluster0.uvjmhm9.mongodb.net","level":"error","message":"Database connection error","timestamp":"2025-07-11T11:27:05.586Z"}
+{"error":"querySrv ECONNREFUSED _mongodb._tcp.cluster0.uvjmhm9.mongodb.net","level":"error","message":"Database connection error","timestamp":"2025-07-11T11:27:05.586Z"}
+{"error":"querySrv ECONNREFUSED _mongodb._tcp.cluster0.uvjmhm9.mongodb.net","level":"error","message":"Database connection error","timestamp":"2025-07-11T11:27:05.586Z"}
+{"error":"querySrv ECONNREFUSED _mongodb._tcp.cluster0.uvjmhm9.mongodb.net","level":"error","message":"Database connection error","timestamp":"2025-07-11T11:27:05.586Z"}
+{"error":"querySrv ECONNREFUSED _mongodb._tcp.cluster0.uvjmhm9.mongodb.net","level":"error","message":"Database connection error","timestamp":"2025-07-11T11:27:05.586Z"}
+{"error":"querySrv ECONNREFUSED _mongodb._tcp.cluster0.uvjmhm9.mongodb.net","level":"error","message":"Database connection error","timestamp":"2025-07-11T11:27:05.586Z"}
+{"error":"querySrv ECONNREFUSED _mongodb._tcp.cluster0.uvjmhm9.mongodb.net","level":"error","message":"Database connection error","timestamp":"2025-07-11T11:27:05.586Z"}
+{"error":"querySrv ECONNREFUSED _mongodb._tcp.cluster0.uvjmhm9.mongodb.net","level":"error","message":"Database connection error","timestamp":"2025-07-11T11:27:05.586Z"}
+{"error":"querySrv ECONNREFUSED _mongodb._tcp.cluster0.uvjmhm9.mongodb.net","level":"error","message":"Database connection error","timestamp":"2025-07-11T11:27:05.586Z"}
+{"error":"querySrv ECONNREFUSED _mongodb._tcp.cluster0.uvjmhm9.mongodb.net","level":"error","message":"Database connection error","timestamp":"2025-07-11T11:27:05.586Z"}
+{"error":"querySrv ECONNREFUSED _mongodb._tcp.cluster0.uvjmhm9.mongodb.net","level":"error","message":"Database connection error","timestamp":"2025-07-11T11:27:05.586Z"}
+{"error":"querySrv ECONNREFUSED _mongodb._tcp.cluster0.uvjmhm9.mongodb.net","level":"error","message":"Database connection error","timestamp":"2025-07-11T11:27:05.586Z"}
+{"error":"querySrv ECONNREFUSED _mongodb._tcp.cluster0.uvjmhm9.mongodb.net","level":"error","message":"Database connection error","timestamp":"2025-07-11T11:27:05.586Z"}
+{"error":"querySrv ECONNREFUSED _mongodb._tcp.cluster0.uvjmhm9.mongodb.net","level":"error","message":"Database connection error","timestamp":"2025-07-11T11:27:05.586Z"}
+{"level":"warn","message":"Database disconnected","timestamp":"2025-07-11T11:27:05.589Z"}
+{"level":"warn","message":"Database disconnected","timestamp":"2025-07-11T11:27:05.589Z"}
+{"level":"warn","message":"Database disconnected","timestamp":"2025-07-11T11:27:05.589Z"}
+{"level":"warn","message":"Database disconnected","timestamp":"2025-07-11T11:27:05.589Z"}
+{"level":"warn","message":"Database disconnected","timestamp":"2025-07-11T11:27:05.589Z"}
+{"level":"warn","message":"Database disconnected","timestamp":"2025-07-11T11:27:05.589Z"}
+{"level":"warn","message":"Database disconnected","timestamp":"2025-07-11T11:27:05.589Z"}
+{"level":"warn","message":"Database disconnected","timestamp":"2025-07-11T11:27:05.589Z"}
+{"level":"warn","message":"Database disconnected","timestamp":"2025-07-11T11:27:05.589Z"}
+{"level":"warn","message":"Database disconnected","timestamp":"2025-07-11T11:27:05.589Z"}
+{"level":"warn","message":"Database disconnected","timestamp":"2025-07-11T11:27:05.589Z"}
+{"level":"warn","message":"Database disconnected","timestamp":"2025-07-11T11:27:05.589Z"}
+{"level":"warn","message":"Database disconnected","timestamp":"2025-07-11T11:27:05.589Z"}
+{"level":"warn","message":"Database disconnected","timestamp":"2025-07-11T11:27:05.589Z"}
+{"level":"warn","message":"Database disconnected","timestamp":"2025-07-11T11:27:05.589Z"}
+{"level":"warn","message":"Database disconnected","timestamp":"2025-07-11T11:27:05.589Z"}
+{"level":"warn","message":"Database disconnected","timestamp":"2025-07-11T11:27:05.589Z"}
+{"error":"querySrv ECONNREFUSED _mongodb._tcp.cluster0.uvjmhm9.mongodb.net","level":"error","message":"Database connection error","timestamp":"2025-07-11T11:27:05.589Z"}
+{"error":"querySrv ECONNREFUSED _mongodb._tcp.cluster0.uvjmhm9.mongodb.net","level":"error","message":"Database connection error","timestamp":"2025-07-11T11:27:05.593Z"}
+{"error":"querySrv ECONNREFUSED _mongodb._tcp.cluster0.uvjmhm9.mongodb.net","level":"error","message":"Database connection error","timestamp":"2025-07-11T11:27:05.593Z"}
+{"error":"querySrv ECONNREFUSED _mongodb._tcp.cluster0.uvjmhm9.mongodb.net","level":"error","message":"Database connection error","timestamp":"2025-07-11T11:27:05.593Z"}
+{"error":"querySrv ECONNREFUSED _mongodb._tcp.cluster0.uvjmhm9.mongodb.net","level":"error","message":"Database connection error","timestamp":"2025-07-11T11:27:05.593Z"}
+{"error":"querySrv ECONNREFUSED _mongodb._tcp.cluster0.uvjmhm9.mongodb.net","level":"error","message":"Database connection error","timestamp":"2025-07-11T11:27:05.593Z"}
+{"error":"querySrv ECONNREFUSED _mongodb._tcp.cluster0.uvjmhm9.mongodb.net","level":"error","message":"Database connection error","timestamp":"2025-07-11T11:27:05.593Z"}
+{"error":"querySrv ECONNREFUSED _mongodb._tcp.cluster0.uvjmhm9.mongodb.net","level":"error","message":"Database connection error","timestamp":"2025-07-11T11:27:05.593Z"}
+{"error":"querySrv ECONNREFUSED _mongodb._tcp.cluster0.uvjmhm9.mongodb.net","level":"error","message":"Database connection error","timestamp":"2025-07-11T11:27:05.593Z"}
+{"error":"querySrv ECONNREFUSED _mongodb._tcp.cluster0.uvjmhm9.mongodb.net","level":"error","message":"Database connection error","timestamp":"2025-07-11T11:27:05.593Z"}
+{"error":"querySrv ECONNREFUSED _mongodb._tcp.cluster0.uvjmhm9.mongodb.net","level":"error","message":"Database connection error","timestamp":"2025-07-11T11:27:05.593Z"}
+{"error":"querySrv ECONNREFUSED _mongodb._tcp.cluster0.uvjmhm9.mongodb.net","level":"error","message":"Database connection error","timestamp":"2025-07-11T11:27:05.593Z"}
+{"error":"querySrv ECONNREFUSED _mongodb._tcp.cluster0.uvjmhm9.mongodb.net","level":"error","message":"Database connection error","timestamp":"2025-07-11T11:27:05.593Z"}
+{"error":"querySrv ECONNREFUSED _mongodb._tcp.cluster0.uvjmhm9.mongodb.net","level":"error","message":"Database connection error","timestamp":"2025-07-11T11:27:05.593Z"}
+{"error":"querySrv ECONNREFUSED _mongodb._tcp.cluster0.uvjmhm9.mongodb.net","level":"error","message":"Database connection error","timestamp":"2025-07-11T11:27:05.593Z"}
+{"error":"querySrv ECONNREFUSED _mongodb._tcp.cluster0.uvjmhm9.mongodb.net","level":"error","message":"Database connection error","timestamp":"2025-07-11T11:27:05.593Z"}
+{"error":"querySrv ECONNREFUSED _mongodb._tcp.cluster0.uvjmhm9.mongodb.net","level":"error","message":"Database connection error","timestamp":"2025-07-11T11:27:05.593Z"}
+{"level":"warn","message":"Database disconnected","timestamp":"2025-07-11T11:27:05.637Z"}
+{"level":"warn","message":"Database disconnected","timestamp":"2025-07-11T11:27:05.637Z"}
+{"level":"warn","message":"Database disconnected","timestamp":"2025-07-11T11:27:05.637Z"}
+{"level":"warn","message":"Database disconnected","timestamp":"2025-07-11T11:27:05.637Z"}
+{"level":"warn","message":"Database disconnected","timestamp":"2025-07-11T11:27:05.637Z"}
+{"level":"warn","message":"Database disconnected","timestamp":"2025-07-11T11:27:05.637Z"}
+{"level":"warn","message":"Database disconnected","timestamp":"2025-07-11T11:27:05.637Z"}
+{"level":"warn","message":"Database disconnected","timestamp":"2025-07-11T11:27:05.637Z"}
+{"level":"warn","message":"Database disconnected","timestamp":"2025-07-11T11:27:05.637Z"}
+{"level":"warn","message":"Database disconnected","timestamp":"2025-07-11T11:27:05.637Z"}
+{"level":"warn","message":"Database disconnected","timestamp":"2025-07-11T11:27:05.637Z"}
+{"level":"warn","message":"Database disconnected","timestamp":"2025-07-11T11:27:05.637Z"}
+{"level":"warn","message":"Database disconnected","timestamp":"2025-07-11T11:27:05.637Z"}
+{"level":"warn","message":"Database disconnected","timestamp":"2025-07-11T11:27:05.637Z"}
+{"level":"warn","message":"Database disconnected","timestamp":"2025-07-11T11:27:05.637Z"}
+{"level":"warn","message":"Database disconnected","timestamp":"2025-07-11T11:27:05.637Z"}
+{"level":"warn","message":"Database disconnected","timestamp":"2025-07-11T11:27:05.637Z"}
+{"error":"querySrv ECONNREFUSED _mongodb._tcp.cluster0.uvjmhm9.mongodb.net","level":"error","message":"Database connection error","timestamp":"2025-07-11T11:27:05.637Z"}
+{"error":"querySrv ECONNREFUSED _mongodb._tcp.cluster0.uvjmhm9.mongodb.net","level":"error","message":"Database connection error","timestamp":"2025-07-11T11:27:05.637Z"}
+{"error":"querySrv ECONNREFUSED _mongodb._tcp.cluster0.uvjmhm9.mongodb.net","level":"error","message":"Database connection error","timestamp":"2025-07-11T11:27:05.637Z"}
+{"error":"querySrv ECONNREFUSED _mongodb._tcp.cluster0.uvjmhm9.mongodb.net","level":"error","message":"Database connection error","timestamp":"2025-07-11T11:27:05.637Z"}
+{"error":"querySrv ECONNREFUSED _mongodb._tcp.cluster0.uvjmhm9.mongodb.net","level":"error","message":"Database connection error","timestamp":"2025-07-11T11:27:05.637Z"}
+{"error":"querySrv ECONNREFUSED _mongodb._tcp.cluster0.uvjmhm9.mongodb.net","level":"error","message":"Database connection error","timestamp":"2025-07-11T11:27:05.637Z"}
+{"error":"querySrv ECONNREFUSED _mongodb._tcp.cluster0.uvjmhm9.mongodb.net","level":"error","message":"Database connection error","timestamp":"2025-07-11T11:27:05.638Z"}
+{"error":"querySrv ECONNREFUSED _mongodb._tcp.cluster0.uvjmhm9.mongodb.net","level":"error","message":"Database connection error","timestamp":"2025-07-11T11:27:05.638Z"}
+{"error":"querySrv ECONNREFUSED _mongodb._tcp.cluster0.uvjmhm9.mongodb.net","level":"error","message":"Database connection error","timestamp":"2025-07-11T11:27:05.638Z"}
+{"error":"querySrv ECONNREFUSED _mongodb._tcp.cluster0.uvjmhm9.mongodb.net","level":"error","message":"Database connection error","timestamp":"2025-07-11T11:27:05.638Z"}
+{"error":"querySrv ECONNREFUSED _mongodb._tcp.cluster0.uvjmhm9.mongodb.net","level":"error","message":"Database connection error","timestamp":"2025-07-11T11:27:05.638Z"}
+{"error":"querySrv ECONNREFUSED _mongodb._tcp.cluster0.uvjmhm9.mongodb.net","level":"error","message":"Database connection error","timestamp":"2025-07-11T11:27:05.638Z"}
+{"error":"querySrv ECONNREFUSED _mongodb._tcp.cluster0.uvjmhm9.mongodb.net","level":"error","message":"Database connection error","timestamp":"2025-07-11T11:27:05.638Z"}
+{"error":"querySrv ECONNREFUSED _mongodb._tcp.cluster0.uvjmhm9.mongodb.net","level":"error","message":"Database connection error","timestamp":"2025-07-11T11:27:05.638Z"}
+{"error":"querySrv ECONNREFUSED _mongodb._tcp.cluster0.uvjmhm9.mongodb.net","level":"error","message":"Database connection error","timestamp":"2025-07-11T11:27:05.638Z"}
+{"error":"querySrv ECONNREFUSED _mongodb._tcp.cluster0.uvjmhm9.mongodb.net","level":"error","message":"Database connection error","timestamp":"2025-07-11T11:27:05.638Z"}
+{"error":"querySrv ECONNREFUSED _mongodb._tcp.cluster0.uvjmhm9.mongodb.net","level":"error","message":"Database connection error","timestamp":"2025-07-11T11:27:05.638Z"}
+{"level":"warn","message":"Database disconnected","timestamp":"2025-07-11T11:27:05.638Z"}
+{"level":"warn","message":"Database disconnected","timestamp":"2025-07-11T11:27:05.638Z"}
+{"level":"warn","message":"Database disconnected","timestamp":"2025-07-11T11:27:05.638Z"}
+{"level":"warn","message":"Database disconnected","timestamp":"2025-07-11T11:27:05.638Z"}
+{"level":"warn","message":"Database disconnected","timestamp":"2025-07-11T11:27:05.638Z"}
+{"level":"warn","message":"Database disconnected","timestamp":"2025-07-11T11:27:05.638Z"}
+{"level":"warn","message":"Database disconnected","timestamp":"2025-07-11T11:27:05.638Z"}
+{"level":"warn","message":"Database disconnected","timestamp":"2025-07-11T11:27:05.638Z"}
+{"level":"warn","message":"Database disconnected","timestamp":"2025-07-11T11:27:05.638Z"}
+{"level":"warn","message":"Database disconnected","timestamp":"2025-07-11T11:27:05.639Z"}
+{"level":"warn","message":"Database disconnected","timestamp":"2025-07-11T11:27:05.639Z"}
+{"level":"warn","message":"Database disconnected","timestamp":"2025-07-11T11:27:05.639Z"}
+{"level":"warn","message":"Database disconnected","timestamp":"2025-07-11T11:27:05.639Z"}
+{"level":"warn","message":"Database disconnected","timestamp":"2025-07-11T11:27:05.639Z"}
+{"level":"warn","message":"Database disconnected","timestamp":"2025-07-11T11:27:05.639Z"}
+{"level":"warn","message":"Database disconnected","timestamp":"2025-07-11T11:27:05.639Z"}
+{"level":"warn","message":"Database disconnected","timestamp":"2025-07-11T11:27:05.639Z"}
+{"error":"querySrv ECONNREFUSED _mongodb._tcp.cluster0.uvjmhm9.mongodb.net","level":"error","message":"Database connection error","timestamp":"2025-07-11T11:27:05.639Z"}
+{"error":"querySrv ECONNREFUSED _mongodb._tcp.cluster0.uvjmhm9.mongodb.net","level":"error","message":"Database connection error","timestamp":"2025-07-11T11:27:05.639Z"}
+{"error":"querySrv ECONNREFUSED _mongodb._tcp.cluster0.uvjmhm9.mongodb.net","level":"error","message":"Database connection error","timestamp":"2025-07-11T11:27:05.639Z"}
+{"error":"querySrv ECONNREFUSED _mongodb._tcp.cluster0.uvjmhm9.mongodb.net","level":"error","message":"Database connection error","timestamp":"2025-07-11T11:27:05.639Z"}
+{"error":"querySrv ECONNREFUSED _mongodb._tcp.cluster0.uvjmhm9.mongodb.net","level":"error","message":"Database connection error","timestamp":"2025-07-11T11:27:05.639Z"}
+{"error":"querySrv ECONNREFUSED _mongodb._tcp.cluster0.uvjmhm9.mongodb.net","level":"error","message":"Database connection error","timestamp":"2025-07-11T11:27:05.639Z"}
+{"error":"querySrv ECONNREFUSED _mongodb._tcp.cluster0.uvjmhm9.mongodb.net","level":"error","message":"Database connection error","timestamp":"2025-07-11T11:27:05.639Z"}
+{"error":"querySrv ECONNREFUSED _mongodb._tcp.cluster0.uvjmhm9.mongodb.net","level":"error","message":"Database connection error","timestamp":"2025-07-11T11:27:05.639Z"}
+{"error":"querySrv ECONNREFUSED _mongodb._tcp.cluster0.uvjmhm9.mongodb.net","level":"error","message":"Database connection error","timestamp":"2025-07-11T11:27:05.639Z"}
+{"error":"querySrv ECONNREFUSED _mongodb._tcp.cluster0.uvjmhm9.mongodb.net","level":"error","message":"Database connection error","timestamp":"2025-07-11T11:27:05.639Z"}
+{"error":"querySrv ECONNREFUSED _mongodb._tcp.cluster0.uvjmhm9.mongodb.net","level":"error","message":"Database connection error","timestamp":"2025-07-11T11:27:05.639Z"}
+{"error":"querySrv ECONNREFUSED _mongodb._tcp.cluster0.uvjmhm9.mongodb.net","level":"error","message":"Database connection error","timestamp":"2025-07-11T11:27:05.639Z"}
+{"error":"querySrv ECONNREFUSED _mongodb._tcp.cluster0.uvjmhm9.mongodb.net","level":"error","message":"Database connection error","timestamp":"2025-07-11T11:27:05.639Z"}
+{"error":"querySrv ECONNREFUSED _mongodb._tcp.cluster0.uvjmhm9.mongodb.net","level":"error","message":"Database connection error","timestamp":"2025-07-11T11:27:05.639Z"}
+{"error":"querySrv ECONNREFUSED _mongodb._tcp.cluster0.uvjmhm9.mongodb.net","level":"error","message":"Database connection error","timestamp":"2025-07-11T11:27:05.639Z"}
+{"error":"querySrv ECONNREFUSED _mongodb._tcp.cluster0.uvjmhm9.mongodb.net","level":"error","message":"Database connection error","timestamp":"2025-07-11T11:27:05.639Z"}
+{"error":"querySrv ECONNREFUSED _mongodb._tcp.cluster0.uvjmhm9.mongodb.net","level":"error","message":"Database connection error","timestamp":"2025-07-11T11:27:05.639Z"}
+{"level":"info","message":"Database connected successfully","timestamp":"2025-07-11T11:27:16.500Z"}
+{"level":"info","message":"Database connected successfully","timestamp":"2025-07-11T11:27:16.501Z"}
+{"level":"info","message":"Database connected successfully","timestamp":"2025-07-11T11:27:16.501Z"}
+{"level":"info","message":"Database connected successfully","timestamp":"2025-07-11T11:27:16.501Z"}
+{"level":"info","message":"Database connected successfully","timestamp":"2025-07-11T11:27:16.501Z"}
+{"level":"info","message":"Database connected successfully","timestamp":"2025-07-11T11:27:16.501Z"}
+{"level":"info","message":"Database connected successfully","timestamp":"2025-07-11T11:27:16.501Z"}
+{"level":"info","message":"Database connected successfully","timestamp":"2025-07-11T11:27:16.501Z"}
+{"level":"info","message":"Database connected successfully","timestamp":"2025-07-11T11:27:16.501Z"}
+{"level":"info","message":"Database connected successfully","timestamp":"2025-07-11T11:27:16.501Z"}
+{"level":"info","message":"Database connected successfully","timestamp":"2025-07-11T11:27:16.501Z"}
+{"level":"info","message":"Database connected successfully","timestamp":"2025-07-11T11:27:16.501Z"}
+{"level":"info","message":"Database connected successfully","timestamp":"2025-07-11T11:27:16.501Z"}
+{"level":"info","message":"Database connected successfully","timestamp":"2025-07-11T11:27:16.501Z"}
+{"level":"info","message":"Database connected successfully","timestamp":"2025-07-11T11:27:16.501Z"}
+{"level":"info","message":"Database connected successfully","timestamp":"2025-07-11T11:27:16.501Z"}
+{"level":"info","message":"Database connected successfully","timestamp":"2025-07-11T11:27:16.501Z"}
+{"level":"info","message":"Database connected successfully","timestamp":"2025-07-11T11:27:16.501Z"}
+{"level":"info","message":"Database connected successfully","timestamp":"2025-07-11T11:27:16.501Z"}
+{"level":"info","message":"Database connected successfully","timestamp":"2025-07-11T11:27:16.501Z"}
+{"level":"info","message":"Database connected successfully","timestamp":"2025-07-11T11:27:16.501Z"}
+{"level":"info","message":"Database connected successfully","timestamp":"2025-07-11T11:27:16.501Z"}
+{"level":"info","message":"Database connected successfully","timestamp":"2025-07-11T11:27:16.501Z"}
+{"environment":"development","level":"info","memoryUsage":{"arrayBuffers":19086608,"external":22641882,"heapTotal":123797504,"heapUsed":73026248,"rss":182452224},"message":"Server started successfully","port":5001,"processId":93161,"timestamp":"2025-07-11T11:30:56.537Z"}
+{"environment":"development","level":"info","memoryUsage":{"arrayBuffers":19086608,"external":22641882,"heapTotal":122748928,"heapUsed":72966264,"rss":195428352},"message":"Server started successfully","port":5001,"processId":93221,"timestamp":"2025-07-11T11:30:59.945Z"}
+{"level":"info","message":"Enhanced startup information displayed","timestamp":"2025-07-11T11:31:02.453Z"}
+{"error":"setUserAsAdmin is not a function","level":"error","message":"Admin setup failed","timestamp":"2025-07-11T11:31:02.944Z"}
+{"level":"info","message":"Background job registered: verifyProcessingWithdrawals","timestamp":"2025-07-11T11:31:02.947Z"}
+{"level":"info","message":"Background job registered: verifyPendingWithdrawals","timestamp":"2025-07-11T11:31:02.947Z"}
+{"level":"info","message":"Withdrawal verification jobs started","timestamp":"2025-07-11T11:31:02.948Z"}
+{"level":"info","message":"✅ Started job: verifyProcessingWithdrawals","timestamp":"2025-07-11T11:31:02.948Z"}
+{"level":"info","message":"✅ Started job: verifyPendingWithdrawals","timestamp":"2025-07-11T11:31:02.948Z"}
+{"level":"info","message":"Application startup completed successfully","timestamp":"2025-07-11T11:31:02.948Z"}
+{"environment":"development","level":"info","memoryUsage":{"arrayBuffers":19100343,"external":22664129,"heapTotal":124583936,"heapUsed":72637760,"rss":167788544},"message":"Server started successfully","port":5001,"processId":93621,"timestamp":"2025-07-11T11:49:56.667Z"}
+{"error":"setUserAsAdmin is not a function","level":"error","message":"Admin setup failed","timestamp":"2025-07-11T11:49:59.667Z"}
+{"level":"info","message":"Background job registered: verifyProcessingWithdrawals","timestamp":"2025-07-11T11:49:59.671Z"}
+{"level":"info","message":"Background job registered: verifyPendingWithdrawals","timestamp":"2025-07-11T11:49:59.671Z"}
+{"level":"info","message":"Withdrawal verification jobs started","timestamp":"2025-07-11T11:49:59.671Z"}
+{"level":"info","message":"✅ Started job: verifyProcessingWithdrawals","timestamp":"2025-07-11T11:49:59.671Z"}
+{"level":"info","message":"✅ Started job: verifyPendingWithdrawals","timestamp":"2025-07-11T11:49:59.671Z"}
+{"level":"info","message":"Application startup completed successfully","timestamp":"2025-07-11T11:49:59.671Z"}
+{"environment":"development","level":"info","memoryUsage":{"arrayBuffers":19100343,"external":22664129,"heapTotal":125353984,"heapUsed":72699392,"rss":169000960},"message":"Server started successfully","port":5001,"processId":93721,"timestamp":"2025-07-11T11:52:20.503Z"}
+{"error":"setUserAsAdmin is not a function","level":"error","message":"Admin setup failed","timestamp":"2025-07-11T11:52:23.504Z"}
+{"level":"info","message":"Background job registered: verifyProcessingWithdrawals","timestamp":"2025-07-11T11:52:23.509Z"}
+{"level":"info","message":"Background job registered: verifyPendingWithdrawals","timestamp":"2025-07-11T11:52:23.509Z"}
+{"level":"info","message":"Withdrawal verification jobs started","timestamp":"2025-07-11T11:52:23.509Z"}
+{"level":"info","message":"✅ Started job: verifyProcessingWithdrawals","timestamp":"2025-07-11T11:52:23.510Z"}
+{"level":"info","message":"✅ Started job: verifyPendingWithdrawals","timestamp":"2025-07-11T11:52:23.510Z"}
+{"level":"info","message":"Application startup completed successfully","timestamp":"2025-07-11T11:52:23.510Z"}
+{"environment":"development","level":"info","memoryUsage":{"arrayBuffers":19097351,"external":22656881,"heapTotal":124043264,"heapUsed":73020312,"rss":175489024},"message":"Server started successfully","port":5001,"processId":93798,"timestamp":"2025-07-11T11:53:40.760Z"}
+{"level":"info","message":"Enhanced startup information displayed","timestamp":"2025-07-11T11:53:41.121Z"}
+{"error":"setUserAsAdmin is not a function","level":"error","message":"Admin setup failed","timestamp":"2025-07-11T11:53:43.759Z"}
+{"level":"info","message":"Background job registered: verifyProcessingWithdrawals","timestamp":"2025-07-11T11:53:43.762Z"}
+{"level":"info","message":"Background job registered: verifyPendingWithdrawals","timestamp":"2025-07-11T11:53:43.763Z"}
+{"level":"info","message":"Withdrawal verification jobs started","timestamp":"2025-07-11T11:53:43.763Z"}
+{"level":"info","message":"✅ Started job: verifyProcessingWithdrawals","timestamp":"2025-07-11T11:53:43.763Z"}
+{"level":"info","message":"✅ Started job: verifyPendingWithdrawals","timestamp":"2025-07-11T11:53:43.763Z"}
+{"level":"info","message":"Application startup completed successfully","timestamp":"2025-07-11T11:53:43.763Z"}
+{"environment":"development","level":"info","memoryUsage":{"arrayBuffers":19100343,"external":22664129,"heapTotal":125091840,"heapUsed":72716360,"rss":185942016},"message":"Server started successfully","port":5001,"processId":93871,"timestamp":"2025-07-11T11:54:12.679Z"}
+{"level":"info","message":"Enhanced startup information displayed","timestamp":"2025-07-11T11:54:14.998Z"}
+{"error":"setUserAsAdmin is not a function","level":"error","message":"Admin setup failed","timestamp":"2025-07-11T11:54:15.680Z"}
+{"level":"info","message":"Background job registered: verifyProcessingWithdrawals","timestamp":"2025-07-11T11:54:15.707Z"}
+{"level":"info","message":"Background job registered: verifyPendingWithdrawals","timestamp":"2025-07-11T11:54:15.707Z"}
+{"level":"info","message":"Withdrawal verification jobs started","timestamp":"2025-07-11T11:54:15.708Z"}
+{"level":"info","message":"✅ Started job: verifyProcessingWithdrawals","timestamp":"2025-07-11T11:54:15.708Z"}
+{"level":"info","message":"✅ Started job: verifyPendingWithdrawals","timestamp":"2025-07-11T11:54:15.708Z"}
+{"level":"info","message":"Application startup completed successfully","timestamp":"2025-07-11T11:54:15.708Z"}
+{"environment":"development","level":"info","memoryUsage":{"arrayBuffers":19097351,"external":22656881,"heapTotal":124043264,"heapUsed":72505768,"rss":198230016},"message":"Server started successfully","port":5001,"processId":93944,"timestamp":"2025-07-11T11:54:42.624Z"}
+{"level":"info","message":"Enhanced startup information displayed","timestamp":"2025-07-11T11:54:44.569Z"}
+{"error":"setUserAsAdmin is not a function","level":"error","message":"Admin setup failed","timestamp":"2025-07-11T11:54:45.623Z"}
+{"level":"info","message":"Background job registered: verifyProcessingWithdrawals","timestamp":"2025-07-11T11:54:45.626Z"}
+{"level":"info","message":"Background job registered: verifyPendingWithdrawals","timestamp":"2025-07-11T11:54:45.626Z"}
+{"level":"info","message":"Withdrawal verification jobs started","timestamp":"2025-07-11T11:54:45.626Z"}
+{"level":"info","message":"✅ Started job: verifyProcessingWithdrawals","timestamp":"2025-07-11T11:54:45.626Z"}
+{"level":"info","message":"✅ Started job: verifyPendingWithdrawals","timestamp":"2025-07-11T11:54:45.626Z"}
+{"level":"info","message":"Application startup completed successfully","timestamp":"2025-07-11T11:54:45.626Z"}
+{"environment":"development","level":"info","memoryUsage":{"arrayBuffers":19100343,"external":22664129,"heapTotal":124043264,"heapUsed":73092552,"rss":156270592},"message":"Server started successfully","port":5001,"processId":94058,"timestamp":"2025-07-11T11:55:21.811Z"}
+{"level":"info","message":"Enhanced startup information displayed","timestamp":"2025-07-11T11:55:23.840Z"}
+{"error":"setUserAsAdmin is not a function","level":"error","message":"Admin setup failed","timestamp":"2025-07-11T11:55:24.810Z"}
+{"level":"info","message":"Background job registered: verifyProcessingWithdrawals","timestamp":"2025-07-11T11:55:24.815Z"}
+{"level":"info","message":"Background job registered: verifyPendingWithdrawals","timestamp":"2025-07-11T11:55:24.815Z"}
+{"level":"info","message":"Withdrawal verification jobs started","timestamp":"2025-07-11T11:55:24.815Z"}
+{"level":"info","message":"✅ Started job: verifyProcessingWithdrawals","timestamp":"2025-07-11T11:55:24.815Z"}
+{"level":"info","message":"✅ Started job: verifyPendingWithdrawals","timestamp":"2025-07-11T11:55:24.816Z"}
+{"level":"info","message":"Application startup completed successfully","timestamp":"2025-07-11T11:55:24.816Z"}
+{"environment":"development","level":"info","memoryUsage":{"arrayBuffers":19100343,"external":22664129,"heapTotal":125091840,"heapUsed":72985256,"rss":200556544},"message":"Server started successfully","port":5001,"processId":94126,"timestamp":"2025-07-11T11:56:14.636Z"}
+{"level":"info","message":"Enhanced startup information displayed","timestamp":"2025-07-11T11:56:17.048Z"}
+{"error":"setUserAsAdmin is not a function","level":"error","message":"Admin setup failed","timestamp":"2025-07-11T11:56:17.635Z"}
+{"level":"info","message":"Background job registered: verifyProcessingWithdrawals","timestamp":"2025-07-11T11:56:17.639Z"}
+{"level":"info","message":"Background job registered: verifyPendingWithdrawals","timestamp":"2025-07-11T11:56:17.639Z"}
+{"level":"info","message":"Withdrawal verification jobs started","timestamp":"2025-07-11T11:56:17.639Z"}
+{"level":"info","message":"✅ Started job: verifyProcessingWithdrawals","timestamp":"2025-07-11T11:56:17.639Z"}
+{"level":"info","message":"✅ Started job: verifyPendingWithdrawals","timestamp":"2025-07-11T11:56:17.639Z"}
+{"level":"info","message":"Application startup completed successfully","timestamp":"2025-07-11T11:56:17.640Z"}
+{"environment":"development","level":"info","memoryUsage":{"arrayBuffers":19089281,"external":22653067,"heapTotal":207929344,"heapUsed":76607112,"rss":171589632},"message":"Server started successfully","port":5001,"processId":94198,"timestamp":"2025-07-11T11:57:21.184Z"}
+{"error":"setUserAsAdmin is not a function","level":"error","message":"Admin setup failed","timestamp":"2025-07-11T11:57:24.183Z"}
+{"level":"info","message":"Background job registered: verifyProcessingWithdrawals","timestamp":"2025-07-11T11:57:24.190Z"}
+{"level":"info","message":"Background job registered: verifyPendingWithdrawals","timestamp":"2025-07-11T11:57:24.190Z"}
+{"level":"info","message":"Withdrawal verification jobs started","timestamp":"2025-07-11T11:57:24.191Z"}
+{"level":"info","message":"✅ Started job: verifyProcessingWithdrawals","timestamp":"2025-07-11T11:57:24.191Z"}
+{"level":"info","message":"✅ Started job: verifyPendingWithdrawals","timestamp":"2025-07-11T11:57:24.191Z"}
+{"level":"info","message":"Application startup completed successfully","timestamp":"2025-07-11T11:57:24.191Z"}
+{"environment":"development","level":"info","memoryUsage":{"arrayBuffers":19100343,"external":22664129,"heapTotal":123273216,"heapUsed":72487520,"rss":182353920},"message":"Server started successfully","port":5001,"processId":94267,"timestamp":"2025-07-11T11:57:50.194Z"}
+{"level":"info","message":"Enhanced startup information displayed","timestamp":"2025-07-11T11:57:52.035Z"}
+{"error":"setUserAsAdmin is not a function","level":"error","message":"Admin setup failed","timestamp":"2025-07-11T11:57:53.194Z"}
+{"level":"info","message":"Background job registered: verifyProcessingWithdrawals","timestamp":"2025-07-11T11:57:53.198Z"}
+{"level":"info","message":"Background job registered: verifyPendingWithdrawals","timestamp":"2025-07-11T11:57:53.199Z"}
+{"level":"info","message":"Withdrawal verification jobs started","timestamp":"2025-07-11T11:57:53.199Z"}
+{"level":"info","message":"✅ Started job: verifyProcessingWithdrawals","timestamp":"2025-07-11T11:57:53.199Z"}
+{"level":"info","message":"✅ Started job: verifyPendingWithdrawals","timestamp":"2025-07-11T11:57:53.200Z"}
+{"level":"info","message":"Application startup completed successfully","timestamp":"2025-07-11T11:57:53.200Z"}
+{"environment":"development","level":"info","memoryUsage":{"arrayBuffers":19100238,"external":22664024,"heapTotal":122224640,"heapUsed":73221040,"rss":199426048},"message":"Server started successfully","port":5001,"processId":94326,"timestamp":"2025-07-11T11:57:59.772Z"}
+{"level":"info","message":"Enhanced startup information displayed","timestamp":"2025-07-11T11:58:02.212Z"}
+{"error":"setUserAsAdmin is not a function","level":"error","message":"Admin setup failed","timestamp":"2025-07-11T11:58:02.772Z"}
+{"level":"info","message":"Background job registered: verifyProcessingWithdrawals","timestamp":"2025-07-11T11:58:02.776Z"}
+{"level":"info","message":"Background job registered: verifyPendingWithdrawals","timestamp":"2025-07-11T11:58:02.776Z"}
+{"level":"info","message":"Withdrawal verification jobs started","timestamp":"2025-07-11T11:58:02.776Z"}
+{"level":"info","message":"✅ Started job: verifyProcessingWithdrawals","timestamp":"2025-07-11T11:58:02.776Z"}
+{"level":"info","message":"✅ Started job: verifyPendingWithdrawals","timestamp":"2025-07-11T11:58:02.777Z"}
+{"level":"info","message":"Application startup completed successfully","timestamp":"2025-07-11T11:58:02.777Z"}
+{"environment":"development","level":"info","memoryUsage":{"arrayBuffers":19100343,"external":22664129,"heapTotal":123011072,"heapUsed":73140624,"rss":171229184},"message":"Server started successfully","port":5001,"processId":94435,"timestamp":"2025-07-11T11:58:51.194Z"}
+{"level":"info","message":"Enhanced startup information displayed","timestamp":"2025-07-11T11:58:51.530Z"}
+{"error":"setUserAsAdmin is not a function","level":"error","message":"Admin setup failed","timestamp":"2025-07-11T11:58:54.194Z"}
+{"level":"info","message":"Background job registered: verifyProcessingWithdrawals","timestamp":"2025-07-11T11:58:54.199Z"}
+{"level":"info","message":"Background job registered: verifyPendingWithdrawals","timestamp":"2025-07-11T11:58:54.199Z"}
+{"level":"info","message":"Withdrawal verification jobs started","timestamp":"2025-07-11T11:58:54.199Z"}
+{"level":"info","message":"✅ Started job: verifyProcessingWithdrawals","timestamp":"2025-07-11T11:58:54.199Z"}
+{"level":"info","message":"✅ Started job: verifyPendingWithdrawals","timestamp":"2025-07-11T11:58:54.199Z"}
+{"level":"info","message":"Application startup completed successfully","timestamp":"2025-07-11T11:58:54.200Z"}
+{"environment":"development","level":"info","memoryUsage":{"arrayBuffers":19096128,"external":22655658,"heapTotal":122748928,"heapUsed":72775616,"rss":167739392},"message":"Server started successfully","port":5001,"processId":94538,"timestamp":"2025-07-11T12:00:11.146Z"}
+{"level":"info","message":"Enhanced startup information displayed","timestamp":"2025-07-11T12:00:11.548Z"}
+{"error":"setUserAsAdmin is not a function","level":"error","message":"Admin setup failed","timestamp":"2025-07-11T12:00:14.144Z"}
+{"level":"info","message":"Background job registered: verifyProcessingWithdrawals","timestamp":"2025-07-11T12:00:14.147Z"}
+{"level":"info","message":"Background job registered: verifyPendingWithdrawals","timestamp":"2025-07-11T12:00:14.148Z"}
+{"level":"info","message":"Withdrawal verification jobs started","timestamp":"2025-07-11T12:00:14.148Z"}
+{"level":"info","message":"✅ Started job: verifyProcessingWithdrawals","timestamp":"2025-07-11T12:00:14.148Z"}
+{"level":"info","message":"✅ Started job: verifyPendingWithdrawals","timestamp":"2025-07-11T12:00:14.148Z"}
+{"level":"info","message":"Application startup completed successfully","timestamp":"2025-07-11T12:00:14.148Z"}
+{"environment":"development","level":"info","memoryUsage":{"arrayBuffers":19100343,"external":22664129,"heapTotal":124583936,"heapUsed":73733192,"rss":166494208},"message":"Server started successfully","port":5001,"processId":94656,"timestamp":"2025-07-11T12:01:13.320Z"}
+{"error":"setUserAsAdmin is not a function","level":"error","message":"Admin setup failed","timestamp":"2025-07-11T12:01:16.318Z"}
+{"level":"info","message":"Background job registered: verifyProcessingWithdrawals","timestamp":"2025-07-11T12:01:16.323Z"}
+{"level":"info","message":"Background job registered: verifyPendingWithdrawals","timestamp":"2025-07-11T12:01:16.323Z"}
+{"level":"info","message":"Withdrawal verification jobs started","timestamp":"2025-07-11T12:01:16.324Z"}
+{"level":"info","message":"✅ Started job: verifyProcessingWithdrawals","timestamp":"2025-07-11T12:01:16.324Z"}
+{"level":"info","message":"✅ Started job: verifyPendingWithdrawals","timestamp":"2025-07-11T12:01:16.324Z"}
+{"level":"info","message":"Application startup completed successfully","timestamp":"2025-07-11T12:01:16.324Z"}
+{"environment":"development","level":"info","memoryUsage":{"arrayBuffers":19100343,"external":22664129,"heapTotal":121700352,"heapUsed":74010016,"rss":118833152},"message":"Server started successfully","port":5001,"processId":94895,"timestamp":"2025-07-11T12:10:03.600Z"}
+{"error":"setUserAsAdmin is not a function","level":"error","message":"Admin setup failed","timestamp":"2025-07-11T12:10:06.601Z"}
+{"level":"info","message":"Background job registered: verifyProcessingWithdrawals","timestamp":"2025-07-11T12:10:06.603Z"}
+{"level":"info","message":"Background job registered: verifyPendingWithdrawals","timestamp":"2025-07-11T12:10:06.604Z"}
+{"level":"info","message":"Withdrawal verification jobs started","timestamp":"2025-07-11T12:10:06.604Z"}
+{"level":"info","message":"✅ Started job: verifyProcessingWithdrawals","timestamp":"2025-07-11T12:10:06.604Z"}
+{"level":"info","message":"✅ Started job: verifyPendingWithdrawals","timestamp":"2025-07-11T12:10:06.604Z"}
+{"level":"info","message":"Application startup completed successfully","timestamp":"2025-07-11T12:10:06.604Z"}
+{"environment":"development","level":"info","memoryUsage":{"arrayBuffers":19086608,"external":22641882,"heapTotal":123535360,"heapUsed":73379424,"rss":82083840},"message":"Server started successfully","port":5001,"processId":95305,"timestamp":"2025-07-11T12:21:35.778Z"}
+{"error":"setUserAsAdmin is not a function","level":"error","message":"Admin setup failed","timestamp":"2025-07-11T12:21:38.778Z"}
+{"level":"info","message":"Background job registered: verifyProcessingWithdrawals","timestamp":"2025-07-11T12:21:38.783Z"}
+{"level":"info","message":"Background job registered: verifyPendingWithdrawals","timestamp":"2025-07-11T12:21:38.783Z"}
+{"level":"info","message":"Withdrawal verification jobs started","timestamp":"2025-07-11T12:21:38.783Z"}
+{"level":"info","message":"✅ Started job: verifyProcessingWithdrawals","timestamp":"2025-07-11T12:21:38.784Z"}
+{"level":"info","message":"✅ Started job: verifyPendingWithdrawals","timestamp":"2025-07-11T12:21:38.784Z"}
+{"level":"info","message":"Application startup completed successfully","timestamp":"2025-07-11T12:21:38.784Z"}
