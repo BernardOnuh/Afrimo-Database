@@ -2075,7 +2075,7 @@ exports.submitManualPayment = async (req, res) => {
       });
     }
     
-    // ✅ IMMEDIATE FIX: Check for ANY file upload (not just GridFS)
+    // ✅ CLOUDINARY FIX: Check for Cloudinary file upload
     if (!req.file && !req.files && !req.body.adminNote) {
       console.error('[SHARES] No payment proof uploaded');
       return res.status(400).json({
@@ -2110,32 +2110,39 @@ exports.submitManualPayment = async (req, res) => {
     };
     const transactionId = generateTransactionId();
     
-    // ✅ FLEXIBLE FILE HANDLING: Work with whatever file upload system you have
+    // ✅ CLOUDINARY: Extract file info (same pattern as co-founder)
     let fileInfo = {};
     if (req.file) {
-      // Standard multer file
+      // Cloudinary file structure
       fileInfo = {
-        path: req.file.path || req.file.location || req.file.url,
-        filename: req.file.filename || req.file.key,
+        cloudinaryUrl: req.file.path,
+        cloudinaryId: req.file.filename,
         originalname: req.file.originalname,
         size: req.file.size,
-        mimetype: req.file.mimetype
+        mimetype: req.file.mimetype,
+        format: req.file.format
       };
+      console.log('[SHARES] Cloudinary file detected:', {
+        url: fileInfo.cloudinaryUrl,
+        publicId: fileInfo.cloudinaryId,
+        size: fileInfo.size
+      });
     } else if (req.files && req.files.paymentProof) {
       // Alternative file structure
       const file = Array.isArray(req.files.paymentProof) ? req.files.paymentProof[0] : req.files.paymentProof;
       fileInfo = {
-        path: file.path || file.location || file.url,
-        filename: file.filename || file.key,
+        cloudinaryUrl: file.path || file.location || file.url,
+        cloudinaryId: file.filename || file.key,
         originalname: file.originalname || file.name,
         size: file.size,
-        mimetype: file.mimetype || file.type
+        mimetype: file.mimetype || file.type,
+        format: file.format
       };
     }
     
-    // Create PaymentTransaction record
+    // Create PaymentTransaction record with Cloudinary data
     const PaymentTransaction = require('../models/Transaction');
-    const paymentTransaction = new PaymentTransaction({
+    const paymentTransactionData = {
       userId,
       transactionId,
       type: 'share',
@@ -2144,24 +2151,30 @@ exports.submitManualPayment = async (req, res) => {
       currency,
       paymentMethod: `manual_${paymentMethod}`,
       status: 'pending',
-      // ✅ FLEXIBLE: Store whatever file info we have
-      paymentProofPath: fileInfo.path || null,
-      paymentProofOriginalName: fileInfo.originalname || null,
-      paymentProofFileSize: fileInfo.size || null,
       tierBreakdown: purchaseDetails.tierBreakdown,
       manualPaymentDetails: {
         bankName: bankName || null,
         accountName: accountName || null,
         reference: reference || null
       }
-    });
+    };
     
+    // ✅ CLOUDINARY: Add Cloudinary fields to PaymentTransaction
+    if (fileInfo.cloudinaryUrl) {
+      paymentTransactionData.paymentProofCloudinaryUrl = fileInfo.cloudinaryUrl;
+      paymentTransactionData.paymentProofCloudinaryId = fileInfo.cloudinaryId;
+      paymentTransactionData.paymentProofOriginalName = fileInfo.originalname;
+      paymentTransactionData.paymentProofFileSize = fileInfo.size;
+      paymentTransactionData.paymentProofFormat = fileInfo.format;
+    }
+    
+    const paymentTransaction = new PaymentTransaction(paymentTransactionData);
     await paymentTransaction.save();
-    console.log('[SHARES] Payment transaction created:', transactionId);
+    console.log('[SHARES] Payment transaction created with Cloudinary data:', transactionId);
     
-    // Also create UserShare record for compatibility
+    // Also create UserShare record for compatibility with Cloudinary data
     const UserShare = require('../models/UserShare');
-    await UserShare.addShares(userId, parseInt(quantity), {
+    const userShareData = {
       transactionId,
       shares: parseInt(quantity),
       pricePerShare: purchaseDetails.totalPrice / parseInt(quantity),
@@ -2169,12 +2182,20 @@ exports.submitManualPayment = async (req, res) => {
       totalAmount: purchaseDetails.totalPrice,
       paymentMethod: `manual_${paymentMethod}`,
       status: 'pending',
-      tierBreakdown: purchaseDetails.tierBreakdown,
-      paymentProofPath: fileInfo.path || null,
-      paymentProofOriginalName: fileInfo.originalname || null
-    });
+      tierBreakdown: purchaseDetails.tierBreakdown
+    };
     
-    console.log('[SHARES] UserShare record created');
+    // ✅ CLOUDINARY: Add Cloudinary fields to UserShare as well
+    if (fileInfo.cloudinaryUrl) {
+      userShareData.paymentProofCloudinaryUrl = fileInfo.cloudinaryUrl;
+      userShareData.paymentProofCloudinaryId = fileInfo.cloudinaryId;
+      userShareData.paymentProofOriginalName = fileInfo.originalname;
+      userShareData.paymentProofFileSize = fileInfo.size;
+      userShareData.paymentProofFormat = fileInfo.format;
+    }
+    
+    await UserShare.addShares(userId, parseInt(quantity), userShareData);
+    console.log('[SHARES] UserShare record created with Cloudinary data');
     
     // Send success response
     res.status(200).json({
@@ -2188,7 +2209,8 @@ exports.submitManualPayment = async (req, res) => {
         status: 'pending',
         fileInfo: fileInfo,
         paymentMethod: `manual_${paymentMethod}`,
-        fileUrl: `/api/shares/payment-proof/${transactionId}`
+        fileUrl: `/api/shares/payment-proof/${transactionId}`,
+        cloudinaryUrl: fileInfo.cloudinaryUrl // Include direct Cloudinary URL
       }
     });
     
@@ -2214,7 +2236,7 @@ exports.getPaymentProof = async (req, res) => {
     const { transactionId } = req.params;
     const userId = req.user.id;
     
-    console.log(`[getPaymentProof] Request for transaction: ${transactionId} from user: ${userId}`);
+    console.log(`[SHARES getPaymentProof] Request for transaction: ${transactionId} from user: ${userId}`);
     
     // Look in both UserShare and PaymentTransaction for Cloudinary data
     let cloudinaryUrl = null;
@@ -2224,44 +2246,56 @@ exports.getPaymentProof = async (req, res) => {
     let format = null;
     let userShareRecord = null;
 
-    // First check UserShare (for backward compatibility)
-    userShareRecord = await UserShare.findOne({
-      'transactions.transactionId': transactionId
+    // First check PaymentTransaction (primary source for manual payments)
+    const paymentTransaction = await PaymentTransaction.findOne({
+      transactionId,
+      type: 'share'
     });
-
-    if (userShareRecord) {
-      const transaction = userShareRecord.transactions.find(
-        t => t.transactionId === transactionId
-      );
+    
+    if (paymentTransaction) {
+      cloudinaryUrl = paymentTransaction.paymentProofCloudinaryUrl;
+      cloudinaryId = paymentTransaction.paymentProofCloudinaryId;
+      originalName = paymentTransaction.paymentProofOriginalName;
+      fileSize = paymentTransaction.paymentProofFileSize;
+      format = paymentTransaction.paymentProofFormat;
       
-      if (transaction) {
-        cloudinaryUrl = transaction.paymentProofCloudinaryUrl;
-        cloudinaryId = transaction.paymentProofCloudinaryId;
-        originalName = transaction.paymentProofOriginalName;
+      // Check if user owns this transaction
+      const user = await User.findById(userId);
+      if (!(user && (user.isAdmin || paymentTransaction.userId.toString() === userId))) {
+        console.error('[SHARES] Access denied - user does not own transaction');
+        return res.status(403).json({
+          success: false,
+          message: 'Access denied'
+        });
       }
     }
 
-    // If not found in UserShare, check PaymentTransaction
+    // If not found in PaymentTransaction, check UserShare (fallback)
     if (!cloudinaryUrl) {
-      const paymentTransaction = await PaymentTransaction.findOne({
-        transactionId,
-        type: 'share'
+      userShareRecord = await UserShare.findOne({
+        'transactions.transactionId': transactionId
       });
-      
-      if (paymentTransaction) {
-        cloudinaryUrl = paymentTransaction.paymentProofCloudinaryUrl;
-        cloudinaryId = paymentTransaction.paymentProofCloudinaryId;
-        originalName = paymentTransaction.paymentProofOriginalName;
-        fileSize = paymentTransaction.paymentProofFileSize;
-        format = paymentTransaction.paymentProofFormat;
+
+      if (userShareRecord) {
+        const transaction = userShareRecord.transactions.find(
+          t => t.transactionId === transactionId
+        );
         
-        // Check if user owns this transaction
+        if (transaction) {
+          cloudinaryUrl = transaction.paymentProofCloudinaryUrl;
+          cloudinaryId = transaction.paymentProofCloudinaryId;
+          originalName = transaction.paymentProofOriginalName;
+          fileSize = transaction.paymentProofFileSize;
+          format = transaction.paymentProofFormat;
+        }
+        
+        // Check if user is admin or transaction owner
         const user = await User.findById(userId);
-        if (!(user && (user.isAdmin || paymentTransaction.userId.toString() === userId))) {
-          console.error('[SHARES] Access denied - user does not own transaction');
+        if (!(user && (user.isAdmin || userShareRecord.user.toString() === userId))) {
+          console.log(`[SHARES getPaymentProof] Unauthorized access: ${userId}`);
           return res.status(403).json({
             success: false,
-            message: 'Access denied'
+            message: 'Unauthorized: You do not have permission to view this payment proof'
           });
         }
       }
@@ -2275,21 +2309,9 @@ exports.getPaymentProof = async (req, res) => {
       });
     }
 
-    // Check if user is admin or transaction owner (for UserShare transactions)
-    if (userShareRecord) {
-      const user = await User.findById(userId);
-      if (!(user && (user.isAdmin || userShareRecord.user.toString() === userId))) {
-        console.log(`[getPaymentProof] Unauthorized access: ${userId}`);
-        return res.status(403).json({
-          success: false,
-          message: 'Unauthorized: You do not have permission to view this payment proof'
-        });
-      }
-    }
+    console.log(`[SHARES getPaymentProof] Serving Cloudinary file: ${cloudinaryUrl}`);
 
-    console.log(`[getPaymentProof] Serving Cloudinary file: ${cloudinaryUrl}`);
-
-    // Option 1: Return the Cloudinary URL (recommended)
+    // ✅ CLOUDINARY: Return Cloudinary data (same as co-founder pattern)
     res.status(200).json({
       success: true,
       cloudinaryUrl: cloudinaryUrl,
@@ -2301,11 +2323,11 @@ exports.getPaymentProof = async (req, res) => {
       message: "File is hosted on Cloudinary CDN for fast global access"
     });
 
-    // Option 2: Redirect to Cloudinary URL (alternative)
+    // Alternative: Redirect to Cloudinary URL
     // res.redirect(cloudinaryUrl);
     
   } catch (error) {
-    console.error(`[getPaymentProof] Server error: ${error.message}`, error);
+    console.error(`[SHARES getPaymentProof] Server error: ${error.message}`, error);
     res.status(500).json({
       success: false,
       message: 'Failed to fetch payment proof',
@@ -2334,29 +2356,39 @@ exports.adminGetManualTransactions = async (req, res) => {
     }
     
     // Query parameters
-    const { status, page = 1, limit = 20 } = req.query;
+    const { status, page = 1, limit = 20, fromDate, toDate } = req.query;
     const skip = (parseInt(page) - 1) * parseInt(limit);
     
     // ✅ UPDATED: Get manual transactions from PaymentTransaction model
-    const paymentTransactions = await PaymentTransaction.find({
+    const query = {
       type: 'share',
       paymentMethod: { $regex: '^manual_' },
       ...(status && { status })
-    })
-    .populate('userId', 'name email phone username')
-    .sort({ createdAt: -1 })
-    .skip(skip)
-    .limit(parseInt(limit));
+    };
+    
+    // Add date filters
+    if (fromDate || toDate) {
+      query.createdAt = {};
+      if (fromDate) query.createdAt.$gte = new Date(fromDate);
+      if (toDate) query.createdAt.$lte = new Date(toDate);
+    }
+    
+    const paymentTransactions = await PaymentTransaction.find(query)
+      .populate('userId', 'name email phone username')
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(parseInt(limit));
 
-    // Format response with Cloudinary data
+    // ✅ CLOUDINARY: Format response with Cloudinary data
     const transactions = paymentTransactions.map(transaction => {
-      // ✅ UPDATED: Use Cloudinary URL instead of local path
+      // Use Cloudinary URL instead of local path
       let paymentProofUrl = null;
       if (transaction.paymentProofCloudinaryUrl) {
         paymentProofUrl = transaction.paymentProofCloudinaryUrl; // Direct Cloudinary URL
       }
 
       return {
+        id: transaction._id,
         transactionId: transaction.transactionId,
         user: {
           id: transaction.userId._id,
@@ -2372,23 +2404,20 @@ exports.adminGetManualTransactions = async (req, res) => {
         paymentMethod: transaction.paymentMethod.replace('manual_', ''),
         status: transaction.status,
         date: transaction.createdAt,
-        // ✅ UPDATED: Return Cloudinary data
+        // ✅ CLOUDINARY: Return Cloudinary data
         paymentProofUrl: paymentProofUrl,
         cloudinaryPublicId: transaction.paymentProofCloudinaryId,
         originalFileName: transaction.paymentProofOriginalName,
         fileSize: transaction.paymentProofFileSize,
         fileFormat: transaction.paymentProofFormat,
         manualPaymentDetails: transaction.manualPaymentDetails || {},
-        adminNote: transaction.adminNotes
+        adminNote: transaction.adminNotes,
+        verifiedBy: transaction.verifiedBy
       };
     });
 
     // Count total
-    const totalCount = await PaymentTransaction.countDocuments({
-      type: 'share',
-      paymentMethod: { $regex: '^manual_' },
-      ...(status && { status })
-    });
+    const totalCount = await PaymentTransaction.countDocuments(query);
     
     res.status(200).json({
       success: true,
@@ -2687,141 +2716,154 @@ exports.adminDeleteManualPayment = async (req, res) => {
       });
     }
     
-    // Find the transaction
+    // Find the transaction in PaymentTransaction first
+    const paymentTransaction = await PaymentTransaction.findOne({
+      transactionId,
+      type: 'share'
+    });
+    
+    // Also find in UserShare for compatibility
     const userShareRecord = await UserShare.findOne({
       'transactions.transactionId': transactionId
     });
     
-    if (!userShareRecord) {
+    if (!paymentTransaction && !userShareRecord) {
       return res.status(404).json({
         success: false,
         message: 'Transaction not found'
       });
     }
     
-    const transaction = userShareRecord.transactions.find(
-      t => t.transactionId === transactionId && t.paymentMethod.startsWith('manual_')
-    );
+    // Get transaction details for cleanup
+    let transactionDetails = {};
+    let cloudinaryIds = [];
     
-    if (!transaction) {
-      return res.status(404).json({
-        success: false,
-        message: 'Manual transaction not found'
-      });
+    if (paymentTransaction) {
+      transactionDetails = {
+        shares: paymentTransaction.shares,
+        amount: paymentTransaction.amount,
+        currency: paymentTransaction.currency,
+        status: paymentTransaction.status,
+        tierBreakdown: paymentTransaction.tierBreakdown,
+        userId: paymentTransaction.userId
+      };
+      
+      // Collect Cloudinary ID for deletion
+      if (paymentTransaction.paymentProofCloudinaryId) {
+        cloudinaryIds.push(paymentTransaction.paymentProofCloudinaryId);
+      }
     }
     
-    // Store transaction details for cleanup and notification
-    const transactionDetails = {
-      shares: transaction.shares,
-      totalAmount: transaction.totalAmount,
-      currency: transaction.currency,
-      status: transaction.status,
-      tierBreakdown: transaction.tierBreakdown,
-      cloudinaryId: transaction.paymentProofCloudinaryId,
-      cloudinaryUrl: transaction.paymentProofCloudinaryUrl
-    };
+    if (userShareRecord) {
+      const transaction = userShareRecord.transactions.find(
+        t => t.transactionId === transactionId
+      );
+      
+      if (transaction) {
+        if (!transactionDetails.shares) {
+          transactionDetails = {
+            shares: transaction.shares,
+            amount: transaction.totalAmount,
+            currency: transaction.currency,
+            status: transaction.status,
+            tierBreakdown: transaction.tierBreakdown,
+            userId: userShareRecord.user
+          };
+        }
+        
+        // Collect additional Cloudinary ID if different
+        if (transaction.paymentProofCloudinaryId && 
+            !cloudinaryIds.includes(transaction.paymentProofCloudinaryId)) {
+          cloudinaryIds.push(transaction.paymentProofCloudinaryId);
+        }
+      }
+    }
     
     // If transaction was completed, rollback global share counts
-    if (transaction.status === 'completed') {
+    if (transactionDetails.status === 'completed') {
       const shareConfig = await Share.getCurrentConfig();
-      shareConfig.sharesSold -= transaction.shares;
+      shareConfig.sharesSold -= transactionDetails.shares;
       
       // Rollback tier sales
-      shareConfig.tierSales.tier1Sold -= transaction.tierBreakdown.tier1 || 0;
-      shareConfig.tierSales.tier2Sold -= transaction.tierBreakdown.tier2 || 0;
-      shareConfig.tierSales.tier3Sold -= transaction.tierBreakdown.tier3 || 0;
+      shareConfig.tierSales.tier1Sold -= transactionDetails.tierBreakdown?.tier1 || 0;
+      shareConfig.tierSales.tier2Sold -= transactionDetails.tierBreakdown?.tier2 || 0;
+      shareConfig.tierSales.tier3Sold -= transactionDetails.tierBreakdown?.tier3 || 0;
       
       await shareConfig.save();
       
       // Rollback any referral commissions if applicable
       try {
         const rollbackResult = await rollbackReferralCommission(
-          userShareRecord.user,    // userId
-          transactionId,          // transactionId
-          transaction.totalAmount, // purchaseAmount
-          transaction.currency,    // currency
-          'share',                // purchaseType
-          'UserShare'             // sourceModel
+          transactionDetails.userId,
+          transactionId,
+          transactionDetails.amount,
+          transactionDetails.currency,
+          'share',
+          'PaymentTransaction'
         );
         
-        console.log('Referral commission rollback result:', rollbackResult);
+        console.log('Share referral commission rollback result:', rollbackResult);
       } catch (referralError) {
-        console.error('Error rolling back referral commissions:', referralError);
+        console.error('Error rolling back share referral commissions:', referralError);
         // Continue with the deletion process despite referral error
       }
     }
     
-    // Remove the transaction from the user's transactions array
-    userShareRecord.transactions = userShareRecord.transactions.filter(
-      t => t.transactionId !== transactionId
-    );
-    
-    // Recalculate total shares for the user
-    userShareRecord.totalShares = userShareRecord.transactions
-      .filter(t => t.status === 'completed')
-      .reduce((total, t) => total + t.shares, 0);
-    
-    await userShareRecord.save();
-    
-    // ✅ UPDATED: Delete Cloudinary file if it exists
-    if (transactionDetails.cloudinaryId) {
+    // ✅ CLOUDINARY: Delete Cloudinary files
+    for (const cloudinaryId of cloudinaryIds) {
       try {
-        const deleteResult = await deleteFromCloudinary(transactionDetails.cloudinaryId);
+        const deleteResult = await deleteFromCloudinary(cloudinaryId);
         if (deleteResult.result === 'ok') {
-          console.log(`Payment proof file deleted from Cloudinary: ${transactionDetails.cloudinaryId}`);
+          console.log(`Share payment proof file deleted from Cloudinary: ${cloudinaryId}`);
         } else {
-          console.log(`Payment proof file not found in Cloudinary: ${transactionDetails.cloudinaryId}`);
+          console.log(`Share payment proof file not found in Cloudinary: ${cloudinaryId}`);
         }
       } catch (fileError) {
-        console.error('Error deleting payment proof file from Cloudinary:', fileError);
+        console.error('Error deleting share payment proof file from Cloudinary:', fileError);
         // Continue with deletion even if file deletion fails
       }
     }
     
-    // Also delete from PaymentTransaction model if it exists
-    try {
-      const paymentTransaction = await PaymentTransaction.findOne({
-        transactionId,
-        type: 'share'
-      });
+    // Delete from PaymentTransaction
+    if (paymentTransaction) {
+      await PaymentTransaction.deleteOne({ _id: paymentTransaction._id });
+      console.log('Share PaymentTransaction record deleted');
+    }
+    
+    // Delete from UserShare
+    if (userShareRecord) {
+      // Remove the transaction from the user's transactions array
+      userShareRecord.transactions = userShareRecord.transactions.filter(
+        t => t.transactionId !== transactionId
+      );
       
-      if (paymentTransaction) {
-        // Delete Cloudinary file from PaymentTransaction as well (if different)
-        if (paymentTransaction.paymentProofCloudinaryId && 
-            paymentTransaction.paymentProofCloudinaryId !== transactionDetails.cloudinaryId) {
-          try {
-            await deleteFromCloudinary(paymentTransaction.paymentProofCloudinaryId);
-            console.log(`Payment proof file deleted from Cloudinary (PaymentTransaction): ${paymentTransaction.paymentProofCloudinaryId}`);
-          } catch (fileError) {
-            console.error('Error deleting PaymentTransaction Cloudinary file:', fileError);
-          }
-        }
-        
-        await PaymentTransaction.deleteOne({ _id: paymentTransaction._id });
-        console.log('PaymentTransaction record deleted');
-      }
-    } catch (ptError) {
-      console.error('Error deleting PaymentTransaction record:', ptError);
+      // Recalculate total shares for the user
+      userShareRecord.totalShares = userShareRecord.transactions
+        .filter(t => t.status === 'completed')
+        .reduce((total, t) => total + t.shares, 0);
+      
+      await userShareRecord.save();
+      console.log('Share UserShare record updated');
     }
     
     // Get user details for notification
-    const user = await User.findById(userShareRecord.user);
+    const user = await User.findById(transactionDetails.userId);
     
     // Notify user about transaction deletion
     if (user && user.email) {
       try {
         await sendEmail({
           email: user.email,
-          subject: 'AfriMobile - Transaction Deleted',
+          subject: 'AfriMobile - Share Transaction Deleted',
           html: `
             <h2>Transaction Deletion Notice</h2>
             <p>Dear ${user.name},</p>
-            <p>We are writing to inform you that your manual payment transaction has been deleted from our system.</p>
+            <p>We are writing to inform you that your share manual payment transaction has been deleted from our system.</p>
             <p>Transaction Details:</p>
             <ul>
               <li>Transaction ID: ${transactionId}</li>
               <li>Shares: ${transactionDetails.shares}</li>
-              <li>Amount: ${transactionDetails.currency === 'naira' ? '₦' : '$'}${transactionDetails.totalAmount}</li>
+              <li>Amount: ${transactionDetails.currency === 'naira' ? '₦' : '$'}${transactionDetails.amount}</li>
               <li>Previous Status: ${transactionDetails.status}</li>
             </ul>
             ${transactionDetails.status === 'completed' ? 
@@ -2833,44 +2875,40 @@ exports.adminDeleteManualPayment = async (req, res) => {
           `
         });
       } catch (emailError) {
-        console.error('Failed to send transaction deletion notification email:', emailError);
+        console.error('Failed to send share transaction deletion notification email:', emailError);
       }
     }
     
     // Log the deletion for audit purposes
-    console.log(`Manual payment transaction deleted:`, {
+    console.log(`Share manual payment transaction deleted:`, {
       transactionId,
       adminId,
-      userId: userShareRecord.user,
+      userId: transactionDetails.userId,
       previousStatus: transactionDetails.status,
       shares: transactionDetails.shares,
-      amount: transactionDetails.totalAmount,
+      amount: transactionDetails.amount,
       currency: transactionDetails.currency,
-      cloudinaryFileDeleted: !!transactionDetails.cloudinaryId,
+      cloudinaryFilesDeleted: cloudinaryIds.length,
       timestamp: new Date().toISOString()
     });
     
     // Return success response
     res.status(200).json({
       success: true,
-      message: 'Manual payment transaction deleted successfully',
+      message: 'Share manual payment transaction deleted successfully',
       data: {
         transactionId,
         deletedTransaction: {
           shares: transactionDetails.shares,
-          amount: transactionDetails.totalAmount,
+          amount: transactionDetails.amount,
           currency: transactionDetails.currency,
           previousStatus: transactionDetails.status
         },
-        userUpdates: {
-          newTotalShares: userShareRecord.totalShares,
-          sharesRemoved: transactionDetails.status === 'completed' ? transactionDetails.shares : 0
-        },
-        cloudinaryFileDeleted: !!transactionDetails.cloudinaryId
+        cloudinaryFilesDeleted: cloudinaryIds.length
       }
     });
   } catch (error) {
-    console.error('Error deleting manual payment transaction:', error);
+    console.error('Error deleting share manual payment transaction:', error);
     res.status(500).json({
       success: false,
       message: 'Failed to delete manual payment transaction',
@@ -2878,7 +2916,6 @@ exports.adminDeleteManualPayment = async (req, res) => {
     });
   }
 };
-
 /**
  * @desc    Get share purchase report with date range filtering
  * @route   GET /api/shares/admin/purchase-report

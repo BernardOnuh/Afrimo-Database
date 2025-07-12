@@ -832,14 +832,12 @@ router.get('/user/shares', protect, shareController.getUserShares);
  *                       description: Cloudinary public ID for file management
  */
 router.post('/manual/submit', 
-  protect,                                    // Auth middleware first
-  debugRequest,                               // Debug incoming request
-  sharePaymentUpload.single('paymentProof'),  // ✅ NEW: Cloudinary upload middleware
-  logCloudinaryUpload,                        // Log successful upload
-  handleCloudinaryError,                      // Handle upload errors
-  validateManualPayment,                      // Validate required fields and Cloudinary upload
-  shareController.submitManualPayment         // Controller function
+  sharePaymentUpload.single('paymentProof'),
+  logCloudinaryUpload,
+  handleCloudinaryError,
+  shareController.submitManualPayment
 );
+
 
 /**
  * @swagger
