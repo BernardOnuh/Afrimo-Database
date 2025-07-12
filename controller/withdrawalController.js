@@ -1,4 +1,5 @@
 // controller/withdrawalController.js
+const mongoose = require('mongoose');
 const User = require('../models/User');
 const Referral = require('../models/Referral');
 const ReferralTransaction = require('../models/ReferralTransaction');
