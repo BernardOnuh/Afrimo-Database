@@ -909,6 +909,235 @@ router.get('/payment-proof/:transactionId', protect, shareController.getPaymentP
 
 // Admin routes
 
+/**
+ * @swagger
+ * /shares/admin/payment-proof/{transactionId}:
+ *   get:
+ *     tags: [Shares - Admin]
+ *     summary: Direct admin access to payment proof file
+ *     description: |
+ *       Provides direct access to payment proof files for administrators. This endpoint redirects directly 
+ *       to the Cloudinary CDN URL for fast file viewing without API overhead.
+ *       
+ *       **Key Features:**
+ *       - ✅ Direct redirect to Cloudinary CDN URL
+ *       - ✅ Admin-only access with authentication
+ *       - ✅ No JSON wrapper - direct file access
+ *       - ✅ Fast loading from global CDN
+ *       - ✅ Works with images, PDFs, and other file types
+ *       - ✅ Automatic error handling for missing files
+ *       
+ *       **Use Cases:**
+ *       - Quick admin verification of payment proofs
+ *       - Opening files directly in browser tabs
+ *       - Bypassing API response parsing for immediate access
+ *       - Fallback when main API endpoint has issues
+ *       
+ *       **Response Behavior:**
+ *       - Success: 302 redirect to Cloudinary URL
+ *       - Not Found: 404 JSON error response
+ *       - Unauthorized: 403 JSON error response
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: transactionId
+ *         required: true
+ *         schema:
+ *           type: string
+ *           pattern: '^TXN-[A-F0-9]{8}-[0-9]{6}$'
+ *           example: "TXN-A1B2C3D4-123456"
+ *         description: |
+ *           Unique transaction identifier for the manual payment.
+ *           Format: TXN-{8 hex chars}-{6 digits}
+ *     responses:
+ *       302:
+ *         description: |
+ *           Redirect to Cloudinary CDN URL for direct file access.
+ *           Browser will automatically navigate to the payment proof file.
+ *         headers:
+ *           Location:
+ *             description: Cloudinary CDN URL for the payment proof file
+ *             schema:
+ *               type: string
+ *               format: url
+ *               example: "https://res.cloudinary.com/your-cloud/image/upload/v1234567890/share-payments/payment-proof-123456.jpg"
+ *       403:
+ *         description: |
+ *           Access denied - Admin authentication required.
+ *           This endpoint is restricted to administrators only.
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: false
+ *                 message:
+ *                   type: string
+ *                   example: "Admin access required"
+ *             examples:
+ *               not_admin:
+ *                 summary: User is not an administrator
+ *                 value:
+ *                   success: false
+ *                   message: "Admin access required"
+ *               no_auth:
+ *                 summary: No authentication token provided
+ *                 value:
+ *                   success: false
+ *                   message: "Authentication required"
+ *       404:
+ *         description: |
+ *           Payment proof not found. The file may not exist or was never uploaded.
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: false
+ *                 message:
+ *                   type: string
+ *                   example: "Payment proof not found"
+ *             examples:
+ *               transaction_not_found:
+ *                 summary: Transaction does not exist
+ *                 value:
+ *                   success: false
+ *                   message: "Transaction not found"
+ *               file_not_uploaded:
+ *                 summary: No payment proof file was uploaded
+ *                 value:
+ *                   success: false
+ *                   message: "Payment proof not found"
+ *               file_deleted:
+ *                 summary: File was deleted from Cloudinary
+ *                 value:
+ *                   success: false
+ *                   message: "Payment proof file no longer available"
+ *       401:
+ *         $ref: '#/components/responses/UnauthorizedError'
+ *       500:
+ *         description: |
+ *           Server error during file access. May indicate Cloudinary connectivity issues.
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: false
+ *                 message:
+ *                   type: string
+ *                   example: "Failed to access payment proof"
+ *             examples:
+ *               cloudinary_error:
+ *                 summary: Cloudinary service unavailable
+ *                 value:
+ *                   success: false
+ *                   message: "Failed to access payment proof"
+ *               database_error:
+ *                 summary: Database connectivity issue
+ *                 value:
+ *                   success: false
+ *                   message: "Database error while retrieving transaction"
+ *   
+ *     x-code-samples:
+ *       - lang: 'JavaScript (Frontend)'
+ *         source: |
+ *           // Open payment proof directly in new tab
+ *           const viewPaymentProofDirect = (transactionId) => {
+ *             const url = `/api/shares/admin/payment-proof/${transactionId}`;
+ *             window.open(url, '_blank');
+ *           };
+ *           
+ *           // Usage in admin component
+ *           <button onClick={() => viewPaymentProofDirect('TXN-A1B2C3D4-123456')}>
+ *             🔗 View Direct
+ *           </button>
+ *       
+ *       - lang: 'cURL'
+ *         source: |
+ *           # Direct access with redirect following
+ *           curl -L -H "Authorization: Bearer YOUR_ADMIN_TOKEN" \
+ *             "https://your-api.com/api/shares/admin/payment-proof/TXN-A1B2C3D4-123456"
+ *           
+ *           # Check redirect location without following
+ *           curl -I -H "Authorization: Bearer YOUR_ADMIN_TOKEN" \
+ *             "https://your-api.com/api/shares/admin/payment-proof/TXN-A1B2C3D4-123456"
+ *       
+ *       - lang: 'Node.js/Axios'
+ *         source: |
+ *           // Get redirect URL programmatically
+ *           try {
+ *             const response = await axios.get(
+ *               `/api/shares/admin/payment-proof/${transactionId}`,
+ *               { 
+ *                 headers: { Authorization: `Bearer ${adminToken}` },
+ *                 maxRedirects: 0,  // Don't follow redirects
+ *                 validateStatus: (status) => status === 302
+ *               }
+ *             );
+ *             
+ *             const cloudinaryUrl = response.headers.location;
+ *             console.log('Cloudinary URL:', cloudinaryUrl);
+ *           } catch (error) {
+ *             if (error.response?.status === 302) {
+ *               // Redirect URL is in the Location header
+ *               const cloudinaryUrl = error.response.headers.location;
+ *             }
+ *           }
+ *
+ * components:
+ *   examples:
+ *     AdminDirectAccessSuccess:
+ *       summary: Successful redirect to Cloudinary
+ *       description: |
+ *         When a payment proof exists, the endpoint returns a 302 redirect
+ *         to the Cloudinary CDN URL for immediate file access.
+ *       value:
+ *         status: 302
+ *         headers:
+ *           Location: "https://res.cloudinary.com/your-cloud/image/upload/v1234567890/share-payments/payment-proof-123456.jpg"
+ *     
+ *     AdminDirectAccessNotFound:
+ *       summary: Payment proof not found
+ *       description: |
+ *         When no payment proof exists for the transaction, returns 404 with error details.
+ *       value:
+ *         success: false
+ *         message: "Payment proof not found"
+ *         transactionId: "TXN-A1B2C3D4-123456"
+ *         suggestion: "Verify the transaction ID and check if a payment proof was uploaded"
+ *
+ *   responses:
+ *     CloudinaryRedirect:
+ *       description: |
+ *         Successful redirect to Cloudinary CDN for direct file access.
+ *         The browser will automatically navigate to display the payment proof file.
+ *       headers:
+ *         Location:
+ *           description: Direct URL to the payment proof file on Cloudinary CDN
+ *           schema:
+ *             type: string
+ *             format: url
+ *             example: "https://res.cloudinary.com/your-cloud/image/upload/v1234567890/share-payments/payment-proof-123456.jpg"
+ *         Cache-Control:
+ *           description: Caching instructions for the redirect
+ *           schema:
+ *             type: string
+ *             example: "no-cache, no-store, must-revalidate"
+ *         X-Cloudinary-Public-Id:
+ *           description: Cloudinary public ID for the file (optional)
+ *           schema:
+ *             type: string
+ *             example: "share-payments/payment-proof-1234567890-123456"
+ */
+router.get('/admin/payment-proof/:transactionId', protect, adminProtect, shareController.getPaymentProofDirect);
 
 /**
  * @swagger
