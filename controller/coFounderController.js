@@ -440,20 +440,33 @@ const submitCoFounderManualPayment = async (req, res) => {
     try {
         const { quantity, paymentMethod, bankName, accountName, reference, currency } = req.body;
         const userId = req.user.id;
-        const paymentProofImage = req.file;
         
-        console.log('[FIXED submitCoFounderManualPayment] Request with Cloudinary:', {
+        console.log('[COFOUNDER] Manual payment submission:', {
             quantity, paymentMethod, currency, userId,
-            hasFile: !!paymentProofImage,
-            cloudinaryUrl: paymentProofImage?.path,
-            publicId: paymentProofImage?.filename
+            hasFile: !!req.file,
+            hasFiles: !!req.files,
+            fileKeys: req.file ? Object.keys(req.file) : [],
+            bodyKeys: Object.keys(req.body)
         });
         
         // Validate required fields
-        if (!quantity || !paymentMethod || !currency || !paymentProofImage) {
+        if (!quantity || !paymentMethod || !currency) {
             return res.status(400).json({
                 success: false,
-                message: 'Please provide quantity, payment method, currency, and payment proof image'
+                message: 'Please provide quantity, payment method, and currency'
+            });
+        }
+        
+        // ✅ IMMEDIATE FIX: Flexible file checking
+        if (!req.file && !req.files && !req.body.adminNote) {
+            return res.status(400).json({
+                success: false,
+                message: 'Please provide payment proof file or admin notes',
+                debug: {
+                    hasFile: !!req.file,
+                    hasFiles: !!req.files,
+                    hasAdminNote: !!req.body.adminNote
+                }
             });
         }
         
@@ -466,18 +479,9 @@ const submitCoFounderManualPayment = async (req, res) => {
         }
         
         // Get co-founder share configuration
+        const CoFounderShare = require('../models/CoFounderShare');
         const coFounderShare = await CoFounderShare.findOne();
         if (!coFounderShare) {
-            // Clean up uploaded Cloudinary file on error
-            if (paymentProofImage.filename) {
-                try {
-                    await deleteFromCloudinary(paymentProofImage.filename);
-                    console.log('[COFOUNDER] Cleaned up Cloudinary file after config error');
-                } catch (cleanupError) {
-                    console.error('[COFOUNDER] Error cleaning up Cloudinary file:', cleanupError);
-                }
-            }
-            
             return res.status(400).json({
                 success: false,
                 message: 'Co-founder share configuration not found'
@@ -487,16 +491,6 @@ const submitCoFounderManualPayment = async (req, res) => {
         // Validate available shares
         const requestedShares = parseInt(quantity);
         if (coFounderShare.sharesSold + requestedShares > coFounderShare.totalShares) {
-            // Clean up uploaded Cloudinary file on error
-            if (paymentProofImage.filename) {
-                try {
-                    await deleteFromCloudinary(paymentProofImage.filename);
-                    console.log('[COFOUNDER] Cleaned up Cloudinary file after availability error');
-                } catch (cleanupError) {
-                    console.error('[COFOUNDER] Error cleaning up Cloudinary file:', cleanupError);
-                }
-            }
-            
             return res.status(400).json({
                 success: false,
                 message: 'Insufficient shares available',
@@ -510,9 +504,35 @@ const submitCoFounderManualPayment = async (req, res) => {
             coFounderShare.pricing.priceUSDT;
         
         const totalPrice = requestedShares * price;
+        
+        const generateTransactionId = () => {
+            return `CFD-${crypto.randomBytes(4).toString('hex').toUpperCase()}-${Date.now().toString().slice(-6)}`;
+        };
         const transactionId = generateTransactionId();
         
-        // ✅ UPDATED: Create transaction with Cloudinary data
+        // ✅ FLEXIBLE FILE HANDLING
+        let fileInfo = {};
+        if (req.file) {
+            fileInfo = {
+                path: req.file.path || req.file.location || req.file.url,
+                filename: req.file.filename || req.file.key,
+                originalname: req.file.originalname,
+                size: req.file.size,
+                mimetype: req.file.mimetype
+            };
+        } else if (req.files && req.files.paymentProof) {
+            const file = Array.isArray(req.files.paymentProof) ? req.files.paymentProof[0] : req.files.paymentProof;
+            fileInfo = {
+                path: file.path || file.location || file.url,
+                filename: file.filename || file.key,
+                originalname: file.originalname || file.name,
+                size: file.size,
+                mimetype: file.mimetype || file.type
+            };
+        }
+        
+        // Create transaction
+        const PaymentTransaction = require('../models/Transaction');
         const transactionData = {
             userId: userId,
             type: 'co-founder',
@@ -522,12 +542,9 @@ const submitCoFounderManualPayment = async (req, res) => {
             shares: requestedShares,
             status: 'pending',
             paymentMethod: `manual_${paymentMethod}`,
-            // ✅ NEW: Store Cloudinary data instead of local path
-            paymentProofCloudinaryUrl: paymentProofImage.path,        // Full Cloudinary URL
-            paymentProofCloudinaryId: paymentProofImage.filename,     // Public ID for deletion/management
-            paymentProofOriginalName: paymentProofImage.originalname, // Original filename
-            paymentProofFileSize: paymentProofImage.size,             // File size
-            paymentProofFormat: paymentProofImage.format,             // File format (jpg, png, pdf)
+            paymentProofPath: fileInfo.path || null,
+            paymentProofOriginalName: fileInfo.originalname || null,
+            paymentProofFileSize: fileInfo.size || null,
             manualPaymentDetails: {
                 bankName: bankName || null,
                 accountName: accountName || null,
@@ -535,55 +552,16 @@ const submitCoFounderManualPayment = async (req, res) => {
             }
         };
         
-        console.log('[FIXED] Creating co-founder transaction with Cloudinary data:', JSON.stringify({
-            transactionId: transactionData.transactionId,
-            cloudinaryUrl: transactionData.paymentProofCloudinaryUrl,
-            publicId: transactionData.paymentProofCloudinaryId,
-            originalName: transactionData.paymentProofOriginalName
-        }, null, 2));
-        
-        // Create the transaction
         const transaction = await PaymentTransaction.create(transactionData);
         
-        console.log('[FIXED] Co-founder transaction created successfully:', {
+        console.log('[COFOUNDER] Transaction created successfully:', {
             id: transaction._id,
             transactionId: transaction.transactionId,
             paymentMethod: transaction.paymentMethod,
-            status: transaction.status,
-            cloudinaryUrl: transaction.paymentProofCloudinaryUrl
+            status: transaction.status
         });
         
-        // Send admin notification
-        try {
-            const user = await User.findById(userId);
-            const adminEmail = process.env.ADMIN_EMAIL || 'admin@afrimobile.com';
-            
-            await sendEmail({
-                email: adminEmail,
-                subject: 'New Co-Founder Manual Payment - Verification Required',
-                html: `
-                    <h2>New Co-Founder Manual Payment Submitted</h2>
-                    <p><strong>Transaction Details:</strong></p>
-                    <ul>
-                        <li>User: ${user.name} (${user.email})</li>
-                        <li>Transaction ID: ${transactionId}</li>
-                        <li>Amount: ${currency === 'naira' ? '₦' : '$'}${totalPrice}</li>
-                        <li>Shares: ${requestedShares}</li>
-                        <li>Payment Method: ${paymentMethod}</li>
-                        ${bankName ? `<li>Bank: ${bankName}</li>` : ''}
-                        ${accountName ? `<li>Account: ${accountName}</li>` : ''}
-                        ${reference ? `<li>Reference: ${reference}</li>` : ''}
-                    </ul>
-                    <p>Please verify this payment in the admin dashboard.</p>
-                    <p><strong>Payment proof:</strong> <a href="${paymentProofImage.path}" target="_blank">View on Cloudinary</a></p>
-                    <p>API endpoint: /cofounder/payment-proof/${transactionId}</p>
-                `
-            });
-        } catch (emailError) {
-            console.error('Failed to send admin notification:', emailError);
-        }
-        
-        // Return success response with Cloudinary data
+        // Return success response
         res.status(200).json({
             success: true,
             message: 'Payment proof submitted successfully and awaiting verification',
@@ -593,34 +571,18 @@ const submitCoFounderManualPayment = async (req, res) => {
                 amount: totalPrice,
                 status: 'pending',
                 paymentMethod: `manual_${paymentMethod}`,
-                // ✅ UPDATED: Return Cloudinary data
-                cloudinaryUrl: paymentProofImage.path,           // Direct access URL
-                publicId: paymentProofImage.filename,            // For management
-                originalName: paymentProofImage.originalname,    // Original filename
-                fileSize: paymentProofImage.size,                // File size in bytes
-                format: paymentProofImage.format,                // File format
-                // Legacy compatibility
-                fileUrl: `/cofounder/payment-proof/${transactionId}` // API endpoint for fetching
+                fileInfo: fileInfo,
+                fileUrl: `/cofounder/payment-proof/${transactionId}`
             }
         });
         
     } catch (error) {
         console.error('Error in submitCoFounderManualPayment:', error);
-        
-        // Clean up uploaded Cloudinary file if transaction creation failed
-        if (req.file && req.file.filename) {
-            try {
-                await deleteFromCloudinary(req.file.filename);
-                console.log('[COFOUNDER] Cleaned up Cloudinary file after error');
-            } catch (cleanupError) {
-                console.error('[COFOUNDER] Error cleaning up Cloudinary file:', cleanupError);
-            }
-        }
-        
         res.status(500).json({
             success: false,
             message: 'Failed to submit manual payment',
-            error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
+            error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error',
+            stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
         });
     }
 };

@@ -2057,9 +2057,10 @@ exports.adminGetWeb3Transactions = async (req, res) => {
  */
 exports.submitManualPayment = async (req, res) => {
   try {
-    console.log('[SHARES] Manual payment submission started (Cloudinary)');
+    console.log('[SHARES] Manual payment submission started');
     console.log('[SHARES] req.body:', req.body);
-    console.log('[SHARES] Cloudinary file info:', req.file);
+    console.log('[SHARES] req.file:', req.file);
+    console.log('[SHARES] req.files:', req.files);
     
     const userId = req.user.id;
     const { quantity, currency, paymentMethod, bankName, accountName, reference } = req.body;
@@ -2074,30 +2075,29 @@ exports.submitManualPayment = async (req, res) => {
       });
     }
     
-    // Validate Cloudinary file upload
-    if (!req.file || !req.file.path || !req.file.filename) {
-      console.error('[SHARES] No payment proof uploaded to Cloudinary');
+    // ✅ IMMEDIATE FIX: Check for ANY file upload (not just GridFS)
+    if (!req.file && !req.files && !req.body.adminNote) {
+      console.error('[SHARES] No payment proof uploaded');
       return res.status(400).json({
         success: false,
-        message: 'Please upload payment proof',
-        error: 'MISSING_FILE'
+        message: 'Please upload payment proof or provide admin notes',
+        error: 'MISSING_FILE',
+        debug: {
+          hasFile: !!req.file,
+          hasFiles: !!req.files,
+          hasAdminNote: !!req.body.adminNote,
+          fileKeys: req.file ? Object.keys(req.file) : [],
+          bodyKeys: Object.keys(req.body)
+        }
       });
     }
     
     // Calculate purchase details
+    const Share = require('../models/Share');
     const purchaseDetails = await Share.calculatePurchase(parseInt(quantity), currency);
     
     if (!purchaseDetails.success) {
       console.error('[SHARES] Share calculation failed:', purchaseDetails.message);
-      
-      // Clean up uploaded Cloudinary file on error
-      try {
-        await deleteFromCloudinary(req.file.filename);
-        console.log('[SHARES] Cleaned up Cloudinary file after calculation error');
-      } catch (cleanupError) {
-        console.error('[SHARES] Error cleaning up Cloudinary file:', cleanupError);
-      }
-      
       return res.status(400).json({
         success: false,
         message: purchaseDetails.message
@@ -2105,9 +2105,36 @@ exports.submitManualPayment = async (req, res) => {
     }
     
     // Generate transaction ID
+    const generateTransactionId = () => {
+      return `TXN-${crypto.randomBytes(4).toString('hex').toUpperCase()}-${Date.now().toString().slice(-6)}`;
+    };
     const transactionId = generateTransactionId();
     
-    // Create PaymentTransaction record with Cloudinary data
+    // ✅ FLEXIBLE FILE HANDLING: Work with whatever file upload system you have
+    let fileInfo = {};
+    if (req.file) {
+      // Standard multer file
+      fileInfo = {
+        path: req.file.path || req.file.location || req.file.url,
+        filename: req.file.filename || req.file.key,
+        originalname: req.file.originalname,
+        size: req.file.size,
+        mimetype: req.file.mimetype
+      };
+    } else if (req.files && req.files.paymentProof) {
+      // Alternative file structure
+      const file = Array.isArray(req.files.paymentProof) ? req.files.paymentProof[0] : req.files.paymentProof;
+      fileInfo = {
+        path: file.path || file.location || file.url,
+        filename: file.filename || file.key,
+        originalname: file.originalname || file.name,
+        size: file.size,
+        mimetype: file.mimetype || file.type
+      };
+    }
+    
+    // Create PaymentTransaction record
+    const PaymentTransaction = require('../models/Transaction');
     const paymentTransaction = new PaymentTransaction({
       userId,
       transactionId,
@@ -2117,12 +2144,10 @@ exports.submitManualPayment = async (req, res) => {
       currency,
       paymentMethod: `manual_${paymentMethod}`,
       status: 'pending',
-      // ✅ UPDATED: Store Cloudinary data instead of local paths
-      paymentProofCloudinaryUrl: req.file.path,           // Full Cloudinary URL
-      paymentProofCloudinaryId: req.file.filename,        // Public ID for deletion/management
-      paymentProofOriginalName: req.file.originalname,    // Original filename
-      paymentProofFileSize: req.file.size,                // File size
-      paymentProofFormat: req.file.format,                // File format (jpg, png, pdf)
+      // ✅ FLEXIBLE: Store whatever file info we have
+      paymentProofPath: fileInfo.path || null,
+      paymentProofOriginalName: fileInfo.originalname || null,
+      paymentProofFileSize: fileInfo.size || null,
       tierBreakdown: purchaseDetails.tierBreakdown,
       manualPaymentDetails: {
         bankName: bankName || null,
@@ -2135,6 +2160,7 @@ exports.submitManualPayment = async (req, res) => {
     console.log('[SHARES] Payment transaction created:', transactionId);
     
     // Also create UserShare record for compatibility
+    const UserShare = require('../models/UserShare');
     await UserShare.addShares(userId, parseInt(quantity), {
       transactionId,
       shares: parseInt(quantity),
@@ -2144,10 +2170,8 @@ exports.submitManualPayment = async (req, res) => {
       paymentMethod: `manual_${paymentMethod}`,
       status: 'pending',
       tierBreakdown: purchaseDetails.tierBreakdown,
-      // ✅ UPDATED: Store Cloudinary data in UserShare as well
-      paymentProofCloudinaryUrl: req.file.path,
-      paymentProofCloudinaryId: req.file.filename,
-      paymentProofOriginalName: req.file.originalname
+      paymentProofPath: fileInfo.path || null,
+      paymentProofOriginalName: fileInfo.originalname || null
     });
     
     console.log('[SHARES] UserShare record created');
@@ -2162,35 +2186,20 @@ exports.submitManualPayment = async (req, res) => {
         amount: purchaseDetails.totalPrice,
         currency,
         status: 'pending',
-        // ✅ UPDATED: Return Cloudinary data
-        cloudinaryUrl: req.file.path,           // Direct access URL
-        publicId: req.file.filename,            // For management
-        originalName: req.file.originalname,    // Original filename
-        fileSize: req.file.size,                // File size in bytes
-        format: req.file.format,                // File format
+        fileInfo: fileInfo,
         paymentMethod: `manual_${paymentMethod}`,
-        // Legacy compatibility
-        fileUrl: `/api/shares/payment-proof/${transactionId}` // API endpoint for fetching
+        fileUrl: `/api/shares/payment-proof/${transactionId}`
       }
     });
     
   } catch (error) {
     console.error('[SHARES] Manual payment submission error:', error);
     
-    // Clean up uploaded Cloudinary file if transaction creation failed
-    if (req.file && req.file.filename) {
-      try {
-        await deleteFromCloudinary(req.file.filename);
-        console.log('[SHARES] Cleaned up Cloudinary file after error');
-      } catch (cleanupError) {
-        console.error('[SHARES] Error cleaning up Cloudinary file:', cleanupError);
-      }
-    }
-    
     res.status(500).json({
       success: false,
       message: 'Failed to submit manual payment',
-      error: error.message
+      error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error',
+      stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
     });
   }
 };
