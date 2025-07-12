@@ -3,7 +3,11 @@ const express = require('express');
 const router = express.Router();
 const coFounderController = require('../controller/coFounderController');
 const { protect, adminProtect } = require('../middleware/auth');
-const { coFounderPaymentUpload } = require('../config/multer');
+const { 
+  cofounderPaymentUpload, 
+  logCloudinaryUpload, 
+  handleCloudinaryError 
+} = require('../config/cloudinary');
 const User = require('../models/User');
 const PaymentTransaction = require('../models/Transaction');
 const multer = require('multer');
@@ -99,7 +103,100 @@ const handleUploadError = (err, req, res, next) => {
     return res.status(400).json({ success: false, message: err.message || 'File upload failed' });
   }
   next();
+}; 
+
+const validateCoFounderManualPayment = (req, res, next) => {
+  console.log('\n=== CO-FOUNDER VALIDATION MIDDLEWARE (CLOUDINARY) ===');
+  console.log('Body:', req.body);
+  console.log('File:', req.file);
+  
+  const { quantity, currency, paymentMethod } = req.body;
+  
+  // Check required fields
+  if (!quantity || !currency || !paymentMethod) {
+    console.log('Missing required fields');
+    return res.status(400).json({
+      success: false,
+      message: 'Missing required fields: quantity, currency, and paymentMethod are required',
+      error: 'MISSING_FIELDS',
+      received: {
+        quantity: !!quantity,
+        currency: !!currency,
+        paymentMethod: !!paymentMethod,
+        file: !!req.file
+      }
+    });
+  }
+  
+  // Validate quantity
+  const qty = parseInt(quantity);
+  if (isNaN(qty) || qty < 1) {
+    return res.status(400).json({
+      success: false,
+      message: 'Invalid quantity. Must be a positive integer.',
+      error: 'INVALID_QUANTITY'
+    });
+  }
+  
+  // Validate currency
+  if (!['naira', 'usdt'].includes(currency.toLowerCase())) {
+    return res.status(400).json({
+      success: false,
+      message: 'Invalid currency. Must be either "naira" or "usdt".',
+      error: 'INVALID_CURRENCY'
+    });
+  }
+  
+  // Validate payment method
+  const validPaymentMethods = ['bank_transfer', 'cash', 'other'];
+  if (!validPaymentMethods.includes(paymentMethod)) {
+    return res.status(400).json({
+      success: false,
+      message: `Invalid payment method. Must be one of: ${validPaymentMethods.join(', ')}`,
+      error: 'INVALID_PAYMENT_METHOD'
+    });
+  }
+  
+  // Check if Cloudinary file was uploaded
+  if (!req.file || !req.file.path) {
+    return res.status(400).json({
+      success: false,
+      message: 'Payment proof image is required and must be uploaded successfully',
+      error: 'MISSING_CLOUDINARY_FILE'
+    });
+  }
+  
+  console.log('Validation passed - Cloudinary file uploaded successfully');
+  console.log('Cloudinary URL:', req.file.path);
+  console.log('Public ID:', req.file.filename);
+  console.log('============================\n');
+  next();
 };
+
+// Request debugging middleware
+const debugCoFounderRequest = (req, res, next) => {
+  console.log('\n=== CO-FOUNDER MANUAL PAYMENT REQUEST DEBUG (CLOUDINARY) ===');
+  console.log('Method:', req.method);
+  console.log('URL:', req.url);
+  console.log('Headers:', JSON.stringify({
+    'content-type': req.headers['content-type'],
+    'content-length': req.headers['content-length'],
+    'authorization': req.headers.authorization ? '[PRESENT]' : '[MISSING]'
+  }, null, 2));
+  console.log('Body fields:', Object.keys(req.body || {}));
+  console.log('File info:', req.file ? {
+    fieldname: req.file.fieldname,
+    originalname: req.file.originalname,
+    mimetype: req.file.mimetype,
+    size: req.file.size,
+    cloudinaryUrl: req.file.path,
+    publicId: req.file.filename
+  } : 'No file');
+  console.log('Body content:', req.body);
+  console.log('=====================================\n');
+  next();
+};
+
 
 // ===================================================================
 // SWAGGER COMPONENT SCHEMAS
@@ -528,15 +625,17 @@ router.get('/user/shares', protect, coFounderController.getUserCoFounderShares);
  * /cofounder/manual/submit:
  *   post:
  *     tags: [Co-Founder - Manual Payment]
- *     summary: Submit manual payment (FIXED)
+ *     summary: Submit co-founder manual payment with Cloudinary
  *     description: |
- *       Submit manual payment with proof for co-founder shares.
+ *       Submit manual payment with proof for co-founder shares stored on Cloudinary CDN.
  *       
- *       **FIXED ISSUES:**
- *       - ✅ Proper file upload handling
- *       - ✅ Consistent payment method formatting
- *       - ✅ Admin visibility of transactions
- *       - ✅ File path resolution
+ *       **IMPROVED FEATURES:**
+ *       - ✅ Files stored on Cloudinary CDN (fast global access)
+ *       - ✅ Automatic image optimization and compression
+ *       - ✅ Support for images and PDFs
+ *       - ✅ No server storage issues
+ *       - ✅ Reliable file serving
+ *       - ✅ Enhanced admin visibility and management
  *     security:
  *       - bearerAuth: []
  *     requestBody:
@@ -577,10 +676,10 @@ router.get('/user/shares', protect, coFounderController.getUserCoFounderShares);
  *               paymentProof:
  *                 type: string
  *                 format: binary
- *                 description: Payment proof image/PDF (max 5MB)
+ *                 description: Payment proof image/PDF (max 5MB) - uploaded to Cloudinary
  *     responses:
  *       200:
- *         description: Payment submitted successfully
+ *         description: Payment submitted successfully to Cloudinary
  *         content:
  *           application/json:
  *             schema:
@@ -607,9 +706,14 @@ router.get('/user/shares', protect, coFounderController.getUserCoFounderShares);
  *                     status:
  *                       type: string
  *                       example: "pending"
- *                     fileUrl:
+ *                     cloudinaryUrl:
  *                       type: string
- *                       example: "/cofounder/payment-proof/CFD-A1B2-123456"
+ *                       example: "https://res.cloudinary.com/your-cloud/image/upload/v1234567890/cofounder-payments/payment-123456.jpg"
+ *                       description: Direct URL to the uploaded file on Cloudinary
+ *                     publicId:
+ *                       type: string
+ *                       example: "cofounder-payments/payment-1234567890-123456"
+ *                       description: Cloudinary public ID for file management
  *       400:
  *         description: Bad request - invalid parameters or file upload error
  *       401:
@@ -631,10 +735,12 @@ router.get('/user/shares', protect, coFounderController.getUserCoFounderShares);
  */
 router.post('/manual/submit', 
   protect, 
-  upload.single('paymentProof'),  // ← Use the 'upload' defined in your routes file
-  logUpload,
-  handleUploadError,
-  coFounderController.submitCoFounderManualPayment
+  debugCoFounderRequest,                               // Debug incoming request
+  cofounderPaymentUpload.single('paymentProof'),      // ✅ NEW: Cloudinary upload middleware
+  logCloudinaryUpload,                                 // Log successful upload
+  handleCloudinaryError,                               // Handle upload errors
+  validateCoFounderManualPayment,                      // Validate required fields and Cloudinary upload
+  coFounderController.submitCoFounderManualPayment     // Controller function
 );
 
 /**
@@ -642,14 +748,15 @@ router.post('/manual/submit',
  * /cofounder/payment-proof/{transactionId}:
  *   get:
  *     tags: [Co-Founder - Manual Payment]
- *     summary: Get payment proof (FIXED)
+ *     summary: Get co-founder payment proof from Cloudinary
  *     description: |
- *       Retrieve payment proof image/PDF for transaction.
+ *       Retrieve payment proof image/PDF from Cloudinary CDN for co-founder transaction.
  *       
- *       **FIXED ISSUES:**
- *       - ✅ Enhanced file path resolution
- *       - ✅ Multiple environment support
- *       - ✅ Proper content-type detection
+ *       **IMPROVED FEATURES:**
+ *       - ✅ Fast global CDN delivery
+ *       - ✅ Automatic image optimization
+ *       - ✅ Reliable file serving
+ *       - ✅ No server load for file serving
  *     security:
  *       - bearerAuth: []
  *     parameters:
@@ -662,20 +769,36 @@ router.post('/manual/submit',
  *         example: "CFD-A1B2-123456"
  *     responses:
  *       200:
- *         description: Payment proof retrieved successfully
+ *         description: Payment proof URL retrieved successfully
  *         content:
- *           image/jpeg:
+ *           application/json:
  *             schema:
- *               type: string
- *               format: binary
- *           image/png:
- *             schema:
- *               type: string
- *               format: binary
- *           application/pdf:
- *             schema:
- *               type: string
- *               format: binary
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 cloudinaryUrl:
+ *                   type: string
+ *                   example: "https://res.cloudinary.com/your-cloud/image/upload/v1234567890/cofounder-payments/payment-123456.jpg"
+ *                   description: Direct URL to access the file from Cloudinary
+ *                 publicId:
+ *                   type: string
+ *                   example: "cofounder-payments/payment-1234567890-123456"
+ *                 originalName:
+ *                   type: string
+ *                   example: "receipt.jpg"
+ *                 fileSize:
+ *                   type: integer
+ *                   example: 1024576
+ *                 format:
+ *                   type: string
+ *                   example: "jpg"
+ *                 directAccess:
+ *                   type: string
+ *                   example: "You can access this file directly at the cloudinaryUrl"
+ *       302:
+ *         description: Redirect to Cloudinary URL (alternative response)
  *       401:
  *         description: Unauthorized
  *       403:

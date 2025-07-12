@@ -12,7 +12,7 @@ const SiteConfig = require('../models/SiteConfig');
 const CoFounderShare = require('../models/CoFounderShare');
 const PaymentTransaction = require('../models/Transaction');
 const { processReferralCommission, rollbackReferralCommission } = require('../utils/referralUtils');
-const gridfsUpload = require('../middleware/gridfsUpload');
+const { deleteFromCloudinary } = require('../config/cloudinary');
 
 // Generate a unique transaction ID
 const generateTransactionId = () => {
@@ -2051,15 +2051,15 @@ exports.adminGetWeb3Transactions = async (req, res) => {
 };
 
 /**
- * @desc    Submit manual payment proof - Fixed for Render.com
+ * @desc    Submit manual payment proof - Updated for Cloudinary
  * @route   POST /api/shares/manual/submit
  * @access  Private (User)
  */
 exports.submitManualPayment = async (req, res) => {
   try {
-    console.log('[SHARES] Manual payment submission started');
+    console.log('[SHARES] Manual payment submission started (Cloudinary)');
     console.log('[SHARES] req.body:', req.body);
-    console.log('[SHARES] GridFS file info:', req.gridfsFile);
+    console.log('[SHARES] Cloudinary file info:', req.file);
     
     const userId = req.user.id;
     const { quantity, currency, paymentMethod, bankName, accountName, reference } = req.body;
@@ -2074,9 +2074,9 @@ exports.submitManualPayment = async (req, res) => {
       });
     }
     
-    // Validate GridFS file upload
-    if (!req.gridfsFile || !req.file.gridfsFilename) {
-      console.error('[SHARES] No payment proof uploaded to GridFS');
+    // Validate Cloudinary file upload
+    if (!req.file || !req.file.path || !req.file.filename) {
+      console.error('[SHARES] No payment proof uploaded to Cloudinary');
       return res.status(400).json({
         success: false,
         message: 'Please upload payment proof',
@@ -2090,12 +2090,12 @@ exports.submitManualPayment = async (req, res) => {
     if (!purchaseDetails.success) {
       console.error('[SHARES] Share calculation failed:', purchaseDetails.message);
       
-      // Clean up uploaded file on error
+      // Clean up uploaded Cloudinary file on error
       try {
-        await gridfsUpload.deleteFromGridFS(req.file.gridfsFilename);
-        console.log('[SHARES] Cleaned up GridFS file after calculation error');
+        await deleteFromCloudinary(req.file.filename);
+        console.log('[SHARES] Cleaned up Cloudinary file after calculation error');
       } catch (cleanupError) {
-        console.error('[SHARES] Error cleaning up GridFS file:', cleanupError);
+        console.error('[SHARES] Error cleaning up Cloudinary file:', cleanupError);
       }
       
       return res.status(400).json({
@@ -2107,7 +2107,7 @@ exports.submitManualPayment = async (req, res) => {
     // Generate transaction ID
     const transactionId = generateTransactionId();
     
-    // Create PaymentTransaction record with GridFS filename
+    // Create PaymentTransaction record with Cloudinary data
     const paymentTransaction = new PaymentTransaction({
       userId,
       transactionId,
@@ -2117,9 +2117,12 @@ exports.submitManualPayment = async (req, res) => {
       currency,
       paymentMethod: `manual_${paymentMethod}`,
       status: 'pending',
-      paymentProofGridFS: req.file.gridfsFilename, // Store GridFS filename
-      paymentProofFileId: req.gridfsFile.fileId, // Store GridFS file ID
-      paymentProofOriginalName: req.file.originalname,
+      // ✅ UPDATED: Store Cloudinary data instead of local paths
+      paymentProofCloudinaryUrl: req.file.path,           // Full Cloudinary URL
+      paymentProofCloudinaryId: req.file.filename,        // Public ID for deletion/management
+      paymentProofOriginalName: req.file.originalname,    // Original filename
+      paymentProofFileSize: req.file.size,                // File size
+      paymentProofFormat: req.file.format,                // File format (jpg, png, pdf)
       tierBreakdown: purchaseDetails.tierBreakdown,
       manualPaymentDetails: {
         bankName: bankName || null,
@@ -2141,7 +2144,9 @@ exports.submitManualPayment = async (req, res) => {
       paymentMethod: `manual_${paymentMethod}`,
       status: 'pending',
       tierBreakdown: purchaseDetails.tierBreakdown,
-      paymentProofGridFS: req.file.gridfsFilename, // Store GridFS filename instead of path
+      // ✅ UPDATED: Store Cloudinary data in UserShare as well
+      paymentProofCloudinaryUrl: req.file.path,
+      paymentProofCloudinaryId: req.file.filename,
       paymentProofOriginalName: req.file.originalname
     });
     
@@ -2157,23 +2162,28 @@ exports.submitManualPayment = async (req, res) => {
         amount: purchaseDetails.totalPrice,
         currency,
         status: 'pending',
-        fileUrl: `/api/shares/payment-proof/${transactionId}`, // This will now serve from GridFS
+        // ✅ UPDATED: Return Cloudinary data
+        cloudinaryUrl: req.file.path,           // Direct access URL
+        publicId: req.file.filename,            // For management
+        originalName: req.file.originalname,    // Original filename
+        fileSize: req.file.size,                // File size in bytes
+        format: req.file.format,                // File format
         paymentMethod: `manual_${paymentMethod}`,
-        gridfsFilename: req.file.gridfsFilename,
-        fileSize: req.file.size
+        // Legacy compatibility
+        fileUrl: `/api/shares/payment-proof/${transactionId}` // API endpoint for fetching
       }
     });
     
   } catch (error) {
     console.error('[SHARES] Manual payment submission error:', error);
     
-    // Clean up uploaded GridFS file if transaction creation failed
-    if (req.file && req.file.gridfsFilename) {
+    // Clean up uploaded Cloudinary file if transaction creation failed
+    if (req.file && req.file.filename) {
       try {
-        await gridfsUpload.deleteFromGridFS(req.file.gridfsFilename);
-        console.log('[SHARES] Cleaned up GridFS file after error');
+        await deleteFromCloudinary(req.file.filename);
+        console.log('[SHARES] Cleaned up Cloudinary file after error');
       } catch (cleanupError) {
-        console.error('[SHARES] Error cleaning up GridFS file:', cleanupError);
+        console.error('[SHARES] Error cleaning up Cloudinary file:', cleanupError);
       }
     }
     
@@ -2185,7 +2195,11 @@ exports.submitManualPayment = async (req, res) => {
   }
 };
 
-// Updated getPaymentProof function
+/**
+ * @desc    Get payment proof from Cloudinary
+ * @route   GET /api/shares/payment-proof/:transactionId
+ * @access  Private (User)
+ */
 exports.getPaymentProof = async (req, res) => {
   try {
     const { transactionId } = req.params;
@@ -2193,9 +2207,12 @@ exports.getPaymentProof = async (req, res) => {
     
     console.log(`[getPaymentProof] Request for transaction: ${transactionId} from user: ${userId}`);
     
-    // Look in both UserShare and PaymentTransaction for GridFS filename
-    let gridfsFilename = null;
+    // Look in both UserShare and PaymentTransaction for Cloudinary data
+    let cloudinaryUrl = null;
+    let cloudinaryId = null;
     let originalName = null;
+    let fileSize = null;
+    let format = null;
     let userShareRecord = null;
 
     // First check UserShare (for backward compatibility)
@@ -2209,21 +2226,25 @@ exports.getPaymentProof = async (req, res) => {
       );
       
       if (transaction) {
-        gridfsFilename = transaction.paymentProofGridFS;
+        cloudinaryUrl = transaction.paymentProofCloudinaryUrl;
+        cloudinaryId = transaction.paymentProofCloudinaryId;
         originalName = transaction.paymentProofOriginalName;
       }
     }
 
     // If not found in UserShare, check PaymentTransaction
-    if (!gridfsFilename) {
+    if (!cloudinaryUrl) {
       const paymentTransaction = await PaymentTransaction.findOne({
         transactionId,
         type: 'share'
       });
       
       if (paymentTransaction) {
-        gridfsFilename = paymentTransaction.paymentProofGridFS;
+        cloudinaryUrl = paymentTransaction.paymentProofCloudinaryUrl;
+        cloudinaryId = paymentTransaction.paymentProofCloudinaryId;
         originalName = paymentTransaction.paymentProofOriginalName;
+        fileSize = paymentTransaction.paymentProofFileSize;
+        format = paymentTransaction.paymentProofFormat;
         
         // Check if user owns this transaction
         const user = await User.findById(userId);
@@ -2237,8 +2258,8 @@ exports.getPaymentProof = async (req, res) => {
       }
     }
 
-    if (!gridfsFilename) {
-      console.error('[SHARES] Transaction not found or no GridFS file:', transactionId);
+    if (!cloudinaryUrl) {
+      console.error('[SHARES] Transaction not found or no Cloudinary file:', transactionId);
       return res.status(404).json({
         success: false,
         message: 'Transaction not found or payment proof not available'
@@ -2257,36 +2278,22 @@ exports.getPaymentProof = async (req, res) => {
       }
     }
 
-    console.log(`[getPaymentProof] Serving GridFS file: ${gridfsFilename}`);
+    console.log(`[getPaymentProof] Serving Cloudinary file: ${cloudinaryUrl}`);
 
-    // Download file from GridFS
-    try {
-      const { buffer, fileInfo, contentType } = await gridfsUpload.downloadFromGridFS(gridfsFilename);
-      
-      // Set headers
-      res.setHeader('Content-Type', contentType);
-      res.setHeader('Content-Length', buffer.length);
-      res.setHeader('Content-Disposition', `inline; filename="${originalName || gridfsFilename}"`);
-      res.setHeader('Cache-Control', 'public, max-age=3600'); // Cache for 1 hour
-      
-      // Send the file
-      res.send(buffer);
-      
-    } catch (gridfsError) {
-      console.error(`[getPaymentProof] GridFS error: ${gridfsError.message}`);
-      
-      if (gridfsError.message.includes('FileNotFound') || gridfsError.message.includes('file not found')) {
-        return res.status(404).json({
-          success: false,
-          message: 'Payment proof file not found in database'
-        });
-      }
-      
-      return res.status(500).json({
-        success: false,
-        message: 'Error retrieving payment proof from database'
-      });
-    }
+    // Option 1: Return the Cloudinary URL (recommended)
+    res.status(200).json({
+      success: true,
+      cloudinaryUrl: cloudinaryUrl,
+      publicId: cloudinaryId,
+      originalName: originalName,
+      fileSize: fileSize,
+      format: format,
+      directAccess: "You can access this file directly at the cloudinaryUrl",
+      message: "File is hosted on Cloudinary CDN for fast global access"
+    });
+
+    // Option 2: Redirect to Cloudinary URL (alternative)
+    // res.redirect(cloudinaryUrl);
     
   } catch (error) {
     console.error(`[getPaymentProof] Server error: ${error.message}`, error);
@@ -2298,8 +2305,9 @@ exports.getPaymentProof = async (req, res) => {
   }
 };
 
+
 /**
- * @desc    Admin: Get all manual payment transactions
+ * @desc    Admin: Get all manual payment transactions (Updated for Cloudinary)
  * @route   GET /api/shares/admin/manual/transactions
  * @access  Private (Admin)
  */
@@ -2320,7 +2328,7 @@ exports.adminGetManualTransactions = async (req, res) => {
     const { status, page = 1, limit = 20 } = req.query;
     const skip = (parseInt(page) - 1) * parseInt(limit);
     
-    // ✅ FIXED: Get manual transactions from PaymentTransaction model
+    // ✅ UPDATED: Get manual transactions from PaymentTransaction model
     const paymentTransactions = await PaymentTransaction.find({
       type: 'share',
       paymentMethod: { $regex: '^manual_' },
@@ -2331,12 +2339,12 @@ exports.adminGetManualTransactions = async (req, res) => {
     .skip(skip)
     .limit(parseInt(limit));
 
-    // Format response
+    // Format response with Cloudinary data
     const transactions = paymentTransactions.map(transaction => {
-      // Generate correct payment proof URL
+      // ✅ UPDATED: Use Cloudinary URL instead of local path
       let paymentProofUrl = null;
-      if (transaction.paymentProofPath) {
-        paymentProofUrl = `/shares/payment-proof/${transaction.transactionId}`;
+      if (transaction.paymentProofCloudinaryUrl) {
+        paymentProofUrl = transaction.paymentProofCloudinaryUrl; // Direct Cloudinary URL
       }
 
       return {
@@ -2355,7 +2363,12 @@ exports.adminGetManualTransactions = async (req, res) => {
         paymentMethod: transaction.paymentMethod.replace('manual_', ''),
         status: transaction.status,
         date: transaction.createdAt,
+        // ✅ UPDATED: Return Cloudinary data
         paymentProofUrl: paymentProofUrl,
+        cloudinaryPublicId: transaction.paymentProofCloudinaryId,
+        originalFileName: transaction.paymentProofOriginalName,
+        fileSize: transaction.paymentProofFileSize,
+        fileFormat: transaction.paymentProofFormat,
         manualPaymentDetails: transaction.manualPaymentDetails || {},
         adminNote: transaction.adminNotes
       };
@@ -2640,7 +2653,7 @@ exports.adminCancelManualPayment = async (req, res) => {
   }
 };
 /**
- * @desc    Admin: Delete manual payment transaction
+ * @desc    Admin: Delete manual payment transaction with Cloudinary cleanup
  * @route   DELETE /api/shares/admin/manual/:transactionId
  * @access  Private (Admin)
  */
@@ -2695,7 +2708,8 @@ exports.adminDeleteManualPayment = async (req, res) => {
       currency: transaction.currency,
       status: transaction.status,
       tierBreakdown: transaction.tierBreakdown,
-      paymentProofGridFS: transaction.paymentProofGridFS
+      cloudinaryId: transaction.paymentProofCloudinaryId,
+      cloudinaryUrl: transaction.paymentProofCloudinaryUrl
     };
     
     // If transaction was completed, rollback global share counts
@@ -2740,17 +2754,17 @@ exports.adminDeleteManualPayment = async (req, res) => {
     
     await userShareRecord.save();
     
-    // Delete GridFS file if it exists
-    if (transactionDetails.paymentProofGridFS) {
+    // ✅ UPDATED: Delete Cloudinary file if it exists
+    if (transactionDetails.cloudinaryId) {
       try {
-        const deleted = await gridfsUpload.deleteFromGridFS(transactionDetails.paymentProofGridFS);
-        if (deleted) {
-          console.log(`Payment proof file deleted from GridFS: ${transactionDetails.paymentProofGridFS}`);
+        const deleteResult = await deleteFromCloudinary(transactionDetails.cloudinaryId);
+        if (deleteResult.result === 'ok') {
+          console.log(`Payment proof file deleted from Cloudinary: ${transactionDetails.cloudinaryId}`);
         } else {
-          console.log(`Payment proof file not found in GridFS: ${transactionDetails.paymentProofGridFS}`);
+          console.log(`Payment proof file not found in Cloudinary: ${transactionDetails.cloudinaryId}`);
         }
       } catch (fileError) {
-        console.error('Error deleting payment proof file from GridFS:', fileError);
+        console.error('Error deleting payment proof file from Cloudinary:', fileError);
         // Continue with deletion even if file deletion fails
       }
     }
@@ -2763,14 +2777,14 @@ exports.adminDeleteManualPayment = async (req, res) => {
       });
       
       if (paymentTransaction) {
-        // Delete GridFS file from PaymentTransaction as well
-        if (paymentTransaction.paymentProofGridFS && 
-            paymentTransaction.paymentProofGridFS !== transactionDetails.paymentProofGridFS) {
+        // Delete Cloudinary file from PaymentTransaction as well (if different)
+        if (paymentTransaction.paymentProofCloudinaryId && 
+            paymentTransaction.paymentProofCloudinaryId !== transactionDetails.cloudinaryId) {
           try {
-            await gridfsUpload.deleteFromGridFS(paymentTransaction.paymentProofGridFS);
-            console.log(`Payment proof file deleted from GridFS (PaymentTransaction): ${paymentTransaction.paymentProofGridFS}`);
+            await deleteFromCloudinary(paymentTransaction.paymentProofCloudinaryId);
+            console.log(`Payment proof file deleted from Cloudinary (PaymentTransaction): ${paymentTransaction.paymentProofCloudinaryId}`);
           } catch (fileError) {
-            console.error('Error deleting PaymentTransaction GridFS file:', fileError);
+            console.error('Error deleting PaymentTransaction Cloudinary file:', fileError);
           }
         }
         
@@ -2823,7 +2837,7 @@ exports.adminDeleteManualPayment = async (req, res) => {
       shares: transactionDetails.shares,
       amount: transactionDetails.totalAmount,
       currency: transactionDetails.currency,
-      gridfsFileDeleted: !!transactionDetails.paymentProofGridFS,
+      cloudinaryFileDeleted: !!transactionDetails.cloudinaryId,
       timestamp: new Date().toISOString()
     });
     
@@ -2843,7 +2857,7 @@ exports.adminDeleteManualPayment = async (req, res) => {
           newTotalShares: userShareRecord.totalShares,
           sharesRemoved: transactionDetails.status === 'completed' ? transactionDetails.shares : 0
         },
-        fileDeleted: !!transactionDetails.paymentProofGridFS
+        cloudinaryFileDeleted: !!transactionDetails.cloudinaryId
       }
     });
   } catch (error) {
@@ -2855,8 +2869,6 @@ exports.adminDeleteManualPayment = async (req, res) => {
     });
   }
 };
-
-// Add this function to the end of your shareController.js file, before the module.exports
 
 /**
  * @desc    Get share purchase report with date range filtering

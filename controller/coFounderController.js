@@ -8,6 +8,7 @@ const axios = require('axios');
 const { ethers } = require('ethers');
 const { sendEmail } = require('../utils/emailService');
 const { handleCofounderPurchase } = require('./referralController');
+const { deleteFromCloudinary } = require('../config/cloudinary');
 const { processReferralCommission, rollbackReferralCommission } = require('../utils/referralUtils');
 
 // Generate a unique transaction ID
@@ -430,17 +431,22 @@ const verifyCoFounderPaystackPayment = async (req, res) => {
 };
 
 
-// EMERGENCY FIX: Replace the submitCoFounderManualPayment function in your coFounderController.js
+/**
+ * @desc    Submit co-founder manual payment proof - Updated for Cloudinary
+ * @route   POST /api/cofounder/manual/submit
+ * @access  Private (User)
+ */
 const submitCoFounderManualPayment = async (req, res) => {
     try {
         const { quantity, paymentMethod, bankName, accountName, reference, currency } = req.body;
         const userId = req.user.id;
         const paymentProofImage = req.file;
         
-        console.log('[FIXED submitCoFounderManualPayment] Request:', {
+        console.log('[FIXED submitCoFounderManualPayment] Request with Cloudinary:', {
             quantity, paymentMethod, currency, userId,
             hasFile: !!paymentProofImage,
-            fileName: paymentProofImage?.filename
+            cloudinaryUrl: paymentProofImage?.path,
+            publicId: paymentProofImage?.filename
         });
         
         // Validate required fields
@@ -462,6 +468,16 @@ const submitCoFounderManualPayment = async (req, res) => {
         // Get co-founder share configuration
         const coFounderShare = await CoFounderShare.findOne();
         if (!coFounderShare) {
+            // Clean up uploaded Cloudinary file on error
+            if (paymentProofImage.filename) {
+                try {
+                    await deleteFromCloudinary(paymentProofImage.filename);
+                    console.log('[COFOUNDER] Cleaned up Cloudinary file after config error');
+                } catch (cleanupError) {
+                    console.error('[COFOUNDER] Error cleaning up Cloudinary file:', cleanupError);
+                }
+            }
+            
             return res.status(400).json({
                 success: false,
                 message: 'Co-founder share configuration not found'
@@ -471,6 +487,16 @@ const submitCoFounderManualPayment = async (req, res) => {
         // Validate available shares
         const requestedShares = parseInt(quantity);
         if (coFounderShare.sharesSold + requestedShares > coFounderShare.totalShares) {
+            // Clean up uploaded Cloudinary file on error
+            if (paymentProofImage.filename) {
+                try {
+                    await deleteFromCloudinary(paymentProofImage.filename);
+                    console.log('[COFOUNDER] Cleaned up Cloudinary file after availability error');
+                } catch (cleanupError) {
+                    console.error('[COFOUNDER] Error cleaning up Cloudinary file:', cleanupError);
+                }
+            }
+            
             return res.status(400).json({
                 success: false,
                 message: 'Insufficient shares available',
@@ -486,17 +512,22 @@ const submitCoFounderManualPayment = async (req, res) => {
         const totalPrice = requestedShares * price;
         const transactionId = generateTransactionId();
         
-        // FIXED: Create transaction with all required fields
+        // ✅ UPDATED: Create transaction with Cloudinary data
         const transactionData = {
             userId: userId,
             type: 'co-founder',
-            transactionId: transactionId,  // CRITICAL: Include transactionId
+            transactionId: transactionId,
             amount: totalPrice,
             currency: currency.toLowerCase(),
             shares: requestedShares,
             status: 'pending',
-            paymentMethod: `manual_${paymentMethod}`,  // Consistent naming
-            paymentProofPath: paymentProofImage.path,  // Store file path
+            paymentMethod: `manual_${paymentMethod}`,
+            // ✅ NEW: Store Cloudinary data instead of local path
+            paymentProofCloudinaryUrl: paymentProofImage.path,        // Full Cloudinary URL
+            paymentProofCloudinaryId: paymentProofImage.filename,     // Public ID for deletion/management
+            paymentProofOriginalName: paymentProofImage.originalname, // Original filename
+            paymentProofFileSize: paymentProofImage.size,             // File size
+            paymentProofFormat: paymentProofImage.format,             // File format (jpg, png, pdf)
             manualPaymentDetails: {
                 bankName: bankName || null,
                 accountName: accountName || null,
@@ -504,16 +535,22 @@ const submitCoFounderManualPayment = async (req, res) => {
             }
         };
         
-        console.log('[FIXED] Creating transaction with data:', JSON.stringify(transactionData, null, 2));
+        console.log('[FIXED] Creating co-founder transaction with Cloudinary data:', JSON.stringify({
+            transactionId: transactionData.transactionId,
+            cloudinaryUrl: transactionData.paymentProofCloudinaryUrl,
+            publicId: transactionData.paymentProofCloudinaryId,
+            originalName: transactionData.paymentProofOriginalName
+        }, null, 2));
         
         // Create the transaction
         const transaction = await PaymentTransaction.create(transactionData);
         
-        console.log('[FIXED] Transaction created successfully:', {
+        console.log('[FIXED] Co-founder transaction created successfully:', {
             id: transaction._id,
             transactionId: transaction.transactionId,
             paymentMethod: transaction.paymentMethod,
-            status: transaction.status
+            status: transaction.status,
+            cloudinaryUrl: transaction.paymentProofCloudinaryUrl
         });
         
         // Send admin notification
@@ -538,14 +575,15 @@ const submitCoFounderManualPayment = async (req, res) => {
                         ${reference ? `<li>Reference: ${reference}</li>` : ''}
                     </ul>
                     <p>Please verify this payment in the admin dashboard.</p>
-                    <p>Payment proof URL: /cofounder/payment-proof/${transactionId}</p>
+                    <p><strong>Payment proof:</strong> <a href="${paymentProofImage.path}" target="_blank">View on Cloudinary</a></p>
+                    <p>API endpoint: /cofounder/payment-proof/${transactionId}</p>
                 `
             });
         } catch (emailError) {
             console.error('Failed to send admin notification:', emailError);
         }
         
-        // Return success response
+        // Return success response with Cloudinary data
         res.status(200).json({
             success: true,
             message: 'Payment proof submitted successfully and awaiting verification',
@@ -555,12 +593,30 @@ const submitCoFounderManualPayment = async (req, res) => {
                 amount: totalPrice,
                 status: 'pending',
                 paymentMethod: `manual_${paymentMethod}`,
-                fileUrl: `/cofounder/payment-proof/${transactionId}`
+                // ✅ UPDATED: Return Cloudinary data
+                cloudinaryUrl: paymentProofImage.path,           // Direct access URL
+                publicId: paymentProofImage.filename,            // For management
+                originalName: paymentProofImage.originalname,    // Original filename
+                fileSize: paymentProofImage.size,                // File size in bytes
+                format: paymentProofImage.format,                // File format
+                // Legacy compatibility
+                fileUrl: `/cofounder/payment-proof/${transactionId}` // API endpoint for fetching
             }
         });
         
     } catch (error) {
         console.error('Error in submitCoFounderManualPayment:', error);
+        
+        // Clean up uploaded Cloudinary file if transaction creation failed
+        if (req.file && req.file.filename) {
+            try {
+                await deleteFromCloudinary(req.file.filename);
+                console.log('[COFOUNDER] Cleaned up Cloudinary file after error');
+            } catch (cleanupError) {
+                console.error('[COFOUNDER] Error cleaning up Cloudinary file:', cleanupError);
+            }
+        }
+        
         res.status(500).json({
             success: false,
             message: 'Failed to submit manual payment',
@@ -569,7 +625,12 @@ const submitCoFounderManualPayment = async (req, res) => {
     }
 };
 
-// NEW: Get payment proof image
+
+/**
+ * @desc    Get co-founder payment proof from Cloudinary
+ * @route   GET /api/cofounder/payment-proof/:transactionId
+ * @access  Private (User)
+ */
 const getCoFounderPaymentProof = async (req, res) => {
     try {
         const { transactionId } = req.params;
@@ -584,15 +645,16 @@ const getCoFounderPaymentProof = async (req, res) => {
         });
         
         if (!transaction) {
-            console.log(`[FIXED] Transaction not found: ${transactionId}`);
+            console.log(`[FIXED] Co-founder transaction not found: ${transactionId}`);
             return res.status(404).json({
                 success: false,
                 message: 'Transaction not found'
             });
         }
         
-        if (!transaction.paymentProofPath) {
-            console.log(`[FIXED] No payment proof path for transaction: ${transactionId}`);
+        // ✅ UPDATED: Check for Cloudinary URL instead of local path
+        if (!transaction.paymentProofCloudinaryUrl) {
+            console.log(`[FIXED] No payment proof Cloudinary URL for transaction: ${transactionId}`);
             return res.status(404).json({
                 success: false,
                 message: 'No payment proof file found for this transaction'
@@ -608,71 +670,22 @@ const getCoFounderPaymentProof = async (req, res) => {
             });
         }
         
-        // FIXED: Enhanced file path resolution
-        const fs = require('fs');
-        const path = require('path');
+        console.log(`[FIXED] Serving Cloudinary file: ${transaction.paymentProofCloudinaryUrl}`);
         
-        const possiblePaths = [
-            transaction.paymentProofPath,
-            path.join(process.cwd(), transaction.paymentProofPath),
-            path.join('/opt/render/project/src/', transaction.paymentProofPath)
-        ];
-        
-        // Add uploads-specific paths
-        if (transaction.paymentProofPath.includes('uploads')) {
-            const uploadsPart = transaction.paymentProofPath.substring(
-                transaction.paymentProofPath.indexOf('uploads')
-            );
-            possiblePaths.push(path.join(process.cwd(), uploadsPart));
-            possiblePaths.push(path.join('/opt/render/project/src/', uploadsPart));
-        }
-        
-        console.log('[FIXED] Checking file paths:', possiblePaths);
-        
-        // Find the valid file path
-        let validFilePath = null;
-        for (const testPath of possiblePaths) {
-            try {
-                if (fs.existsSync(testPath) && fs.statSync(testPath).isFile()) {
-                    validFilePath = testPath;
-                    console.log(`[FIXED] Found file at: ${validFilePath}`);
-                    break;
-                }
-            } catch (err) {
-                // Continue checking other paths
-            }
-        }
-        
-        if (!validFilePath) {
-            console.error('[FIXED] Payment proof file not found at any location');
-            return res.status(404).json({
-                success: false,
-                message: 'Payment proof file not found on server',
-                debug: process.env.NODE_ENV === 'development' ? {
-                    originalPath: transaction.paymentProofPath,
-                    checkedPaths: possiblePaths
-                } : undefined
-            });
-        }
-        
-        // Determine content type
-        const ext = path.extname(validFilePath).toLowerCase();
-        const contentTypes = {
-            '.jpg': 'image/jpeg',
-            '.jpeg': 'image/jpeg',
-            '.png': 'image/png',
-            '.gif': 'image/gif',
-            '.pdf': 'application/pdf'
-        };
-        
-        const contentType = contentTypes[ext] || 'application/octet-stream';
-        
-        console.log(`[FIXED] Serving file with content type: ${contentType}`);
-        
-        // Stream the file
-        res.setHeader('Content-Type', contentType);
-        res.setHeader('Cache-Control', 'public, max-age=3600'); // Cache for 1 hour
-        fs.createReadStream(validFilePath).pipe(res);
+        // ✅ UPDATED: Return Cloudinary data instead of streaming local file
+        res.status(200).json({
+            success: true,
+            cloudinaryUrl: transaction.paymentProofCloudinaryUrl,
+            publicId: transaction.paymentProofCloudinaryId,
+            originalName: transaction.paymentProofOriginalName,
+            fileSize: transaction.paymentProofFileSize,
+            format: transaction.paymentProofFormat,
+            directAccess: "You can access this file directly at the cloudinaryUrl",
+            message: "File is hosted on Cloudinary CDN for fast global access"
+        });
+
+        // Alternative: Redirect to Cloudinary URL
+        // res.redirect(transaction.paymentProofCloudinaryUrl);
         
     } catch (error) {
         console.error('Error in getCoFounderPaymentProof:', error);
@@ -683,7 +696,6 @@ const getCoFounderPaymentProof = async (req, res) => {
         });
     }
 };
-
 
 // Fix for getUserCoFounderShares
 const getUserCoFounderShares = async (req, res) => {
@@ -924,7 +936,11 @@ const adminGetWeb3Transactions = async (req, res) => {
     }
 };
 
-// FIXED: adminGetCoFounderManualTransactions function in coFounderController.js
+/**
+ * @desc    Admin: Get co-founder manual transactions (Updated for Cloudinary)
+ * @route   GET /api/cofounder/admin/manual/transactions
+ * @access  Private (Admin)
+ */
 const adminGetCoFounderManualTransactions = async (req, res) => {
     try {
         const { status, page = 1, limit = 20, fromDate, toDate } = req.query;
@@ -941,10 +957,10 @@ const adminGetCoFounderManualTransactions = async (req, res) => {
         
         console.log('[FIXED adminGetCoFounderManualTransactions] Query params:', { status, page, limit, fromDate, toDate });
         
-        // FIXED: Better query for co-founder manual transactions
+        // Query for co-founder manual transactions
         const query = {
             type: 'co-founder',
-            paymentMethod: { $regex: /^manual_/i }  // Find all manual_* payment methods
+            paymentMethod: { $regex: /^manual_/i }
         };
         
         // Add status filter
@@ -968,12 +984,12 @@ const adminGetCoFounderManualTransactions = async (req, res) => {
             .populate('userId', 'name email phone')
             .sort({ createdAt: -1 });
         
-        console.log(`[FIXED] Found ${transactions.length} transactions`);
+        console.log(`[FIXED] Found ${transactions.length} co-founder manual transactions`);
         
-        // FIXED: Format transactions safely
+        // ✅ UPDATED: Format transactions with Cloudinary data
         const formattedTransactions = transactions.map(transaction => {
-            const paymentProofUrl = transaction.transactionId ? 
-                `/cofounder/payment-proof/${transaction.transactionId}` : null;
+            // ✅ UPDATED: Use Cloudinary URL instead of constructing local URL
+            const paymentProofUrl = transaction.paymentProofCloudinaryUrl || null;
             
             // Clean payment method display
             const cleanPaymentMethod = transaction.paymentMethod ? 
@@ -1002,8 +1018,12 @@ const adminGetCoFounderManualTransactions = async (req, res) => {
                 paymentMethod: cleanPaymentMethod,
                 status: transaction.status || 'unknown',
                 date: transaction.createdAt,
+                // ✅ UPDATED: Return Cloudinary data
                 paymentProofUrl: paymentProofUrl,
-                paymentProofPath: transaction.paymentProofPath || null,
+                cloudinaryPublicId: transaction.paymentProofCloudinaryId,
+                originalFileName: transaction.paymentProofOriginalName,
+                fileSize: transaction.paymentProofFileSize,
+                fileFormat: transaction.paymentProofFormat,
                 manualPaymentDetails: transaction.manualPaymentDetails || {},
                 adminNotes: transaction.adminNotes || '',
                 verifiedBy: transaction.verifiedBy || null
@@ -1013,7 +1033,7 @@ const adminGetCoFounderManualTransactions = async (req, res) => {
         // Count total matching transactions
         const totalCount = await PaymentTransaction.countDocuments(query);
         
-        console.log(`[FIXED] Total matching transactions: ${totalCount}`);
+        console.log(`[FIXED] Total matching co-founder transactions: ${totalCount}`);
         
         res.status(200).json({
             success: true,
@@ -1029,7 +1049,7 @@ const adminGetCoFounderManualTransactions = async (req, res) => {
         console.error('Error in adminGetCoFounderManualTransactions:', error);
         res.status(500).json({
             success: false,
-            message: 'Failed to fetch manual transactions',
+            message: 'Failed to fetch co-founder manual transactions',
             error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
         });
     }
@@ -1456,6 +1476,11 @@ const adminCancelCoFounderManualPayment = async (req, res) => {
 };
 
 // NEW: Admin delete manual payment transaction
+/**
+ * @desc    Admin: Delete co-founder manual payment transaction with Cloudinary cleanup
+ * @route   DELETE /api/cofounder/admin/manual/:transactionId
+ * @access  Private (Admin)
+ */
 const adminDeleteCoFounderManualPayment = async (req, res) => {
     try {
         const { transactionId } = req.params;
@@ -1497,8 +1522,9 @@ const adminDeleteCoFounderManualPayment = async (req, res) => {
             amount: transaction.amount,
             currency: transaction.currency,
             status: transaction.status,
-            paymentProofPath: transaction.paymentProofPath,
-            userId: transaction.userId
+            userId: transaction.userId,
+            cloudinaryId: transaction.paymentProofCloudinaryId,
+            cloudinaryUrl: transaction.paymentProofCloudinaryUrl
         };
         
         // If transaction was completed, rollback global share counts
@@ -1518,9 +1544,9 @@ const adminDeleteCoFounderManualPayment = async (req, res) => {
                     'PaymentTransaction' // sourceModel
                 );
                 
-                console.log('Referral commission rollback result:', rollbackResult);
+                console.log('Co-founder referral commission rollback result:', rollbackResult);
             } catch (referralError) {
-                console.error('Error rolling back referral commissions:', referralError);
+                console.error('Error rolling back co-founder referral commissions:', referralError);
                 // Continue with the deletion process despite referral error
             }
             
@@ -1545,47 +1571,17 @@ const adminDeleteCoFounderManualPayment = async (req, res) => {
             }
         }
         
-        // Delete payment proof file if it exists
-        if (transactionDetails.paymentProofPath) {
+        // ✅ UPDATED: Delete Cloudinary file if it exists
+        if (transactionDetails.cloudinaryId) {
             try {
-                const fs = require('fs');
-                const path = require('path');
-                
-                // Try multiple possible file paths
-                const possiblePaths = [
-                    transactionDetails.paymentProofPath,
-                    path.join(process.cwd(), transactionDetails.paymentProofPath),
-                    path.join('/opt/render/project/src/', transactionDetails.paymentProofPath)
-                ];
-                
-                // If path contains 'uploads', also try that part
-                if (transactionDetails.paymentProofPath.includes('uploads')) {
-                    const uploadsPart = transactionDetails.paymentProofPath.substring(
-                        transactionDetails.paymentProofPath.indexOf('uploads')
-                    );
-                    possiblePaths.push(path.join(process.cwd(), uploadsPart));
-                    possiblePaths.push(path.join('/opt/render/project/src/', uploadsPart));
-                }
-                
-                let fileDeleted = false;
-                for (const filePath of possiblePaths) {
-                    try {
-                        if (fs.existsSync(filePath)) {
-                            fs.unlinkSync(filePath);
-                            console.log(`Payment proof file deleted: ${filePath}`);
-                            fileDeleted = true;
-                            break;
-                        }
-                    } catch (deleteErr) {
-                        console.log(`Failed to delete file at ${filePath}: ${deleteErr.message}`);
-                    }
-                }
-                
-                if (!fileDeleted) {
-                    console.log(`Payment proof file not found or already deleted: ${transactionDetails.paymentProofPath}`);
+                const deleteResult = await deleteFromCloudinary(transactionDetails.cloudinaryId);
+                if (deleteResult.result === 'ok') {
+                    console.log(`Co-founder payment proof file deleted from Cloudinary: ${transactionDetails.cloudinaryId}`);
+                } else {
+                    console.log(`Co-founder payment proof file not found in Cloudinary: ${transactionDetails.cloudinaryId}`);
                 }
             } catch (fileError) {
-                console.error('Error deleting payment proof file:', fileError);
+                console.error('Error deleting co-founder payment proof file from Cloudinary:', fileError);
                 // Continue with deletion even if file deletion fails
             }
         }
@@ -1622,7 +1618,7 @@ const adminDeleteCoFounderManualPayment = async (req, res) => {
                     `
                 });
             } catch (emailError) {
-                console.error('Failed to send transaction deletion notification email:', emailError);
+                console.error('Failed to send co-founder transaction deletion notification email:', emailError);
             }
         }
         
@@ -1635,6 +1631,7 @@ const adminDeleteCoFounderManualPayment = async (req, res) => {
             shares: transactionDetails.shares,
             amount: transactionDetails.amount,
             currency: transactionDetails.currency,
+            cloudinaryFileDeleted: !!transactionDetails.cloudinaryId,
             timestamp: new Date().toISOString()
         });
         
@@ -1649,7 +1646,8 @@ const adminDeleteCoFounderManualPayment = async (req, res) => {
                     amount: transactionDetails.amount,
                     currency: transactionDetails.currency,
                     previousStatus: transactionDetails.status
-                }
+                },
+                cloudinaryFileDeleted: !!transactionDetails.cloudinaryId
             }
         });
     } catch (error) {
@@ -1661,6 +1659,8 @@ const adminDeleteCoFounderManualPayment = async (req, res) => {
         });
     }
 };
+
+
 // Update co-founder share pricing
 const updateCoFounderSharePricing = async (req, res) => {
     try {

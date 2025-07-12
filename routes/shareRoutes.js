@@ -4,7 +4,11 @@ const shareController = require('../controller/shareController');
 const { protect, adminProtect } = require('../middleware/auth');
 const upload = require('../middleware/upload');
 const multer = require('multer');
-const gridfsUpload = require('../middleware/gridfsUpload');
+const { 
+  sharePaymentUpload, 
+  logCloudinaryUpload, 
+  handleCloudinaryError 
+} = require('../config/cloudinary');
 
 const logUpload = (req, res, next) => {
   console.log('\n=== UPLOAD MIDDLEWARE DEBUG ===');
@@ -30,89 +34,10 @@ const logUpload = (req, res, next) => {
 };
 
 // Enhanced error handling middleware for multer
-const handleUploadError = (err, req, res, next) => {
-  console.error('\n=== UPLOAD ERROR HANDLER ===');
-  console.error('Error type:', err?.constructor?.name);
-  console.error('Error message:', err?.message);
-  console.error('Error code:', err?.code);
-  console.error('============================\n');
-
-  if (err instanceof multer.MulterError) {
-    console.error(`[multer-error] Multer error: ${err.code} - ${err.message}`);
-    
-    switch (err.code) {
-      case 'LIMIT_FILE_SIZE':
-        return res.status(400).json({
-          success: false,
-          message: 'File too large. Maximum size is 5MB.',
-          error: 'FILE_TOO_LARGE'
-        });
-      case 'LIMIT_FILE_COUNT':
-        return res.status(400).json({
-          success: false,
-          message: 'Too many files. Only 1 file allowed.',
-          error: 'TOO_MANY_FILES'
-        });
-      case 'LIMIT_UNEXPECTED_FILE':
-        return res.status(400).json({
-          success: false,
-          message: 'Unexpected file field. Use "paymentProof" field name.',
-          error: 'UNEXPECTED_FIELD'
-        });
-      case 'LIMIT_PART_COUNT':
-        return res.status(400).json({
-          success: false,
-          message: 'Too many form parts.',
-          error: 'TOO_MANY_PARTS'
-        });
-      default:
-        return res.status(400).json({
-          success: false,
-          message: `Upload error: ${err.message}`,
-          error: 'MULTER_ERROR'
-        });
-    }
-  } else if (err) {
-    console.error(`[upload-error] General upload error: ${err.message}`);
-    return res.status(400).json({
-      success: false,
-      message: err.message || 'File upload failed',
-      error: 'UPLOAD_ERROR'
-    });
-  }
-  next();
-};
-
-// Request debugging middleware
-const debugRequest = (req, res, next) => {
-  console.log('\n=== MANUAL PAYMENT REQUEST DEBUG ===');
-  console.log('Method:', req.method);
-  console.log('URL:', req.url);
-  console.log('Headers:', JSON.stringify({
-    'content-type': req.headers['content-type'],
-    'content-length': req.headers['content-length'],
-    'authorization': req.headers.authorization ? '[PRESENT]' : '[MISSING]'
-  }, null, 2));
-  console.log('Body fields:', Object.keys(req.body || {}));
-  console.log('File info:', req.file ? {
-    fieldname: req.file.fieldname,
-    originalname: req.file.originalname,
-    mimetype: req.file.mimetype,
-    size: req.file.size,
-    gridfsFilename: req.file.gridfsFilename
-  } : 'No file');
-  console.log('GridFS file:', req.gridfsFile || 'No GridFS file');
-  console.log('Body content:', req.body);
-  console.log('=====================================\n');
-  next();
-};
-
-// Enhanced validation middleware for manual payment
 const validateManualPayment = (req, res, next) => {
-  console.log('\n=== VALIDATION MIDDLEWARE ===');
+  console.log('\n=== VALIDATION MIDDLEWARE (CLOUDINARY) ===');
   console.log('Body:', req.body);
   console.log('File:', req.file);
-  console.log('GridFS File:', req.gridfsFile);
   
   const { quantity, currency, paymentMethod } = req.body;
   
@@ -127,8 +52,7 @@ const validateManualPayment = (req, res, next) => {
         quantity: !!quantity,
         currency: !!currency,
         paymentMethod: !!paymentMethod,
-        file: !!req.file,
-        gridfsFile: !!req.gridfsFile
+        file: !!req.file
       }
     });
   }
@@ -162,19 +86,47 @@ const validateManualPayment = (req, res, next) => {
     });
   }
   
-  // Check if GridFS file was uploaded
-  if (!req.gridfsFile || !req.file.gridfsFilename) {
+  // Check if Cloudinary file was uploaded
+  if (!req.file || !req.file.path) {
     return res.status(400).json({
       success: false,
       message: 'Payment proof image is required and must be uploaded successfully',
-      error: 'MISSING_GRIDFS_FILE'
+      error: 'MISSING_CLOUDINARY_FILE'
     });
   }
   
-  console.log('Validation passed - GridFS file uploaded successfully');
+  console.log('Validation passed - Cloudinary file uploaded successfully');
+  console.log('Cloudinary URL:', req.file.path);
+  console.log('Public ID:', req.file.filename);
   console.log('============================\n');
   next();
 };
+
+// Request debugging middleware
+const debugRequest = (req, res, next) => {
+  console.log('\n=== MANUAL PAYMENT REQUEST DEBUG (CLOUDINARY) ===');
+  console.log('Method:', req.method);
+  console.log('URL:', req.url);
+  console.log('Headers:', JSON.stringify({
+    'content-type': req.headers['content-type'],
+    'content-length': req.headers['content-length'],
+    'authorization': req.headers.authorization ? '[PRESENT]' : '[MISSING]'
+  }, null, 2));
+  console.log('Body fields:', Object.keys(req.body || {}));
+  console.log('File info:', req.file ? {
+    fieldname: req.file.fieldname,
+    originalname: req.file.originalname,
+    mimetype: req.file.mimetype,
+    size: req.file.size,
+    cloudinaryUrl: req.file.path,
+    publicId: req.file.filename
+  } : 'No file');
+  console.log('Body content:', req.body);
+  console.log('=====================================\n');
+  next();
+};
+
+
 
 /**
  * @swagger
@@ -786,8 +738,16 @@ router.get('/user/shares', protect, shareController.getUserShares);
  * /shares/manual/submit:
  *   post:
  *     tags: [Shares - Manual Payment]
- *     summary: Submit manual payment with GridFS
- *     description: Submit a manual payment with proof stored in MongoDB GridFS
+ *     summary: Submit manual payment with Cloudinary
+ *     description: |
+ *       Submit a manual payment with proof stored in Cloudinary CDN.
+ *       
+ *       **IMPROVED FEATURES:**
+ *       - ✅ Files stored on Cloudinary CDN (fast global access)
+ *       - ✅ Automatic image optimization and compression
+ *       - ✅ Support for images and PDFs
+ *       - ✅ No server storage issues
+ *       - ✅ Reliable file serving
  *     security:
  *       - bearerAuth: []
  *     requestBody:
@@ -832,10 +792,10 @@ router.get('/user/shares', protect, shareController.getUserShares);
  *               paymentProof:
  *                 type: string
  *                 format: binary
- *                 description: Payment proof image (max 5MB) - stored in MongoDB GridFS
+ *                 description: Payment proof image/PDF (max 5MB) - uploaded to Cloudinary
  *     responses:
  *       200:
- *         description: Manual payment submitted successfully to GridFS
+ *         description: Manual payment submitted successfully to Cloudinary
  *         content:
  *           application/json:
  *             schema:
@@ -862,20 +822,22 @@ router.get('/user/shares', protect, shareController.getUserShares);
  *                     status:
  *                       type: string
  *                       example: "pending"
- *                     fileUrl:
+ *                     cloudinaryUrl:
  *                       type: string
- *                       example: "/api/shares/payment-proof/TXN-A1B2-123456"
- *                       description: URL to access the file from GridFS
- *                     gridfsFilename:
+ *                       example: "https://res.cloudinary.com/your-cloud/image/upload/v1234567890/share-payments/payment-123456.jpg"
+ *                       description: Direct URL to the uploaded file on Cloudinary
+ *                     publicId:
  *                       type: string
- *                       example: "payment-1641234567890-abc123.jpg"
- *                       description: GridFS filename for the uploaded file
+ *                       example: "share-payments/payment-1234567890-123456"
+ *                       description: Cloudinary public ID for file management
  */
 router.post('/manual/submit', 
   protect,                                    // Auth middleware first
   debugRequest,                               // Debug incoming request
-  gridfsUpload.handleUpload('paymentProof'),  // ✅ NEW: GridFS upload middleware
-  validateManualPayment,                      // Validate required fields and GridFS upload
+  sharePaymentUpload.single('paymentProof'),  // ✅ NEW: Cloudinary upload middleware
+  logCloudinaryUpload,                        // Log successful upload
+  handleCloudinaryError,                      // Handle upload errors
+  validateManualPayment,                      // Validate required fields and Cloudinary upload
   shareController.submitManualPayment         // Controller function
 );
 
@@ -884,8 +846,15 @@ router.post('/manual/submit',
  * /shares/payment-proof/{transactionId}:
  *   get:
  *     tags: [Shares - Manual Payment]
- *     summary: Get payment proof from GridFS
- *     description: Retrieve payment proof image from MongoDB GridFS for a transaction
+ *     summary: Get payment proof from Cloudinary
+ *     description: |
+ *       Retrieve payment proof image from Cloudinary CDN for a transaction.
+ *       
+ *       **IMPROVED FEATURES:**
+ *       - ✅ Fast global CDN delivery
+ *       - ✅ Automatic image optimization
+ *       - ✅ Reliable file serving
+ *       - ✅ No server load for file serving
  *     security:
  *       - bearerAuth: []
  *     parameters:
@@ -898,117 +867,49 @@ router.post('/manual/submit',
  *         example: "TXN-A1B2-123456"
  *     responses:
  *       200:
- *         description: Payment proof retrieved successfully from GridFS
+ *         description: Payment proof URL retrieved successfully
  *         content:
- *           image/*:
+ *           application/json:
  *             schema:
- *               type: string
- *               format: binary
- *           application/pdf:
- *             schema:
- *               type: string
- *               format: binary
- *         headers:
- *           Content-Type:
- *             description: MIME type of the file
- *             schema:
- *               type: string
- *               example: "image/jpeg"
- *           Content-Length:
- *             description: Size of the file in bytes
- *             schema:
- *               type: integer
- *           Content-Disposition:
- *             description: Filename for download
- *             schema:
- *               type: string
- *               example: 'inline; filename="receipt.jpg"'
- *           Cache-Control:
- *             description: Cache control header
- *             schema:
- *               type: string
- *               example: "public, max-age=3600"
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 cloudinaryUrl:
+ *                   type: string
+ *                   example: "https://res.cloudinary.com/your-cloud/image/upload/v1234567890/share-payments/payment-123456.jpg"
+ *                   description: Direct URL to access the file from Cloudinary
+ *                 publicId:
+ *                   type: string
+ *                   example: "share-payments/payment-1234567890-123456"
+ *                 originalName:
+ *                   type: string
+ *                   example: "receipt.jpg"
+ *                 fileSize:
+ *                   type: integer
+ *                   example: 1024576
+ *                 format:
+ *                   type: string
+ *                   example: "jpg"
+ *                 directAccess:
+ *                   type: string
+ *                   example: "You can access this file directly at the cloudinaryUrl"
+ *       302:
+ *         description: Redirect to Cloudinary URL (alternative response)
  *       401:
  *         $ref: '#/components/responses/UnauthorizedError'
  *       403:
  *         description: Access denied - user doesn't own this transaction
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 success:
- *                   type: boolean
- *                   example: false
- *                 message:
- *                   type: string
- *                   example: "Access denied"
  *       404:
  *         description: Transaction or file not found
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 success:
- *                   type: boolean
- *                   example: false
- *                 message:
- *                   type: string
- *                   example: "Transaction not found or payment proof not available"
  *       500:
  *         $ref: '#/components/responses/ServerError'
  */
 router.get('/payment-proof/:transactionId', protect, shareController.getPaymentProof);
+
 // Admin routes
 
-/**
- * @swagger
- * /shares/gridfs/{filename}:
- *   get:
- *     tags: [Shares - GridFS]
- *     summary: Serve file directly from GridFS
- *     description: Directly serve a file from MongoDB GridFS by filename (admin or file owner only)
- *     security:
- *       - bearerAuth: []
- *     parameters:
- *       - in: path
- *         name: filename
- *         required: true
- *         schema:
- *           type: string
- *         description: GridFS filename
- *         example: "payment-1641234567890-abc123.jpg"
- *     responses:
- *       200:
- *         description: File served successfully from GridFS
- *         content:
- *       
- *             schema:
- *               type: string
- *               format: binary
- *       401:
- *         $ref: '#/components/responses/UnauthorizedError'
- *       404:
- *         description: File not found in GridFS
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 success:
- *                   type: boolean
- *                   example: false
- *                 message:
- *                   type: string
- *                   example: "File not found"
- *                 error:
- *                   type: string
- *                   example: "FILE_NOT_FOUND"
- *       500:
- *         $ref: '#/components/responses/ServerError'
- */
-router.get('/gridfs/:filename', protect, gridfsUpload.serveFile());
 
 /**
  * @swagger
