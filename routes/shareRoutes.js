@@ -832,6 +832,7 @@ router.get('/user/shares', protect, shareController.getUserShares);
  *                       description: Cloudinary public ID for file management
  */
 router.post('/manual/submit', 
+  protect,  // 🔥 ADD THIS LINE - Authentication middleware MUST come first!
   sharePaymentUpload.single('paymentProof'),
   logCloudinaryUpload,
   handleCloudinaryError,

@@ -2055,6 +2055,7 @@ exports.adminGetWeb3Transactions = async (req, res) => {
  * @route   POST /api/shares/manual/submit
  * @access  Private (User)
  */
+// shareController.js - Fixed submitManualPayment function
 exports.submitManualPayment = async (req, res) => {
   try {
     console.log('[SHARES] Manual payment submission started');
@@ -2062,8 +2063,26 @@ exports.submitManualPayment = async (req, res) => {
     console.log('[SHARES] req.file:', req.file);
     console.log('[SHARES] req.files:', req.files);
     
+    // ✅ FIX: Check if user is authenticated
+    if (!req.user || !req.user.id) {
+      console.error('[SHARES] User not authenticated or missing user ID');
+      console.log('[SHARES] req.user:', req.user);
+      return res.status(401).json({
+        success: false,
+        message: 'Authentication required. Please log in.',
+        error: 'USER_NOT_AUTHENTICATED',
+        debug: {
+          hasUser: !!req.user,
+          userKeys: req.user ? Object.keys(req.user) : [],
+          authHeaders: req.headers.authorization ? 'present' : 'missing'
+        }
+      });
+    }
+    
     const userId = req.user.id;
     const { quantity, currency, paymentMethod, bankName, accountName, reference } = req.body;
+    
+    console.log('[SHARES] Authenticated user ID:', userId);
     
     // Validate required fields
     if (!quantity || !currency || !paymentMethod) {
@@ -2075,7 +2094,7 @@ exports.submitManualPayment = async (req, res) => {
       });
     }
     
-    // ✅ CLOUDINARY FIX: Check for Cloudinary file upload
+    // ✅ CLOUDINARY: Check for Cloudinary file upload
     if (!req.file && !req.files && !req.body.adminNote) {
       console.error('[SHARES] No payment proof uploaded');
       return res.status(400).json({
@@ -2105,6 +2124,7 @@ exports.submitManualPayment = async (req, res) => {
     }
     
     // Generate transaction ID
+    const crypto = require('crypto'); // Make sure crypto is imported
     const generateTransactionId = () => {
       return `TXN-${crypto.randomBytes(4).toString('hex').toUpperCase()}-${Date.now().toString().slice(-6)}`;
     };
