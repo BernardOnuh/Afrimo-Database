@@ -2176,10 +2176,15 @@ exports.submitManualPayment = async (req, res) => {
         bankName: bankName || null,
         accountName: accountName || null,
         reference: reference || null
-      }
+      },
+      
+      // 🔥 CRITICAL ADDITION: These fields satisfy your model validation
+      paymentProofPath: fileInfo.cloudinaryUrl || null,  // This is what your validation checks for!
+      paymentProofOriginalName: fileInfo.originalname || null,
+      paymentProofFilename: fileInfo.cloudinaryId || null
     };
     
-    // ✅ CLOUDINARY: Add Cloudinary fields to PaymentTransaction
+    // ✅ CLOUDINARY: Add Cloudinary fields as well (for future use)
     if (fileInfo.cloudinaryUrl) {
       paymentTransactionData.paymentProofCloudinaryUrl = fileInfo.cloudinaryUrl;
       paymentTransactionData.paymentProofCloudinaryId = fileInfo.cloudinaryId;
