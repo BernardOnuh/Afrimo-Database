@@ -2435,7 +2435,7 @@ exports.getPaymentProofDirect = async (req, res) => {
   }
 };
 /**
- * @desc    Admin: Get all manual payment transactions (FIXED VERSION)
+ * @desc    Admin: Get all manual payment transactions (FINAL FIXED VERSION)
  * @route   GET /api/shares/admin/manual/transactions
  * @access  Private (Admin)
  */
@@ -2456,7 +2456,7 @@ exports.adminGetManualTransactions = async (req, res) => {
     const { status, page = 1, limit = 20, fromDate, toDate } = req.query;
     const skip = (parseInt(page) - 1) * parseInt(limit);
     
-    // 🔥 CRITICAL: Get manual transactions from PaymentTransaction model ONLY
+    // Get manual transactions from PaymentTransaction model ONLY
     const query = {
       type: 'share',
       paymentMethod: { $regex: '^manual_' },
@@ -2470,7 +2470,7 @@ exports.adminGetManualTransactions = async (req, res) => {
       if (toDate) query.createdAt.$lte = new Date(toDate);
     }
     
-    console.log('🔍 Querying PaymentTransaction with:', query);
+    console.log('🔍 Manual transactions query:', query);
     
     const paymentTransactions = await PaymentTransaction.find(query)
       .populate('userId', 'name email phone username')
@@ -2478,16 +2478,14 @@ exports.adminGetManualTransactions = async (req, res) => {
       .skip(skip)
       .limit(parseInt(limit));
 
-    console.log(`✅ Found ${paymentTransactions.length} manual transactions`);
+    console.log(`✅ Found ${paymentTransactions.length} PaymentTransaction records`);
 
-    // 🔥 CRITICAL: Format response with proper paymentProof structure
+    // 🔥 CRITICAL: Format response with paymentProof object
     const transactions = paymentTransactions.map(transaction => {
-      // Debug: Log what Cloudinary fields are available
-      console.log(`📊 Transaction ${transaction.transactionId} Cloudinary fields:`, {
-        paymentProofCloudinaryUrl: transaction.paymentProofCloudinaryUrl,
-        paymentProofPath: transaction.paymentProofPath,
-        paymentProofOriginalName: transaction.paymentProofOriginalName,
-        paymentProofCloudinaryId: transaction.paymentProofCloudinaryId
+      console.log(`🔍 Processing transaction ${transaction.transactionId}:`, {
+        hasCloudinaryUrl: !!transaction.paymentProofCloudinaryUrl,
+        hasPaymentProofPath: !!transaction.paymentProofPath,
+        originalName: transaction.paymentProofOriginalName
       });
 
       // Get Cloudinary URL from any available field
@@ -2495,32 +2493,27 @@ exports.adminGetManualTransactions = async (req, res) => {
                          transaction.paymentProofPath || 
                          null;
 
-      // 🔥 BUILD THE paymentProof OBJECT YOUR FRONTEND EXPECTS
+      // 🔥 CREATE THE paymentProof OBJECT (THIS IS MISSING IN YOUR CURRENT CODE!)
       let paymentProofData = null;
       
       if (cloudinaryUrl) {
         paymentProofData = {
-          // 🔥 THIS IS WHAT YOUR FRONTEND CHECKS: transaction.paymentProof?.directUrl
+          // 🔥 THIS IS THE KEY FIELD YOUR FRONTEND NEEDS!
           directUrl: cloudinaryUrl,
           
-          // Additional access methods
+          // Additional fields
           apiUrl: `/api/shares/payment-proof/${transaction.transactionId}`,
           viewUrl: `/api/shares/payment-proof/${transaction.transactionId}?redirect=true`,
           adminDirectUrl: `/api/shares/admin/payment-proof/${transaction.transactionId}`,
-          
-          // File metadata
           originalName: transaction.paymentProofOriginalName,
           fileSize: transaction.paymentProofFileSize,
           format: transaction.paymentProofFormat,
           publicId: transaction.paymentProofCloudinaryId
         };
         
-        console.log(`✅ Created paymentProof object for ${transaction.transactionId}:`, {
-          directUrl: paymentProofData.directUrl,
-          hasOriginalName: !!paymentProofData.originalName
-        });
+        console.log(`✅ Created paymentProof for ${transaction.transactionId}:`, paymentProofData.directUrl);
       } else {
-        console.log(`⚠️  No Cloudinary URL found for ${transaction.transactionId}`);
+        console.log(`⚠️  No Cloudinary URL for ${transaction.transactionId}`);
       }
 
       return {
@@ -2541,10 +2534,10 @@ exports.adminGetManualTransactions = async (req, res) => {
         status: transaction.status,
         date: transaction.createdAt,
         
-        // 🔥 CRITICAL: This is what your frontend expects
+        // 🔥 THIS IS THE CRITICAL ADDITION YOUR CURRENT CODE IS MISSING!
         paymentProof: paymentProofData,
         
-        // Legacy compatibility
+        // Keep legacy fields for compatibility
         paymentProofUrl: paymentProofData ? paymentProofData.apiUrl : null,
         cloudinaryPublicId: transaction.paymentProofCloudinaryId,
         
@@ -2557,19 +2550,14 @@ exports.adminGetManualTransactions = async (req, res) => {
     // Count total
     const totalCount = await PaymentTransaction.countDocuments(query);
     
-    // 🔥 DEBUG: Log sample response
-    const sampleTransaction = transactions[0];
-    console.log('📤 Sample API Response:', {
-      totalTransactions: transactions.length,
-      sampleTransaction: sampleTransaction ? {
-        transactionId: sampleTransaction.transactionId,
-        hasPaymentProof: !!sampleTransaction.paymentProof,
-        directUrl: sampleTransaction.paymentProof?.directUrl,
-        paymentMethod: sampleTransaction.paymentMethod
-      } : 'No transactions'
+    // 🔥 DEBUG LOG
+    console.log('📤 Final response check:', {
+      transactionCount: transactions.length,
+      firstHasPaymentProof: transactions[0]?.paymentProof ? 'YES' : 'NO',
+      firstDirectUrl: transactions[0]?.paymentProof?.directUrl || 'MISSING'
     });
     
-    const response = {
+    res.status(200).json({
       success: true,
       transactions,
       pagination: {
@@ -2577,24 +2565,14 @@ exports.adminGetManualTransactions = async (req, res) => {
         totalPages: Math.ceil(totalCount / parseInt(limit)),
         totalCount
       },
-      // 🔥 HELPER: Info for frontend developers
       cloudinaryInfo: {
         cdnEnabled: true,
-        accessMethods: ["directUrl", "apiUrl", "viewUrl", "adminDirectUrl"],
-        message: "Files stored on Cloudinary CDN - use paymentProof.directUrl for direct access"
+        message: "Use paymentProof.directUrl for Cloudinary access"
       }
-    };
-    
-    console.log('🎯 Final response structure check:', {
-      hasTransactions: response.transactions.length > 0,
-      firstTransactionHasPaymentProof: response.transactions[0]?.paymentProof ? 'YES' : 'NO',
-      firstTransactionDirectUrl: response.transactions[0]?.paymentProof?.directUrl || 'MISSING'
     });
     
-    res.status(200).json(response);
-    
   } catch (error) {
-    console.error('❌ Error fetching manual transactions:', error);
+    console.error('❌ Error in adminGetManualTransactions:', error);
     res.status(500).json({
       success: false,
       message: 'Failed to fetch manual transactions',
@@ -2602,7 +2580,6 @@ exports.adminGetManualTransactions = async (req, res) => {
     });
   }
 };
-
 /**
  * @desc    Admin: Verify manual payment
  * @route   POST /api/shares/admin/manual/verify
