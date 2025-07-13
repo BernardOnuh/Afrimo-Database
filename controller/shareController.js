@@ -1217,7 +1217,9 @@ exports.getUserShares = async (req, res) => {
 };
 
 
-// Admin: Get all transactions
+/**
+ * Admin: Get all transactions (FIXED VERSION with paymentProof support)
+ */
 exports.getAllTransactions = async (req, res) => {
   try {
     const adminId = req.user.id;
@@ -1235,7 +1237,7 @@ exports.getAllTransactions = async (req, res) => {
     const { status, page = 1, limit = 20, paymentMethod } = req.query;
     const skip = (parseInt(page) - 1) * parseInt(limit);
     
-    // ✅ FIXED: Also get transactions from PaymentTransaction model
+    // Get transactions from PaymentTransaction model
     let paymentTransactions = [];
     if (!paymentMethod || paymentMethod.startsWith('manual_')) {
       const paymentQuery = {
@@ -1259,9 +1261,26 @@ exports.getAllTransactions = async (req, res) => {
     // Combine and format transactions from both sources
     const transactions = [];
     
-    // Add PaymentTransaction records
+    // Add PaymentTransaction records with paymentProof support
     for (const paymentTx of paymentTransactions) {
       if (status && paymentTx.status !== status) continue;
+      
+      // 🔥 CREATE paymentProof object for PaymentTransaction records
+      let paymentProofData = null;
+      const cloudinaryUrl = paymentTx.paymentProofCloudinaryUrl || paymentTx.paymentProofPath;
+      
+      if (cloudinaryUrl) {
+        paymentProofData = {
+          directUrl: cloudinaryUrl,
+          apiUrl: `/api/shares/payment-proof/${paymentTx.transactionId}`,
+          viewUrl: `/api/shares/payment-proof/${paymentTx.transactionId}?redirect=true`,
+          adminDirectUrl: `/api/shares/admin/payment-proof/${paymentTx.transactionId}`,
+          originalName: paymentTx.paymentProofOriginalName,
+          fileSize: paymentTx.paymentProofFileSize,
+          format: paymentTx.paymentProofFormat,
+          publicId: paymentTx.paymentProofCloudinaryId
+        };
+      }
       
       transactions.push({
         transactionId: paymentTx.transactionId,
@@ -1279,14 +1298,18 @@ exports.getAllTransactions = async (req, res) => {
         paymentMethod: paymentTx.paymentMethod.replace('manual_', ''),
         status: paymentTx.status,
         date: paymentTx.createdAt,
-        paymentProofUrl: `/shares/payment-proof/${paymentTx.transactionId}`,
+        
+        // 🔥 ADD paymentProof support
+        paymentProof: paymentProofData,
+        paymentProofUrl: paymentProofData ? paymentProofData.apiUrl : `/shares/payment-proof/${paymentTx.transactionId}`,
+        
         manualPaymentDetails: paymentTx.manualPaymentDetails || {},
         adminNote: paymentTx.adminNotes,
         source: 'PaymentTransaction'
       });
     }
     
-    // Add UserShare transactions (existing logic but with source indicator)
+    // Add UserShare transactions (existing logic but with paymentProof support)
     for (const userShare of userShares) {
       for (const transaction of userShare.transactions) {
         if (status && transaction.status !== status) continue;
@@ -1301,8 +1324,25 @@ exports.getAllTransactions = async (req, res) => {
           displayPaymentMethod = transaction.paymentMethod.replace('manual_', '');
         }
         
+        // 🔥 CREATE paymentProof object for UserShare records too
+        let paymentProofData = null;
+        const cloudinaryUrl = transaction.paymentProofCloudinaryUrl || transaction.paymentProofPath;
+        
+        if (cloudinaryUrl) {
+          paymentProofData = {
+            directUrl: cloudinaryUrl,
+            apiUrl: `/api/shares/payment-proof/${transaction.transactionId}`,
+            viewUrl: `/api/shares/payment-proof/${transaction.transactionId}?redirect=true`,
+            adminDirectUrl: `/api/shares/admin/payment-proof/${transaction.transactionId}`,
+            originalName: transaction.paymentProofOriginalName,
+            fileSize: transaction.paymentProofFileSize,
+            format: transaction.paymentProofFormat,
+            publicId: transaction.paymentProofCloudinaryId
+          };
+        }
+        
         let paymentProofUrl = null;
-        if (transaction.paymentProofPath) {
+        if (transaction.paymentProofPath || paymentProofData) {
           paymentProofUrl = `/shares/payment-proof/${transaction.transactionId}`;
         }
         
@@ -1322,7 +1362,11 @@ exports.getAllTransactions = async (req, res) => {
           paymentMethod: displayPaymentMethod,
           status: transaction.status,
           date: transaction.createdAt,
+          
+          // 🔥 ADD paymentProof support
+          paymentProof: paymentProofData,
           paymentProofUrl: paymentProofUrl,
+          
           manualPaymentDetails: transaction.manualPaymentDetails || {},
           adminNote: transaction.adminNote,
           txHash: transaction.txHash,
@@ -1333,6 +1377,12 @@ exports.getAllTransactions = async (req, res) => {
     
     // Sort by date
     transactions.sort((a, b) => new Date(b.date) - new Date(a.date));
+    
+    console.log('📤 getAllTransactions response:', {
+      totalTransactions: transactions.length,
+      hasPaymentProofSupport: transactions.some(t => t.paymentProof),
+      samplePaymentProof: transactions.find(t => t.paymentProof)?.paymentProof
+    });
     
     res.status(200).json({
       success: true,
