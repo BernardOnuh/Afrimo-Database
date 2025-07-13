@@ -9362,3 +9362,7 @@
 {"level":"info","message":"✅ Started job: verifyProcessingWithdrawals","timestamp":"2025-07-13T20:11:59.176Z"}
 {"level":"info","message":"✅ Started job: verifyPendingWithdrawals","timestamp":"2025-07-13T20:11:59.176Z"}
 {"level":"info","message":"Application startup completed successfully","timestamp":"2025-07-13T20:11:59.176Z"}
+{"level":"info","message":"Database reconnected successfully","timestamp":"2025-07-13T20:30:32.296Z"}
+{"level":"warn","message":"Database disconnected","timestamp":"2025-07-13T20:30:42.939Z"}
+{"level":"info","message":"Database connected successfully","timestamp":"2025-07-13T20:30:46.127Z"}
+{"level":"info","message":"Database reconnected successfully","timestamp":"2025-07-13T20:30:46.128Z"}
