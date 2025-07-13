@@ -2434,7 +2434,6 @@ exports.getPaymentProofDirect = async (req, res) => {
     });
   }
 };
-
 /**
  * @desc    Admin: Get all manual payment transactions (Updated for Cloudinary)
  * @route   GET /api/shares/admin/manual/transactions
@@ -2477,29 +2476,42 @@ exports.adminGetManualTransactions = async (req, res) => {
       .skip(skip)
       .limit(parseInt(limit));
 
-    // ✅ ENHANCED: Format response with better Cloudinary URLs
+    console.log(`✅ Found ${paymentTransactions.length} manual transactions with Cloudinary data`);
+
+    // ✅ ENHANCED: Format response with guaranteed Cloudinary URLs
     const transactions = paymentTransactions.map(transaction => {
-      // Use Cloudinary URL with multiple access options
+      // 🔥 PRIORITY: Check all possible Cloudinary URL fields
+      let cloudinaryUrl = transaction.paymentProofCloudinaryUrl || 
+                         transaction.paymentProofPath || 
+                         null;
+      
+      console.log(`📊 Transaction ${transaction.transactionId}:`, {
+        hasCloudinaryUrl: !!transaction.paymentProofCloudinaryUrl,
+        hasPaymentProofPath: !!transaction.paymentProofPath,
+        finalUrl: cloudinaryUrl,
+        originalName: transaction.paymentProofOriginalName
+      });
+
+      // Build comprehensive payment proof data
       let paymentProofData = null;
       
-      if (transaction.paymentProofCloudinaryUrl) {
-        const baseUrl = transaction.paymentProofCloudinaryUrl;
+      if (cloudinaryUrl) {
         paymentProofData = {
-          // Direct Cloudinary URL
-          directUrl: baseUrl,
-          // API endpoint that returns JSON (current behavior)
+          // 🔥 CRITICAL: This is what your frontend expects
+          directUrl: cloudinaryUrl,
+          
+          // Additional access methods
           apiUrl: `/api/shares/payment-proof/${transaction.transactionId}`,
-          // Direct redirect endpoint for quick viewing
           viewUrl: `/api/shares/payment-proof/${transaction.transactionId}?redirect=true`,
-          // Admin-only direct access
           adminDirectUrl: `/api/shares/admin/payment-proof/${transaction.transactionId}`,
-          // Download URL (forces download)
-          downloadUrl: baseUrl.includes('upload/') ? 
-            baseUrl.replace('upload/', 'upload/fl_attachment/') : baseUrl,
-          // Thumbnail for images (not for PDFs)
-          thumbnailUrl: baseUrl.includes('upload/') && 
-                       !baseUrl.toLowerCase().includes('.pdf') ? 
-            baseUrl.replace('upload/', 'upload/w_200,h_200,c_fit/') : null,
+          
+          // Enhanced URLs
+          downloadUrl: cloudinaryUrl.includes('upload/') ? 
+            cloudinaryUrl.replace('upload/', 'upload/fl_attachment/') : cloudinaryUrl,
+          thumbnailUrl: cloudinaryUrl.includes('upload/') && 
+                       !cloudinaryUrl.toLowerCase().includes('.pdf') ? 
+            cloudinaryUrl.replace('upload/', 'upload/w_200,h_200,c_fit/') : null,
+          
           // File metadata
           originalName: transaction.paymentProofOriginalName,
           fileSize: transaction.paymentProofFileSize,
@@ -2526,15 +2538,15 @@ exports.adminGetManualTransactions = async (req, res) => {
         status: transaction.status,
         date: transaction.createdAt,
         
-        // ✅ ENHANCED: Comprehensive payment proof access
+        // 🔥 CRITICAL: This is the main field your frontend uses
         paymentProof: paymentProofData,
         
-        // Legacy fields for backward compatibility
+        // 🔥 ENSURE: Also provide direct access for compatibility
         paymentProofUrl: paymentProofData ? paymentProofData.apiUrl : null,
         cloudinaryPublicId: transaction.paymentProofCloudinaryId,
-        originalFileName: transaction.paymentProofOriginalName,
-        fileSize: transaction.paymentProofFileSize,
-        fileFormat: transaction.paymentProofFormat,
+        
+        // 🔥 BACKUP: Provide the raw Cloudinary URL as fallback
+        paymentProofCloudinaryUrl: cloudinaryUrl,
         
         manualPaymentDetails: transaction.manualPaymentDetails || {},
         adminNote: transaction.adminNotes,
@@ -2544,6 +2556,17 @@ exports.adminGetManualTransactions = async (req, res) => {
 
     // Count total
     const totalCount = await PaymentTransaction.countDocuments(query);
+    
+    // 🔥 LOG FINAL RESPONSE FOR DEBUGGING
+    console.log('📤 API Response Sample:', {
+      totalTransactions: transactions.length,
+      sampleTransaction: transactions[0] ? {
+        transactionId: transactions[0].transactionId,
+        hasPaymentProof: !!transactions[0].paymentProof,
+        directUrl: transactions[0].paymentProof?.directUrl,
+        cloudinaryUrl: transactions[0].paymentProofCloudinaryUrl
+      } : 'No transactions found'
+    });
     
     res.status(200).json({
       success: true,
@@ -2555,18 +2578,19 @@ exports.adminGetManualTransactions = async (req, res) => {
       },
       // ✅ Helper information for frontend
       cloudinaryInfo: {
-        message: "Files are stored on Cloudinary CDN",
-        accessMethods: {
-          direct: "Use paymentProof.directUrl for direct Cloudinary access",
-          api: "Use paymentProof.apiUrl for API response with metadata",
-          view: "Use paymentProof.viewUrl for browser redirect viewing",
-          download: "Use paymentProof.downloadUrl to force file download",
-          thumbnail: "Use paymentProof.thumbnailUrl for image previews"
-        }
+        cdnEnabled: true,
+        message: "Files are stored on Cloudinary CDN for global access",
+        accessMethods: [
+          "directUrl", 
+          "adminDirectUrl", 
+          "apiUrl", 
+          "viewUrl", 
+          "downloadUrl"
+        ]
       }
     });
   } catch (error) {
-    console.error('Error fetching manual transactions:', error);
+    console.error('❌ Error fetching manual transactions:', error);
     res.status(500).json({
       success: false,
       message: 'Failed to fetch manual transactions',

@@ -9327,3 +9327,38 @@
 {"level":"info","message":"✅ Started job: verifyProcessingWithdrawals","timestamp":"2025-07-13T17:18:59.072Z"}
 {"level":"info","message":"✅ Started job: verifyPendingWithdrawals","timestamp":"2025-07-13T17:18:59.072Z"}
 {"level":"info","message":"Application startup completed successfully","timestamp":"2025-07-13T17:18:59.072Z"}
+{"level":"info","message":"Database reconnected successfully","timestamp":"2025-07-13T17:43:50.385Z"}
+{"level":"info","message":"Database reconnected successfully","timestamp":"2025-07-13T17:43:50.395Z"}
+{"level":"info","message":"Database reconnected successfully","timestamp":"2025-07-13T17:43:51.912Z"}
+{"level":"warn","message":"Database disconnected","timestamp":"2025-07-13T20:06:03.572Z"}
+{"level":"info","message":"Database connected successfully","timestamp":"2025-07-13T20:06:36.434Z"}
+{"error":"Socket 'secureConnect' timed out after 15002ms (connectTimeoutMS: 15000)","level":"warn","message":"Database health check failed","timestamp":"2025-07-13T20:07:56.449Z"}
+{"level":"warn","message":"Database disconnected","timestamp":"2025-07-13T20:08:11.464Z"}
+{"level":"warn","message":"Database disconnected","timestamp":"2025-07-13T20:08:11.465Z"}
+{"error":"Connection pool for ac-hwvsmsd-shard-00-01.uvjmhm9.mongodb.net:27017 was cleared because another operation failed with: \"getaddrinfo ENOTFOUND ac-hwvsmsd-shard-00-01.uvjmhm9.mongodb.net\"","level":"warn","message":"Database health check failed","timestamp":"2025-07-13T20:08:11.473Z"}
+{"error":"Connection pool for ac-hwvsmsd-shard-00-01.uvjmhm9.mongodb.net:27017 was cleared because another operation failed with: \"getaddrinfo ENOTFOUND ac-hwvsmsd-shard-00-01.uvjmhm9.mongodb.net\"","level":"warn","message":"Database health check failed","timestamp":"2025-07-13T20:08:11.473Z"}
+{"error":"Connection pool for ac-hwvsmsd-shard-00-01.uvjmhm9.mongodb.net:27017 was cleared because another operation failed with: \"connection <monitor> to 65.62.47.133:27017 closed\"","level":"warn","message":"Database health check failed","timestamp":"2025-07-13T20:08:16.158Z"}
+{"level":"warn","message":"Database disconnected","timestamp":"2025-07-13T20:08:22.479Z"}
+{"level":"warn","message":"Database disconnected","timestamp":"2025-07-13T20:08:22.480Z"}
+{"error":"querySrv ECONNREFUSED _mongodb._tcp.cluster0.uvjmhm9.mongodb.net","level":"error","message":"Database connection error","timestamp":"2025-07-13T20:08:22.481Z"}
+{"error":"querySrv ECONNREFUSED _mongodb._tcp.cluster0.uvjmhm9.mongodb.net","level":"error","message":"Database connection error","timestamp":"2025-07-13T20:08:22.481Z"}
+{"level":"warn","message":"Database disconnected","timestamp":"2025-07-13T20:08:57.498Z"}
+{"level":"warn","message":"Database disconnected","timestamp":"2025-07-13T20:08:57.499Z"}
+{"level":"warn","message":"Database disconnected","timestamp":"2025-07-13T20:08:57.499Z"}
+{"error":"queryTxt ESERVFAIL cluster0.uvjmhm9.mongodb.net","level":"error","message":"Database connection error","timestamp":"2025-07-13T20:08:57.500Z"}
+{"error":"queryTxt ESERVFAIL cluster0.uvjmhm9.mongodb.net","level":"error","message":"Database connection error","timestamp":"2025-07-13T20:08:57.500Z"}
+{"error":"queryTxt ESERVFAIL cluster0.uvjmhm9.mongodb.net","level":"error","message":"Database connection error","timestamp":"2025-07-13T20:08:57.500Z"}
+{"level":"info","message":"Database connected successfully","timestamp":"2025-07-13T20:09:01.169Z"}
+{"level":"info","message":"Database connected successfully","timestamp":"2025-07-13T20:09:01.169Z"}
+{"level":"info","message":"Database connected successfully","timestamp":"2025-07-13T20:09:01.169Z"}
+{"level":"info","message":"Database reconnected successfully","timestamp":"2025-07-13T20:09:01.170Z"}
+{"level":"info","message":"Database reconnected successfully","timestamp":"2025-07-13T20:09:01.170Z"}
+{"level":"info","message":"Database reconnected successfully","timestamp":"2025-07-13T20:09:01.170Z"}
+{"environment":"development","level":"info","memoryUsage":{"arrayBuffers":18738199,"external":22272193,"heapTotal":200769536,"heapUsed":60335968,"rss":158105600},"message":"Server started successfully","port":5001,"processId":55762,"timestamp":"2025-07-13T20:11:56.166Z"}
+{"error":"setUserAsAdmin is not a function","level":"error","message":"Admin setup failed","timestamp":"2025-07-13T20:11:59.168Z"}
+{"level":"info","message":"Background job registered: verifyProcessingWithdrawals","timestamp":"2025-07-13T20:11:59.175Z"}
+{"level":"info","message":"Background job registered: verifyPendingWithdrawals","timestamp":"2025-07-13T20:11:59.175Z"}
+{"level":"info","message":"Withdrawal verification jobs started","timestamp":"2025-07-13T20:11:59.176Z"}
+{"level":"info","message":"✅ Started job: verifyProcessingWithdrawals","timestamp":"2025-07-13T20:11:59.176Z"}
+{"level":"info","message":"✅ Started job: verifyPendingWithdrawals","timestamp":"2025-07-13T20:11:59.176Z"}
+{"level":"info","message":"Application startup completed successfully","timestamp":"2025-07-13T20:11:59.176Z"}
