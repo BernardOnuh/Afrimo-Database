@@ -2081,41 +2081,129 @@ router.post('/admin/manual/verify', protect, adminProtect, shareController.admin
  *                 transactions:
  *                   type: array
  *                   items:
- *                     allOf:
- *                       - $ref: '#/components/schemas/Transaction'
- *                       type: object
-                             properties:
-                               id:
-                                 type: string
-                               name:
-                                 type: string
-                               username:
-                                 type: string
-                               email:
-                                 type: string
-                               phone:
-                                 type: string
-                           paymentProofPath:
-                             type: string
-                             example: "uploads/payment-proofs/payment-1234567890.jpg"
-                 pagination:
-                   type: object
-                   properties:
-                     currentPage:
-                       type: integer
-                     totalPages:
-                       type: integer
-                     totalCount:
-                       type: integer
-       401:
-         $ref: '#/components/responses/UnauthorizedError'
-       403:
-         $ref: '#/components/responses/ForbiddenError'
-       500:
-         $ref: '#/components/responses/ServerError'
+ *                     type: object
+ *                     properties:
+ *                       transactionId:
+ *                         type: string
+ *                         example: "TXN-A1B2-123456"
+ *                       shares:
+ *                         type: integer
+ *                         example: 50
+ *                       totalAmount:
+ *                         type: number
+ *                         example: 50000
+ *                       currency:
+ *                         type: string
+ *                         enum: [naira, usd]
+ *                         example: "naira"
+ *                       status:
+ *                         type: string
+ *                         enum: [pending, completed, failed]
+ *                         example: "pending"
+ *                       date:
+ *                         type: string
+ *                         format: date-time
+ *                         example: "2024-01-15T10:30:00Z"
+ *                       user:
+ *                         type: object
+ *                         properties:
+ *                           id:
+ *                             type: string
+ *                             example: "user123"
+ *                           name:
+ *                             type: string
+ *                             example: "John Doe"
+ *                           username:
+ *                             type: string
+ *                             example: "johndoe"
+ *                           email:
+ *                             type: string
+ *                             example: "john@example.com"
+ *                           phone:
+ *                             type: string
+ *                             example: "+1234567890"
+ *                       manualPaymentDetails:
+ *                         type: object
+ *                         properties:
+ *                           reference:
+ *                             type: string
+ *                             example: "BANK-REF-123456"
+ *                           bankName:
+ *                             type: string
+ *                             example: "First Bank of Nigeria"
+ *                           accountName:
+ *                             type: string
+ *                             example: "John Doe"
+ *                       paymentProof:
+ *                         type: object
+ *                         properties:
+ *                           directUrl:
+ *                             type: string
+ *                             example: "https://res.cloudinary.com/example/image/upload/v123/payment_proof.jpg"
+ *                           originalName:
+ *                             type: string
+ *                             example: "payment_receipt.jpg"
+ *                           fileSize:
+ *                             type: integer
+ *                             example: 1024768
+ *                           format:
+ *                             type: string
+ *                             example: "jpg"
+ *                           publicId:
+ *                             type: string
+ *                             example: "payment_proofs/xyz123"
+ *                       paymentProofUrl:
+ *                         type: string
+ *                         example: "uploads/payment-proofs/payment-1234567890.jpg"
+ *                         description: "Legacy field - use paymentProof.directUrl instead"
+ *                       cloudinaryPublicId:
+ *                         type: string
+ *                         example: "payment_proofs/xyz123"
+ *                         description: "Legacy field - use paymentProof.publicId instead"
+ *                       adminNote:
+ *                         type: string
+ *                         example: "Payment verified through bank statement"
+ *                       verifiedAt:
+ *                         type: string
+ *                         format: date-time
+ *                         example: "2024-01-15T11:00:00Z"
+ *                       verifiedBy:
+ *                         type: string
+ *                         example: "admin123"
+ *                 pagination:
+ *                   type: object
+ *                   properties:
+ *                     currentPage:
+ *                       type: integer
+ *                       example: 1
+ *                     totalPages:
+ *                       type: integer
+ *                       example: 5
+ *                     totalCount:
+ *                       type: integer
+ *                       example: 100
+ *                     limit:
+ *                       type: integer
+ *                       example: 20
+ *                 cloudinaryInfo:
+ *                   type: object
+ *                   properties:
+ *                     accessMethods:
+ *                       type: array
+ *                       items:
+ *                         type: string
+ *                       example: ["directUrl", "adminEndpoint"]
+ *                     cdnEnabled:
+ *                       type: boolean
+ *                       example: true
+ *       401:
+ *         $ref: '#/components/responses/UnauthorizedError'
+ *       403:
+ *         $ref: '#/components/responses/ForbiddenError'
+ *       500:
+ *         $ref: '#/components/responses/ServerError'
  */
-         router.get('/admin/manual/transactions', protect, adminProtect, shareController.adminGetManualTransactions);
-
+router.get('/admin/manual/transactions', protect, adminProtect, shareController.adminGetManualTransactions);
 
 /**
  * @swagger
