@@ -1967,6 +1967,65 @@ router.get('/admin/statistics', protect, adminProtect, shareController.getShareS
 
 // Admin manual payment routes
 
+
+/**
+ * @swagger
+ * /shares/admin/manual/verify:
+ *   post:
+ *     tags: [Shares - Admin Manual Payment]
+ *     summary: Verify manual payment
+ *     description: Approve or reject a manual payment transaction (admin only)
+ *     security:
+ *       - adminAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - transactionId
+ *               - approved
+ *             properties:
+ *               transactionId:
+ *                 type: string
+ *                 example: "TXN-A1B2-123456"
+ *               approved:
+ *                 type: boolean
+ *                 example: true
+ *               adminNote:
+ *                 type: string
+ *                 example: "Payment verified through bank statement"
+ *     responses:
+ *       200:
+ *         description: Manual payment verification updated successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *                   example: "Manual payment approved successfully"
+ *                 status:
+ *                   type: string
+ *                   example: "completed"
+ *       400:
+ *         $ref: '#/components/responses/ValidationError'
+ *       401:
+ *         $ref: '#/components/responses/UnauthorizedError'
+ *       403:
+ *         $ref: '#/components/responses/ForbiddenError'
+ *       404:
+ *         $ref: '#/components/responses/NotFoundError'
+ *       500:
+ *         $ref: '#/components/responses/ServerError'
+ */
+router.post('/admin/manual/verify', protect, adminProtect, shareController.adminVerifyManualPayment);
+
 /**
  * @swagger
  * /shares/admin/manual/transactions:
@@ -2055,65 +2114,8 @@ router.get('/admin/statistics', protect, adminProtect, shareController.getShareS
        500:
          $ref: '#/components/responses/ServerError'
  */
-router.get('/admin/manual/transactions', protect, adminProtect, shareController.adminGetManualTransactions);
+         router.get('/admin/manual/transactions', protect, adminProtect, shareController.adminGetManualTransactions);
 
-/**
- * @swagger
- * /shares/admin/manual/verify:
- *   post:
- *     tags: [Shares - Admin Manual Payment]
- *     summary: Verify manual payment
- *     description: Approve or reject a manual payment transaction (admin only)
- *     security:
- *       - adminAuth: []
- *     requestBody:
- *       required: true
- *       content:
- *         application/json:
- *           schema:
- *             type: object
- *             required:
- *               - transactionId
- *               - approved
- *             properties:
- *               transactionId:
- *                 type: string
- *                 example: "TXN-A1B2-123456"
- *               approved:
- *                 type: boolean
- *                 example: true
- *               adminNote:
- *                 type: string
- *                 example: "Payment verified through bank statement"
- *     responses:
- *       200:
- *         description: Manual payment verification updated successfully
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 success:
- *                   type: boolean
- *                   example: true
- *                 message:
- *                   type: string
- *                   example: "Manual payment approved successfully"
- *                 status:
- *                   type: string
- *                   example: "completed"
- *       400:
- *         $ref: '#/components/responses/ValidationError'
- *       401:
- *         $ref: '#/components/responses/UnauthorizedError'
- *       403:
- *         $ref: '#/components/responses/ForbiddenError'
- *       404:
- *         $ref: '#/components/responses/NotFoundError'
- *       500:
- *         $ref: '#/components/responses/ServerError'
- */
-router.post('/admin/manual/verify', protect, adminProtect, shareController.adminVerifyManualPayment);
 
 /**
  * @swagger
