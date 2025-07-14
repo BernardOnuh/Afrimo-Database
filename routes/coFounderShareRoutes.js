@@ -812,6 +812,32 @@ router.get('/payment-proof/:transactionId', protect, coFounderController.getCoFo
 
 /**
  * @swagger
+ * /cofounder/admin/payment-proof/{transactionId}:
+ *   get:
+ *     tags: [Co-Founder - Admin]
+ *     summary: Direct admin access to co-founder payment proof
+ *     description: Direct redirect to Cloudinary URL for admin access
+ *     security:
+ *       - adminAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: transactionId
+ *         required: true
+ *         schema:
+ *           type: string
+ *         example: "CFD-A1B2-123456"
+ *     responses:
+ *       302:
+ *         description: Redirect to Cloudinary URL
+ *       403:
+ *         description: Admin access required
+ *       404:
+ *         description: Payment proof not found
+ */
+router.get('/admin/payment-proof/:transactionId', protect, adminProtect, coFounderController.getCoFounderPaymentProofDirect);
+
+/**
+ * @swagger
  * /cofounder/manual/status/{transactionId}:
  *   get:
  *     tags: [Co-Founder - Manual Payment]
@@ -848,6 +874,8 @@ router.get('/payment-proof/:transactionId', protect, coFounderController.getCoFo
  *         description: Server error
  */
 router.get('/manual/status/:transactionId', protect, coFounderController.getCoFounderManualPaymentStatus);
+
+
 
 // ===================================================================
 // ADMIN ROUTES
