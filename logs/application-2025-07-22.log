@@ -242,3 +242,11 @@
 {"level":"info","message":"✅ Started job: verifyProcessingWithdrawals","timestamp":"2025-07-22T16:49:12.679Z"}
 {"level":"info","message":"✅ Started job: verifyPendingWithdrawals","timestamp":"2025-07-22T16:49:12.679Z"}
 {"level":"info","message":"Application startup completed successfully","timestamp":"2025-07-22T16:49:12.679Z"}
+{"environment":"development","level":"info","memoryUsage":{"arrayBuffers":19100343,"external":22664129,"heapTotal":191397888,"heapUsed":84228768,"rss":167034880},"message":"Server started successfully","port":5001,"processId":47406,"timestamp":"2025-07-22T16:49:56.474Z"}
+{"error":"setUserAsAdmin is not a function","level":"error","message":"Admin setup failed","timestamp":"2025-07-22T16:49:59.475Z"}
+{"level":"info","message":"Background job registered: verifyProcessingWithdrawals","timestamp":"2025-07-22T16:49:59.489Z"}
+{"level":"info","message":"Background job registered: verifyPendingWithdrawals","timestamp":"2025-07-22T16:49:59.489Z"}
+{"level":"info","message":"Withdrawal verification jobs started","timestamp":"2025-07-22T16:49:59.490Z"}
+{"level":"info","message":"✅ Started job: verifyProcessingWithdrawals","timestamp":"2025-07-22T16:49:59.491Z"}
+{"level":"info","message":"✅ Started job: verifyPendingWithdrawals","timestamp":"2025-07-22T16:49:59.491Z"}
+{"level":"info","message":"Application startup completed successfully","timestamp":"2025-07-22T16:49:59.491Z"}
