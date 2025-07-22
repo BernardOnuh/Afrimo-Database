@@ -2350,6 +2350,8 @@ router.delete('/admin/manual/:transactionId', protect, adminProtect, shareContro
  *         $ref: '#/components/responses/UnauthorizedError'
  *       500:
  *         $ref: '#/components/responses/ServerError'
+ */
+ router.post('/centiiv/direct-pay', protect, shareController.initiateCentiivDirectPay);
 
 /**
  * @swagger
@@ -2439,6 +2441,8 @@ router.delete('/admin/manual/:transactionId', protect, adminProtect, shareContro
  *         description: Transaction not found
  *       500:
  *         $ref: '#/components/responses/ServerError'
+ */
+router.get('/centiiv/callback', shareController.handleCentiivCallback);
 
 /**
  * @swagger
@@ -2705,6 +2709,8 @@ router.delete('/admin/manual/:transactionId', protect, adminProtect, shareContro
  *         $ref: '#/components/responses/UnauthorizedError'
  *       500:
  *         $ref: '#/components/responses/ServerError'
+ */
+router.get('/centiiv/status/:paymentId', protect, shareController.getCentiivPaymentStatus);
 
 /**
  * @swagger
@@ -2779,6 +2785,9 @@ router.delete('/admin/manual/:transactionId', protect, adminProtect, shareContro
  *         $ref: '#/components/responses/UnauthorizedError'
  *       500:
  *         $ref: '#/components/responses/ServerError'
+ */
+router.get('/transactions/:transactionId/status', protect, shareController.getTransactionStatus);
+
 
 /**
  * @swagger
@@ -2900,6 +2909,8 @@ router.delete('/admin/manual/:transactionId', protect, adminProtect, shareContro
  *         $ref: '#/components/responses/UnauthorizedError'
  *       500:
  *         $ref: '#/components/responses/ServerError'
+*/
+router.get('/transactions/:transactionId/details', protect, shareController.getTransactionDetails);
 
 /**
  * @swagger
@@ -3318,6 +3329,8 @@ router.delete('/admin/manual/:transactionId', protect, adminProtect, shareContro
          $ref: '#/components/responses/ForbiddenError'  
        500:
          $ref: '#/components/responses/ServerError'
+*/
+router.get('/admin/centiiv/overview', protect, adminProtect, shareController.adminGetCentiivOverview);
 
 /**
  * @swagger
