@@ -69,6 +69,19 @@ const userShareSchema = new mongoose.Schema({
       enum: ['paystack', 'crypto', 'web3', 'manual_bank_transfer', 'manual_cash', 'manual_other', 'co-founder', 'centiiv'],
       required: true
     },
+    centiivPaymentId: {
+      type: String,
+      sparse: true
+    },
+    centiivCallbackUrl: {
+      type: String,
+      sparse: true
+    },
+    centiivPaymentType: {
+      type: String,
+      enum: ['direct-pay', 'invoice', 'other'],
+      sparse: true
+    },    
     status: {
       type: String,
       enum: ['pending', 'completed', 'failed'],

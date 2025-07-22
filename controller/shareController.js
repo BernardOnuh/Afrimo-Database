@@ -3251,20 +3251,28 @@ exports.initiateCentiivDirectPay = async (req, res) => {
       });
     }
     
-    // Save to database
+    // ✅ FIX: Use correct paymentMethod enum value and schema-compliant fields
     const shareData = {
       transactionId,
       shares: shares, // ✅ Use calculated shares
       pricePerShare: amount / shares,
       currency: 'naira',
       totalAmount: amount, // ✅ Use calculated amount
-      paymentMethod: 'centiiv-direct',
+      paymentMethod: 'centiiv', // ✅ CORRECT: Valid enum value from schema
       status: 'pending',
       tierBreakdown: purchaseDetails.tierBreakdown,
-      centiivPaymentId: paymentId,
-      centiivPaymentUrl: paymentUrl,
-      centiivCallbackUrl: callbackUrl
+      
+      // ✅ CORRECT: Use schema-compliant Centiiv fields
+      centiivOrderId: paymentId, // Maps to existing schema field
+      centiivInvoiceUrl: paymentUrl, // Maps to existing schema field
+      
+      // ✅ OPTIONAL: Add custom fields for additional Centiiv data if needed
+      // Note: These fields aren't in the schema, so they won't be saved unless you add them
+      // centiivCallbackUrl: callbackUrl,
+      // centiivPaymentType: 'direct-pay'
     };
+    
+    console.log('💾 [Centiiv Direct Pay] About to save shareData:', JSON.stringify(shareData, null, 2));
     
     await UserShare.addShares(userId, shares, shareData);
     console.log('✅ [Centiiv Direct Pay] Database save successful');
@@ -3287,6 +3295,7 @@ exports.initiateCentiivDirectPay = async (req, res) => {
     
   } catch (error) {
     console.error('💥 [Centiiv Direct Pay] Unexpected error:', error.message);
+    console.error('💥 [Centiiv Direct Pay] Stack trace:', error.stack); // ✅ ADD: More detailed error logging
     res.status(500).json({
       success: false,
       message: 'Failed to initiate payment',

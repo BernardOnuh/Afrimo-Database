@@ -215,3 +215,30 @@
 {"level":"info","message":"✅ Started job: verifyProcessingWithdrawals","timestamp":"2025-07-22T16:38:17.053Z"}
 {"level":"info","message":"✅ Started job: verifyPendingWithdrawals","timestamp":"2025-07-22T16:38:17.053Z"}
 {"level":"info","message":"Application startup completed successfully","timestamp":"2025-07-22T16:38:17.053Z"}
+{"environment":"development","level":"info","memoryUsage":{"arrayBuffers":19100343,"external":22664129,"heapTotal":191922176,"heapUsed":83965648,"rss":163954688},"message":"Server started successfully","port":5001,"processId":46960,"timestamp":"2025-07-22T16:45:54.008Z"}
+{"level":"info","message":"Enhanced startup information displayed","timestamp":"2025-07-22T16:45:54.855Z"}
+{"error":"setUserAsAdmin is not a function","level":"error","message":"Admin setup failed","timestamp":"2025-07-22T16:45:57.014Z"}
+{"level":"info","message":"Background job registered: verifyProcessingWithdrawals","timestamp":"2025-07-22T16:45:57.022Z"}
+{"level":"info","message":"Background job registered: verifyPendingWithdrawals","timestamp":"2025-07-22T16:45:57.023Z"}
+{"level":"info","message":"Withdrawal verification jobs started","timestamp":"2025-07-22T16:45:57.023Z"}
+{"level":"info","message":"✅ Started job: verifyProcessingWithdrawals","timestamp":"2025-07-22T16:45:57.023Z"}
+{"level":"info","message":"✅ Started job: verifyPendingWithdrawals","timestamp":"2025-07-22T16:45:57.024Z"}
+{"level":"info","message":"Application startup completed successfully","timestamp":"2025-07-22T16:45:57.024Z"}
+{"environment":"development","level":"info","memoryUsage":{"arrayBuffers":19100343,"external":22664129,"heapTotal":193232896,"heapUsed":84208416,"rss":173277184},"message":"Server started successfully","port":5001,"processId":47149,"timestamp":"2025-07-22T16:48:25.777Z"}
+{"error":"setUserAsAdmin is not a function","level":"error","message":"Admin setup failed","timestamp":"2025-07-22T16:48:28.778Z"}
+{"level":"info","message":"Background job registered: verifyProcessingWithdrawals","timestamp":"2025-07-22T16:48:28.784Z"}
+{"level":"info","message":"Background job registered: verifyPendingWithdrawals","timestamp":"2025-07-22T16:48:28.785Z"}
+{"level":"info","message":"Withdrawal verification jobs started","timestamp":"2025-07-22T16:48:28.785Z"}
+{"level":"info","message":"✅ Started job: verifyProcessingWithdrawals","timestamp":"2025-07-22T16:48:28.785Z"}
+{"level":"info","message":"✅ Started job: verifyPendingWithdrawals","timestamp":"2025-07-22T16:48:28.786Z"}
+{"level":"info","message":"Application startup completed successfully","timestamp":"2025-07-22T16:48:28.786Z"}
+{"environment":"development","level":"info","memoryUsage":{"arrayBuffers":19100343,"external":22664129,"heapTotal":191922176,"heapUsed":83904208,"rss":212713472},"message":"Server started successfully","port":5001,"processId":47282,"timestamp":"2025-07-22T16:49:06.397Z"}
+{"environment":"development","level":"info","memoryUsage":{"arrayBuffers":19100238,"external":22664024,"heapTotal":189825024,"heapUsed":84345680,"rss":146833408},"message":"Server started successfully","port":5001,"processId":47336,"timestamp":"2025-07-22T16:49:09.671Z"}
+{"level":"info","message":"Enhanced startup information displayed","timestamp":"2025-07-22T16:49:11.990Z"}
+{"error":"setUserAsAdmin is not a function","level":"error","message":"Admin setup failed","timestamp":"2025-07-22T16:49:12.670Z"}
+{"level":"info","message":"Background job registered: verifyProcessingWithdrawals","timestamp":"2025-07-22T16:49:12.678Z"}
+{"level":"info","message":"Background job registered: verifyPendingWithdrawals","timestamp":"2025-07-22T16:49:12.678Z"}
+{"level":"info","message":"Withdrawal verification jobs started","timestamp":"2025-07-22T16:49:12.679Z"}
+{"level":"info","message":"✅ Started job: verifyProcessingWithdrawals","timestamp":"2025-07-22T16:49:12.679Z"}
+{"level":"info","message":"✅ Started job: verifyPendingWithdrawals","timestamp":"2025-07-22T16:49:12.679Z"}
+{"level":"info","message":"Application startup completed successfully","timestamp":"2025-07-22T16:49:12.679Z"}
