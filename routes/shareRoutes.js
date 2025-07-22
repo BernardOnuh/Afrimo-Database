@@ -2266,18 +2266,161 @@ router.delete('/admin/manual/:transactionId', protect, adminProtect, shareContro
 
 /**
  * @swagger
+ * components:
+ *   schemas:
+ *     CentiivDirectPayRequest:
+ *       type: object
+ *       required:
+ *         - quantity
+ *       properties:
+ *         quantity:
+ *           type: integer
+ *           minimum: 1
+ *           maximum: 10000
+ *           example: 1
+ *           description: Number of shares to purchase (amount calculated automatically based on current pricing tiers)
+ *         note:
+ *           type: string
+ *           maxLength: 200
+ *           example: "My AfriMobile share purchase"
+ *           description: Optional payment note that will appear in the payment interface
+ * 
+ *     CentiivDirectPayResponse:
+ *       type: object
+ *       properties:
+ *         success:
+ *           type: boolean
+ *           example: true
+ *           description: Indicates if the payment initiation was successful
+ *         message:
+ *           type: string
+ *           example: "Centiiv Direct Pay initiated successfully"
+ *           description: Human-readable success message
+ *         data:
+ *           type: object
+ *           properties:
+ *             transactionId:
+ *               type: string
+ *               example: "TXN-6FDB4A4F-553414"
+ *               description: Unique transaction identifier for tracking
+ *             paymentId:
+ *               type: string
+ *               example: "69f3fb"
+ *               description: Centiiv payment identifier
+ *             paymentUrl:
+ *               type: string
+ *               format: uri
+ *               example: "https://centiiv.com/pay?id=69f3fb&type=payment_link"
+ *               description: Centiiv payment URL where user should be redirected
+ *             amount:
+ *               type: number
+ *               format: float
+ *               example: 50000.00
+ *               description: Total amount in Naira calculated from share quantity
+ *             shares:
+ *               type: integer
+ *               example: 1
+ *               description: Total shares that will be allocated (same as quantity for regular shares)
+ *             quantity:
+ *               type: integer
+ *               example: 1
+ *               description: Original quantity requested by user
+ *             callbackUrl:
+ *               type: string
+ *               format: uri
+ *               example: "https://www.afrimobiletech.com/dashboard/shares/payment-success?transaction=TXN-6FDB4A4F-553414&method=centiiv-direct&type=fiat"
+ *               description: URL where Centiiv will redirect after payment completion
+ *             redirectTo:
+ *               type: string
+ *               format: uri
+ *               example: "https://centiiv.com/pay?id=69f3fb&type=payment_link"
+ *               description: URL where frontend should immediately redirect the user
+ * 
+ *     CentiivDirectPayErrorResponse:
+ *       type: object
+ *       properties:
+ *         success:
+ *           type: boolean
+ *           example: false
+ *           description: Always false for error responses
+ *         message:
+ *           type: string
+ *           example: "Payment service unavailable"
+ *           description: Human-readable error message
+ *         error:
+ *           oneOf:
+ *             - type: string
+ *               example: "Internal server error"
+ *               description: Error message (production)
+ *             - type: object
+ *               description: Detailed error object (development)
+ *         responseData:
+ *           type: object
+ *           description: Raw API response data for debugging (only in development)
+ * 
  * /shares/centiiv/direct-pay:
  *   post:
  *     tags: [Shares - Centiiv Payment]
- *     summary: Initiate Centiiv Direct Pay (FIXED)
+ *     summary: Initiate Centiiv Direct Pay for Share Purchase
  *     description: |
- *       Create a direct payment link using Centiiv's Direct Pay API.
+ *       Creates a direct payment link using Centiiv's Direct Pay API for purchasing AfriMobile shares.
  *       
- *       **FIXES APPLIED:**
- *       - ✅ Only requires quantity (number of shares), not amount
- *       - ✅ Automatically calculates amount from share quantity  
- *       - ✅ Fixed API response parsing for actual Centiiv structure
- *       - ✅ Better error handling with response debugging
+ *       ## Key Features:
+ *       - ✅ **Simplified Input**: Only requires share quantity, automatically calculates amount
+ *       - ✅ **Smart Pricing**: Uses current tier-based pricing system
+ *       - ✅ **Secure Integration**: Uses Centiiv's secure payment gateway
+ *       - ✅ **Automatic Callbacks**: Handles payment status updates via webhooks
+ *       - ✅ **Transaction Tracking**: Full audit trail in database
+ *       
+ *       ## How it Works:
+ *       1. **Input**: Provide number of shares to purchase
+ *       2. **Calculation**: System calculates total price based on current tiers
+ *       3. **Payment Link**: Centiiv generates secure payment URL
+ *       4. **Redirect**: User is redirected to Centiiv payment interface
+ *       5. **Payment**: User completes payment via bank transfer, card, or other methods
+ *       6. **Callback**: Centiiv notifies our system of payment status
+ *       7. **Completion**: Shares are allocated upon successful payment
+ *       
+ *       ## Pricing Tiers:
+ *       - **Tier 1**: ₦50,000 per share (limited availability)
+ *       - **Tier 2**: ₦75,000 per share (limited availability)  
+ *       - **Tier 3**: ₦100,000 per share (general availability)
+ *       
+ *       ## Payment Methods Supported by Centiiv:
+ *       - Bank Transfers
+ *       - Credit/Debit Cards
+ *       - Mobile Money
+ *       - USSD Codes
+ *       
+ *       ## Response Flow:
+ *       ```javascript
+ *       // 1. Make API call
+ *       POST /api/shares/centiiv/direct-pay
+ *       
+ *       // 2. Get payment URL in response
+ *       { "data": { "redirectTo": "https://centiiv.com/pay?id=..." } }
+ *       
+ *       // 3. Redirect user to payment URL
+ *       window.location.href = response.data.redirectTo;
+ *       
+ *       // 4. User completes payment
+ *       // 5. Centiiv redirects back to callbackUrl
+ *       // 6. Check payment status in dashboard
+ *       ```
+ *       
+ *       ## Error Handling:
+ *       - **400**: Invalid quantity or validation errors
+ *       - **401**: Authentication required
+ *       - **500**: Payment service unavailable or configuration issues
+ *       
+ *       ## Important Notes:
+ *       - Payments are processed in Nigerian Naira (₦)
+ *       - Minimum purchase: 1 share
+ *       - Maximum purchase: 10,000 shares per transaction
+ *       - Payment links expire after 24 hours
+ *       - Transaction status can be checked via dashboard or webhooks
+ *       
+ *     operationId: initiateCentiivDirectPay
  *     security:
  *       - bearerAuth: []
  *     requestBody:
@@ -2285,22 +2428,110 @@ router.delete('/admin/manual/:transactionId', protect, adminProtect, shareContro
  *       content:
  *         application/json:
  *           schema:
- *             type: object
- *             required:
- *               - quantity
- *             properties:
- *               quantity:
- *                 type: integer
- *                 minimum: 1
- *                 example: 1
- *                 description: Number of shares to purchase (amount calculated automatically)
- *               note:
- *                 type: string
- *                 example: "My share purchase"
- *                 description: Optional payment note
+ *             $ref: '#/components/schemas/CentiivDirectPayRequest'
+ *           examples:
+ *             singleShare:
+ *               summary: Purchase 1 share
+ *               description: Basic single share purchase
+ *               value:
+ *                 quantity: 1
+ *                 note: "My first AfriMobile share"
+ *             multipleShares:
+ *               summary: Purchase 10 shares
+ *               description: Multiple shares purchase
+ *               value:
+ *                 quantity: 10
+ *                 note: "Investment in AfriMobile growth"
+ *             largeInvestment:
+ *               summary: Purchase 100 shares
+ *               description: Large investment example
+ *               value:
+ *                 quantity: 100
+ *                 note: "Strategic investment in AfriMobile"
+ *     responses:
+ *       200:
+ *         description: Payment link created successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/CentiivDirectPayResponse'
+ *             examples:
+ *               successResponse:
+ *                 summary: Successful payment initiation
+ *                 description: Payment link created and ready for user redirect
+ *                 value:
+ *                   success: true
+ *                   message: "Centiiv Direct Pay initiated successfully"
+ *                   data:
+ *                     transactionId: "TXN-6FDB4A4F-553414"
+ *                     paymentId: "69f3fb"
+ *                     paymentUrl: "https://centiiv.com/pay?id=69f3fb&type=payment_link"
+ *                     amount: 50000.00
+ *                     shares: 1
+ *                     quantity: 1
+ *                     callbackUrl: "https://www.afrimobiletech.com/dashboard/shares/payment-success?transaction=TXN-6FDB4A4F-553414&method=centiiv-direct&type=fiat"
+ *                     redirectTo: "https://centiiv.com/pay?id=69f3fb&type=payment_link"
+ *       400:
+ *         description: Invalid request parameters
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/CentiivDirectPayErrorResponse'
+ *             examples:
+ *               invalidQuantity:
+ *                 summary: Invalid quantity provided
+ *                 value:
+ *                   success: false
+ *                   message: "Please provide a valid quantity of shares"
+ *               calculationError:
+ *                 summary: Share calculation failed
+ *                 value:
+ *                   success: false
+ *                   message: "Insufficient shares available in current tiers"
+ *       401:
+ *         description: Authentication required
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: false
+ *                 message:
+ *                   type: string
+ *                   example: "Access denied. No token provided."
+ *       500:
+ *         description: Server error or payment service unavailable
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/CentiivDirectPayErrorResponse'
+ *             examples:
+ *               serviceUnavailable:
+ *                 summary: Payment service unavailable
+ *                 value:
+ *                   success: false
+ *                   message: "Payment service unavailable"
+ *                   error: "Connection timeout to Centiiv API"
+ *               configurationError:
+ *                 summary: Service not configured
+ *                 value:
+ *                   success: false
+ *                   message: "Payment service not configured"
+ *               invalidResponse:
+ *                 summary: Invalid API response
+ *                 value:
+ *                   success: false
+ *                   message: "Invalid payment response"
+ *                   responseData:
+ *                     success: true
+ *                     message: "Payment link created successfully"
+ *                     code: "PAYMENT_LINK_CREATED"
+ *                     data: {}
  */
 
- router.post('/centiiv/direct-pay', protect, shareController.initiateCentiivDirectPay);
+router.post('/centiiv/direct-pay', protect, shareController.initiateCentiivDirectPay);
 
 /**
  * @swagger
