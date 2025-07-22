@@ -3146,17 +3146,18 @@ exports.getShareStatistics = async (req, res) => {
  */
 exports.initiateCentiivDirectPay = async (req, res) => {
   try {
-    const { quantity, amount, note } = req.body;
+    const { quantity } = req.body; // ✅ REMOVED amount parameter - only use quantity
     const userId = req.user.id;
     
     console.log('🚀 [Centiiv Direct Pay] Payment initiation started:', {
-      userId, quantity, amount, note
+      userId, quantity // ✅ Only log quantity, not amount
     });
     
-    if (!amount || amount <= 0) {
+    // ✅ FIXED: Validate quantity instead of amount
+    if (!quantity || quantity <= 0) {
       return res.status(400).json({
         success: false,
-        message: 'Please provide a valid amount'
+        message: 'Please provide a valid quantity of shares'
       });
     }
     
@@ -3172,35 +3173,29 @@ exports.initiateCentiivDirectPay = async (req, res) => {
       });
     }
     
-    // Calculate shares if quantity provided, otherwise treat as direct amount payment
-    let purchaseDetails = null;
-    let shares = 0;
-    
-    if (quantity) {
-      purchaseDetails = await Share.calculatePurchase(parseInt(quantity), 'naira');
-      if (!purchaseDetails.success) {
-        return res.status(400).json({
-          success: false,
-          message: purchaseDetails.message
-        });
-      }
-      shares = purchaseDetails.totalShares;
+    // ✅ FIXED: Always calculate shares from quantity
+    const purchaseDetails = await Share.calculatePurchase(parseInt(quantity), 'naira');
+    if (!purchaseDetails.success) {
+      return res.status(400).json({
+        success: false,
+        message: purchaseDetails.message
+      });
     }
+    
+    const shares = purchaseDetails.totalShares;
+    const amount = purchaseDetails.totalPrice; // ✅ Calculate amount from shares
     
     // Generate transaction ID
     const transactionId = generateTransactionId();
     
-    // 🔥 CREATE CALLBACK URL with transaction tracking
+    // Create callback URL
     const frontendUrl = process.env.FRONTEND_URL || 'https://yourfrontend.com';
-    const backendUrl = process.env.BACKEND_URL || 'https://yourapi.com';
-    
     const callbackUrl = `${frontendUrl}/dashboard/shares/payment-success?transaction=${transactionId}&method=centiiv-direct&type=fiat`;
     
     // Create Centiiv Direct Pay request
     const centiivRequest = {
-      amount: parseFloat(amount),
-      note: note || `AfriMobile Share Purchase - ${shares} shares`,
-      // 🔥 ADD CALLBACK URL
+      amount: parseFloat(amount), // ✅ Use calculated amount
+      note: `AfriMobile Share Purchase - ${shares} shares`, // ✅ Use calculated shares
       callback_url: callbackUrl
     };
     
@@ -3235,33 +3230,44 @@ exports.initiateCentiivDirectPay = async (req, res) => {
     }
     
     const paymentData = centiivResponse.data;
-    const paymentId = paymentData.id || paymentData.payment_id;
-    const paymentUrl = paymentData.payment_url || paymentData.url;
+    
+    // ✅ FIXED: Handle the actual Centiiv API response structure
+    const paymentId = paymentData.data?.id || paymentData.id;
+    const paymentUrl = paymentData.data?.link || paymentData.data?.payment_url || paymentData.link || paymentData.payment_url;
+    
+    console.log('🔍 [Centiiv Direct Pay] Extracted data:', {
+      paymentId,
+      paymentUrl,
+      allResponseKeys: Object.keys(paymentData)
+    });
     
     if (!paymentId || !paymentUrl) {
       console.error('❌ [Centiiv Direct Pay] Invalid response structure');
+      console.log('📋 [Centiiv Direct Pay] Available response keys:', Object.keys(paymentData));
       return res.status(500).json({
         success: false,
-        message: 'Invalid payment response'
+        message: 'Invalid payment response',
+        responseData: paymentData // ✅ Include response for debugging
       });
     }
     
     // Save to database
     const shareData = {
       transactionId,
-      shares: shares,
-      pricePerShare: shares > 0 ? amount / shares : amount,
+      shares: shares, // ✅ Use calculated shares
+      pricePerShare: amount / shares,
       currency: 'naira',
-      totalAmount: amount,
+      totalAmount: amount, // ✅ Use calculated amount
       paymentMethod: 'centiiv-direct',
       status: 'pending',
-      tierBreakdown: purchaseDetails?.tierBreakdown || { tier1: shares, tier2: 0, tier3: 0 },
+      tierBreakdown: purchaseDetails.tierBreakdown,
       centiivPaymentId: paymentId,
       centiivPaymentUrl: paymentUrl,
       centiivCallbackUrl: callbackUrl
     };
     
     await UserShare.addShares(userId, shares, shareData);
+    console.log('✅ [Centiiv Direct Pay] Database save successful');
     
     // Success response
     res.status(200).json({
@@ -3271,11 +3277,11 @@ exports.initiateCentiivDirectPay = async (req, res) => {
         transactionId,
         paymentId,
         paymentUrl,
-        amount: amount,
-        shares: shares,
+        amount: amount, // ✅ Return calculated amount
+        shares: shares, // ✅ Return calculated shares  
+        quantity: quantity, // ✅ Return original quantity input
         callbackUrl: callbackUrl,
-        // 🔥 IMPORTANT: Frontend should redirect user to this URL
-        redirectTo: paymentUrl
+        redirectTo: paymentUrl // ✅ Frontend should redirect user to this URL
       }
     });
     
@@ -3464,8 +3470,17 @@ exports.initiateCentiivCryptoPay = async (req, res) => {
       });
     }
     
+    // ✅ FIXED: Validate quantity is a positive integer
+    const shareQuantity = parseInt(quantity);
+    if (isNaN(shareQuantity) || shareQuantity <= 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'Please provide a valid quantity of shares (positive integer)'
+      });
+    }
+    
     // Calculate purchase details
-    const purchaseDetails = await Share.calculatePurchase(parseInt(quantity), currency);
+    const purchaseDetails = await Share.calculatePurchase(shareQuantity, currency);
     
     if (!purchaseDetails.success) {
       return res.status(400).json({
@@ -3477,7 +3492,7 @@ exports.initiateCentiivCryptoPay = async (req, res) => {
     // Generate transaction ID
     const transactionId = generateTransactionId();
     
-    // 🔥 CREATE CALLBACK URL for crypto payment
+    // Create callback URL for crypto payment
     const frontendUrl = process.env.FRONTEND_URL || 'https://yourfrontend.com';
     const callbackUrl = `${frontendUrl}/dashboard/shares/payment-success?transaction=${transactionId}&method=centiiv-crypto&type=crypto`;
     
@@ -3513,6 +3528,7 @@ exports.initiateCentiivCryptoPay = async (req, res) => {
       message: 'Crypto payment instructions generated',
       data: {
         transactionId,
+        quantity: shareQuantity, // ✅ Return original quantity
         paymentInstructions: {
           recipientAddress: companyWalletAddress,
           amount: purchaseDetails.totalPrice,
@@ -3521,7 +3537,6 @@ exports.initiateCentiivCryptoPay = async (req, res) => {
           shares: purchaseDetails.totalShares
         },
         callbackUrl: callbackUrl,
-        // Instructions for user
         instructions: [
           `Send exactly ${purchaseDetails.totalPrice} ${currency.toUpperCase()} to: ${companyWalletAddress}`,
           `Network: BSC (Binance Smart Chain)`,
@@ -3537,6 +3552,610 @@ exports.initiateCentiivCryptoPay = async (req, res) => {
       success: false,
       message: 'Failed to initiate crypto payment',
       error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
+    });
+  }
+};
+
+exports.initiateCentiivPayment = async (req, res) => {
+  try {
+    const { quantity, email, customerName } = req.body;
+    const userId = req.user.id;
+    
+    console.log('🚀 [Centiiv] Payment initiation started:', {
+      userId, quantity, email, customerName
+    });
+    
+    if (!quantity || !email || !customerName) {
+      return res.status(400).json({
+        success: false,
+        message: 'Please provide quantity, email, and customer name'
+      });
+    }
+    
+    // API configuration
+    const apiKey = process.env.CENTIIV_API_KEY;
+    const baseUrl = process.env.CENTIIV_BASE_URL || 'https://api.centiiv.com/api/v1';
+    
+    console.log('🔧 [Centiiv] Using API key for invoice creation');
+    console.log('🔧 [Centiiv] API Key Preview:', apiKey.substring(0, 8) + '...');
+    console.log('🔧 [Centiiv] Base URL:', baseUrl);
+    
+    // Calculate purchase
+    const purchaseDetails = await Share.calculatePurchase(parseInt(quantity), 'naira');
+    
+    console.log('💰 [Centiiv] Purchase details:', {
+      success: purchaseDetails.success,
+      totalPrice: purchaseDetails.totalPrice,
+      totalShares: purchaseDetails.totalShares
+    });
+    
+    if (!purchaseDetails.success) {
+      return res.status(400).json({
+        success: false,
+        message: 'Unable to process this purchase amount',
+        details: purchaseDetails
+      });
+    }
+    
+    // Generate transaction ID
+    const transactionId = generateTransactionId();
+    console.log('🆔 [Centiiv] Transaction ID:', transactionId);
+    
+    // CREATE REDIRECT URLs
+    const frontendUrl = process.env.FRONTEND_URL || 'https://yourfrontend.com';
+    const backendUrl = process.env.BACKEND_URL || 'https://yourapi.com';
+    
+    const successUrl = `${frontendUrl}/dashboard`;
+    const cancelUrl = `${frontendUrl}/dashboard/shares/payment-cancelled?transaction=${transactionId}&method=centiiv`;
+    const notifyUrl = `${backendUrl}/api/shares/centiiv/webhook`;
+    
+    console.log('🔗 [Centiiv] Redirect URLs:', {
+      success: successUrl,
+      cancel: cancelUrl,
+      notify: notifyUrl
+    });
+    
+    // Create request payload with redirect URLs
+    const dueDate = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+    const centiivRequest = {
+      reminderInterval: 7,
+      customerEmail: email,
+      customerName: customerName,
+      dueDate: dueDate,
+      subject: `AfriMobile Share Purchase - ${purchaseDetails.totalShares} Shares`,
+      products: [
+        {
+          name: `AfriMobile Shares (${purchaseDetails.totalShares} shares)`,
+          qty: 1,
+          price: purchaseDetails.totalPrice
+        }
+      ],
+      // ADD REDIRECT URLs TO CENTIIV REQUEST
+      successUrl: successUrl,
+      cancelUrl: cancelUrl,
+      notifyUrl: notifyUrl,
+      // Optional: Add metadata for tracking
+      metadata: {
+        userId: userId.toString(),
+        transactionId: transactionId,
+        shares: purchaseDetails.totalShares.toString(),
+        purchaseType: 'share_purchase'
+      }
+    };
+    
+    console.log('📦 [Centiiv] Request payload:', JSON.stringify(centiivRequest, null, 2));
+    
+    // Make API call
+    console.log('🌐 [Centiiv] Making API call to:', `${baseUrl}/order`);
+    
+    let centiivResponse;
+    try {
+      centiivResponse = await axios.post(
+        `${baseUrl}/order`,
+        centiivRequest,
+        {
+          headers: {
+            'accept': 'application/json',
+            'authorization': `Bearer ${apiKey}`,
+            'content-type': 'application/json'
+          },
+          timeout: 30000
+        }
+      );
+      
+      console.log('✅ [Centiiv] API call successful');
+      console.log('📊 [Centiiv] Response status:', centiivResponse.status);
+      console.log('📊 [Centiiv] Response data:', JSON.stringify(centiivResponse.data, null, 2));
+      
+    } catch (apiError) {
+      console.log('❌ [Centiiv] API call failed');
+      console.log('🔍 [Centiiv] Error message:', apiError.message);
+      console.log('🔍 [Centiiv] Error code:', apiError.code);
+      
+      if (apiError.response) {
+        console.log('🔍 [Centiiv] Error response status:', apiError.response.status);
+        console.log('🔍 [Centiiv] Error response data:', JSON.stringify(apiError.response.data, null, 2));
+      }
+      
+      return res.status(500).json({
+        success: false,
+        message: 'Centiiv API call failed',
+        error: {
+          message: apiError.message,
+          status: apiError.response?.status,
+          data: apiError.response?.data,
+          code: apiError.code
+        }
+      });
+    }
+    
+    // Process response
+    if (!centiivResponse || !centiivResponse.data) {
+      console.log('❌ [Centiiv] Empty response');
+      return res.status(500).json({
+        success: false,
+        message: 'Empty response from Centiiv API'
+      });
+    }
+    
+    const orderData = centiivResponse.data;
+    const orderId = orderData.id || orderData.order_id || orderData.orderId;
+    const invoiceUrl = orderData.invoiceUrl || orderData.invoice_url || orderData.payment_url;
+    
+    console.log('🔍 [Centiiv] Extracted data:', {
+      orderId,
+      invoiceUrl,
+      allResponseKeys: Object.keys(orderData)
+    });
+    
+    if (!orderId) {
+      console.log('❌ [Centiiv] No order ID found in response');
+      console.log('📋 [Centiiv] Available response keys:', Object.keys(orderData));
+      return res.status(500).json({
+        success: false,
+        message: 'No order ID in Centiiv response',
+        responseData: orderData
+      });
+    }
+    
+    // Save to database
+    console.log('💾 [Centiiv] Saving to database...');
+    try {
+      await UserShare.addShares(userId, purchaseDetails.totalShares, {
+        transactionId,
+        shares: purchaseDetails.totalShares,
+        pricePerShare: purchaseDetails.totalPrice / purchaseDetails.totalShares,
+        currency: 'naira',
+        totalAmount: purchaseDetails.totalPrice,
+        paymentMethod: 'centiiv',
+        status: 'pending',
+        tierBreakdown: purchaseDetails.tierBreakdown,
+        centiivOrderId: orderId,
+        centiivInvoiceUrl: invoiceUrl || null,
+        // STORE REDIRECT URLs FOR REFERENCE
+        successUrl: successUrl,
+        cancelUrl: cancelUrl,
+        notifyUrl: notifyUrl
+      });
+      
+      console.log('✅ [Centiiv] Database save successful');
+      
+    } catch (dbError) {
+      console.log('❌ [Centiiv] Database save failed:', dbError.message);
+      return res.status(500).json({
+        success: false,
+        message: 'Failed to save transaction to database',
+        error: dbError.message
+      });
+    }
+    
+    // Success response
+    const responseData = {
+      transactionId,
+      centiivOrderId: orderId,
+      invoiceUrl: invoiceUrl || null,
+      amount: purchaseDetails.totalPrice,
+      shares: purchaseDetails.totalShares,
+      dueDate: dueDate,
+      // INCLUDE REDIRECT URLs IN RESPONSE
+      redirectUrls: {
+        success: successUrl,
+        cancel: cancelUrl,
+        notify: notifyUrl
+      }
+    };
+    
+    console.log('🎉 [Centiiv] Success:', responseData);
+    
+    res.status(200).json({
+      success: true,
+      message: 'Centiiv invoice created successfully with redirect URLs',
+      data: responseData
+    });
+    
+  } catch (error) {
+    console.log('💥 [Centiiv] Unexpected error:', error.message);
+    console.log('🔍 [Centiiv] Error stack:', error.stack);
+    
+    res.status(500).json({
+      success: false,
+      message: 'Failed to initiate Centiiv payment',
+      error: {
+        message: error.message,
+        type: 'UNEXPECTED_ERROR'
+      }
+    });
+  }
+};
+
+// 2. getCentiivAnalytics - ALREADY EXISTS IN CONTROLLER  
+exports.getCentiivAnalytics = async (req, res) => {
+  try {
+    const adminId = req.user.id;
+    
+    // Check if admin
+    const admin = await User.findById(adminId);
+    if (!admin || !admin.isAdmin) {
+      return res.status(403).json({
+        success: false,
+        message: 'Unauthorized: Admin access required'
+      });
+    }
+    
+    const { period = '30d', groupBy = 'day' } = req.query;
+    
+    // Calculate date range
+    const now = new Date();
+    let startDate = new Date();
+    
+    switch (period) {
+      case '7d':
+        startDate.setDate(now.getDate() - 7);
+        break;
+      case '90d':
+        startDate.setDate(now.getDate() - 90);
+        break;
+      case '365d':
+        startDate.setDate(now.getDate() - 365);
+        break;
+      case 'all':
+        startDate = new Date('2020-01-01');
+        break;
+      case '30d':
+      default:
+        startDate.setDate(now.getDate() - 30);
+        break;
+    }
+    
+    // Get Centiiv transactions
+    const centiivPaymentMethods = ['centiiv', 'centiiv-direct', 'centiiv-crypto', 'centiiv-invoice'];
+    const userShares = await UserShare.find({
+      'transactions.paymentMethod': { $in: centiivPaymentMethods },
+      'transactions.createdAt': { $gte: startDate }
+    }).populate('user', 'name email').lean();
+    
+    // Process analytics data
+    const analytics = {
+      summary: {
+        totalPayments: 0,
+        totalRevenue: 0,
+        averagePaymentSize: 0,
+        overallSuccessRate: 0
+      },
+      trends: {
+        dailyPayments: {},
+        paymentMethodTrends: {}
+      },
+      comparison: {
+        methodPerformance: [],
+        vsOtherMethods: {}
+      },
+      userBehavior: {
+        abandonmentRate: 0,
+        retryRate: 0,
+        preferredMethods: [],
+        averageSessionTime: '0 minutes'
+      },
+      issues: {
+        commonIssues: [],
+        resolutionTimes: {
+          average: '0 minutes',
+          median: '0 minutes'
+        }
+      }
+    };
+    
+    // Collect all transactions
+    let allTransactions = [];
+    let completedTransactions = 0;
+    
+    for (const userShare of userShares) {
+      for (const transaction of userShare.transactions) {
+        if (!centiivPaymentMethods.includes(transaction.paymentMethod)) continue;
+        if (new Date(transaction.createdAt) < startDate) continue;
+        
+        allTransactions.push({
+          ...transaction,
+          userId: userShare.user._id,
+          userName: userShare.user.name
+        });
+        
+        if (transaction.status === 'completed') {
+          completedTransactions++;
+          analytics.summary.totalRevenue += transaction.totalAmount || 0;
+        }
+      }
+    }
+    
+    analytics.summary.totalPayments = allTransactions.length;
+    analytics.summary.averagePaymentSize = 
+      completedTransactions > 0 ? 
+      Math.round(analytics.summary.totalRevenue / completedTransactions) : 0;
+    analytics.summary.overallSuccessRate = 
+      allTransactions.length > 0 ? 
+      Math.round((completedTransactions / allTransactions.length) * 100 * 10) / 10 : 0;
+    
+    // Generate trends data
+    const dateMap = {};
+    const methodTrends = {};
+    
+    allTransactions.forEach(tx => {
+      const date = new Date(tx.createdAt).toISOString().split('T')[0];
+      
+      // Daily trends
+      if (!dateMap[date]) {
+        dateMap[date] = { count: 0, revenue: 0, successful: 0 };
+      }
+      dateMap[date].count++;
+      if (tx.status === 'completed') {
+        dateMap[date].revenue += tx.totalAmount || 0;
+        dateMap[date].successful++;
+      }
+      
+      // Method trends
+      if (!methodTrends[tx.paymentMethod]) {
+        methodTrends[tx.paymentMethod] = [];
+      }
+    });
+    
+    // Format trends
+    analytics.trends.dailyPayments = Object.keys(dateMap)
+      .sort()
+      .slice(-30) // Last 30 data points
+      .map(date => ({
+        date,
+        count: dateMap[date].count,
+        revenue: dateMap[date].revenue,
+        successRate: dateMap[date].count > 0 ? 
+          Math.round((dateMap[date].successful / dateMap[date].count) * 100 * 10) / 10 : 0
+      }));
+    
+    // Method performance comparison
+    centiivPaymentMethods.forEach(method => {
+      const methodTransactions = allTransactions.filter(tx => tx.paymentMethod === method);
+      const completedMethodTx = methodTransactions.filter(tx => tx.status === 'completed');
+      
+      if (methodTransactions.length > 0) {
+        analytics.comparison.methodPerformance.push({
+          method,
+          count: methodTransactions.length,
+          revenue: completedMethodTx.reduce((sum, tx) => sum + (tx.totalAmount || 0), 0),
+          successRate: Math.round((completedMethodTx.length / methodTransactions.length) * 100 * 10) / 10,
+          avgCompletionTime: '3.2 minutes', // You can calculate this based on your data
+          userSatisfaction: 4.2 // Placeholder - implement based on feedback data
+        });
+      }
+    });
+    
+    // User behavior analysis
+    const uniqueUsers = [...new Set(allTransactions.map(tx => tx.userId))];
+    const usersWithMultipleAttempts = uniqueUsers.filter(userId => {
+      const userTransactions = allTransactions.filter(tx => tx.userId === userId);
+      return userTransactions.length > 1;
+    });
+    
+    analytics.userBehavior.retryRate = uniqueUsers.length > 0 ? 
+      Math.round((usersWithMultipleAttempts.length / uniqueUsers.length) * 100 * 10) / 10 : 0;
+    
+    // Preferred methods
+    const methodCounts = {};
+    allTransactions.forEach(tx => {
+      methodCounts[tx.paymentMethod] = (methodCounts[tx.paymentMethod] || 0) + 1;
+    });
+    
+    analytics.userBehavior.preferredMethods = Object.keys(methodCounts)
+      .map(method => ({
+        method,
+        percentage: allTransactions.length > 0 ? 
+          Math.round((methodCounts[method] / allTransactions.length) * 100 * 10) / 10 : 0
+      }))
+      .sort((a, b) => b.percentage - a.percentage);
+    
+    // Common issues analysis
+    const failedTransactions = allTransactions.filter(tx => tx.status === 'failed');
+    const pendingTransactions = allTransactions.filter(tx => tx.status === 'pending');
+    
+    if (failedTransactions.length > 0) {
+      analytics.issues.commonIssues.push({
+        type: 'payment_failed',
+        count: failedTransactions.length,
+        percentage: Math.round((failedTransactions.length / allTransactions.length) * 100 * 10) / 10,
+        trend: 'stable'
+      });
+    }
+    
+    if (pendingTransactions.length > 5) {
+      analytics.issues.commonIssues.push({
+        type: 'verification_pending',
+        count: pendingTransactions.length,
+        percentage: Math.round((pendingTransactions.length / allTransactions.length) * 100 * 10) / 10,
+        trend: 'increasing'
+      });
+    }
+    
+    res.status(200).json({
+      success: true,
+      analytics,
+      period: {
+        requested: period,
+        actualStart: startDate.toISOString(),
+        actualEnd: now.toISOString()
+      }
+    });
+    
+  } catch (error) {
+    console.error('Error getting Centiiv analytics:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to get Centiiv analytics',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+};
+
+// 3. troubleshootCentiivPayment - ALREADY EXISTS IN CONTROLLER
+exports.troubleshootCentiivPayment = async (req, res) => {
+  try {
+    const adminId = req.user.id;
+    
+    // Check if admin
+    const admin = await User.findById(adminId);
+    if (!admin || !admin.isAdmin) {
+      return res.status(403).json({
+        success: false,
+        message: 'Unauthorized: Admin access required'
+      });
+    }
+    
+    const { 
+      action, 
+      transactionId, 
+      paymentId, 
+      bulkTransactionIds, 
+      reportCriteria 
+    } = req.body;
+    
+    if (!action) {
+      return res.status(400).json({
+        success: false,
+        message: 'Action is required'
+      });
+    }
+    
+    const validActions = [
+      'check_status', 
+      'retry_callback', 
+      'force_sync', 
+      'resend_notification', 
+      'fix_stuck', 
+      'generate_report'
+    ];
+    
+    if (!validActions.includes(action)) {
+      return res.status(400).json({
+        success: false,
+        message: `Invalid action. Must be one of: ${validActions.join(', ')}`
+      });
+    }
+    
+    let results = {
+      action,
+      findings: [],
+      actionsPerformed: [],
+      recommendedFollowUp: []
+    };
+    
+    switch (action) {
+      case 'check_status':
+        if (!transactionId && !paymentId) {
+          return res.status(400).json({
+            success: false,
+            message: 'Transaction ID or Payment ID is required for status check'
+          });
+        }
+        
+        results = await performStatusCheck(transactionId, paymentId, adminId);
+        break;
+        
+      case 'retry_callback':
+        if (!transactionId) {
+          return res.status(400).json({
+            success: false,
+            message: 'Transaction ID is required for callback retry'
+          });
+        }
+        
+        results = await retryCallback(transactionId, adminId);
+        break;
+        
+      case 'force_sync':
+        if (!transactionId) {
+          return res.status(400).json({
+            success: false,
+            message: 'Transaction ID is required for force sync'
+          });
+        }
+        
+        results = await forceSyncStatus(transactionId, adminId);
+        break;
+        
+      case 'resend_notification':
+        if (!transactionId) {
+          return res.status(400).json({
+            success: false,
+            message: 'Transaction ID is required for resending notification'
+          });
+        }
+        
+        results = await resendNotification(transactionId, adminId);
+        break;
+        
+      case 'fix_stuck':
+        if (bulkTransactionIds && bulkTransactionIds.length > 0) {
+          results = await fixStuckTransactionsBulk(bulkTransactionIds, adminId);
+        } else if (transactionId) {
+          results = await fixStuckTransaction(transactionId, adminId);
+        } else {
+          return res.status(400).json({
+            success: false,
+            message: 'Transaction ID or bulk transaction IDs required for fixing stuck transactions'
+          });
+        }
+        break;
+        
+      case 'generate_report':
+        results = await generateIssueReport(reportCriteria, adminId);
+        break;
+        
+      default:
+        return res.status(400).json({
+          success: false,
+          message: 'Invalid action specified'
+        });
+    }
+    
+    // Add common recommendations based on findings
+    if (results.findings && results.findings.some(f => f.type === 'status_mismatch')) {
+      results.recommendedFollowUp.push('Monitor transaction for 24 hours');
+    }
+    
+    if (results.findings && results.findings.some(f => f.severity === 'critical')) {
+      results.recommendedFollowUp.push('Contact user to confirm payment receipt');
+      results.recommendedFollowUp.push('Escalate to senior admin if issue persists');
+    }
+    
+    res.status(200).json({
+      success: true,
+      message: `${action.replace('_', ' ')} completed successfully`,
+      results
+    });
+    
+  } catch (error) {
+    console.error('Error troubleshooting Centiiv payment:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to troubleshoot payment',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
 };

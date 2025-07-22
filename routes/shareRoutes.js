@@ -2269,16 +2269,15 @@ router.delete('/admin/manual/:transactionId', protect, adminProtect, shareContro
  * /shares/centiiv/direct-pay:
  *   post:
  *     tags: [Shares - Centiiv Payment]
- *     summary: Initiate Centiiv Direct Pay (Enhanced)
+ *     summary: Initiate Centiiv Direct Pay (FIXED)
  *     description: |
- *       Create a direct payment link using Centiiv's Direct Pay API with automatic callback URLs.
+ *       Create a direct payment link using Centiiv's Direct Pay API.
  *       
- *       **NEW FEATURES:**
- *       - ✅ Instant payment links (no invoice delay)
- *       - ✅ Automatic success/failure redirects
- *       - ✅ Real-time payment status updates
- *       - ✅ Callback URL integration
- *       - ✅ Better user experience
+ *       **FIXES APPLIED:**
+ *       - ✅ Only requires quantity (number of shares), not amount
+ *       - ✅ Automatically calculates amount from share quantity  
+ *       - ✅ Fixed API response parsing for actual Centiiv structure
+ *       - ✅ Better error handling with response debugging
  *     security:
  *       - bearerAuth: []
  *     requestBody:
@@ -2293,64 +2292,14 @@ router.delete('/admin/manual/:transactionId', protect, adminProtect, shareContro
  *               quantity:
  *                 type: integer
  *                 minimum: 1
- *                 example: 50
- *                 description: Number of shares to purchase
- *               amount:
- *                 type: number
- *                 minimum: 1
- *                 example: 50000
- *                 description: Custom amount (if not using quantity calculation)
+ *                 example: 1
+ *                 description: Number of shares to purchase (amount calculated automatically)
  *               note:
  *                 type: string
- *                 example: "AfriMobile Share Purchase - 50 shares"
- *                 description: Payment description/note
- *     responses:
- *       200:
- *         description: Centiiv Direct Pay initiated successfully
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 success:
- *                   type: boolean
- *                   example: true
- *                 message:
- *                   type: string
- *                   example: "Centiiv Direct Pay initiated successfully"
- *                 data:
- *                   type: object
- *                   properties:
- *                     transactionId:
- *                       type: string
- *                       example: "TXN-A1B2C3D4-123456"
- *                     paymentId:
- *                       type: string
- *                       example: "f9ab6f"
- *                     paymentUrl:
- *                       type: string
- *                       example: "https://centiiv.com/pay/f9ab6f"
- *                       description: Direct URL to redirect user for payment
- *                     redirectTo:
- *                       type: string
- *                       example: "https://centiiv.com/pay/f9ab6f"
- *                       description: Frontend should redirect user to this URL
- *                     amount:
- *                       type: number
- *                       example: 50000
- *                     shares:
- *                       type: integer
- *                       example: 50
- *                     callbackUrl:
- *                       type: string
- *                       example: "https://yourfrontend.com/dashboard/shares/payment-success?transaction=TXN-A1B2C3D4-123456&method=centiiv-direct&type=fiat"
- *       400:
- *         $ref: '#/components/responses/ValidationError'
- *       401:
- *         $ref: '#/components/responses/UnauthorizedError'
- *       500:
- *         $ref: '#/components/responses/ServerError'
+ *                 example: "My share purchase"
+ *                 description: Optional payment note
  */
+
  router.post('/centiiv/direct-pay', protect, shareController.initiateCentiivDirectPay);
 
 /**
@@ -3544,6 +3493,7 @@ router.get('/admin/centiiv/overview', protect, adminProtect, shareController.adm
          $ref: '#/components/responses/ForbiddenError'
        500:
          $ref: '#/components/responses/ServerError'
+*/router.get('/admin/centiiv/analytics', protect, adminProtect, shareController.getCentiivAnalytics);
 
 /**
  * @swagger
@@ -3729,7 +3679,8 @@ router.get('/admin/centiiv/overview', protect, adminProtect, shareController.adm
  *         description: Transaction not found
  *       500:
  *         $ref: '#/components/responses/ServerError'
-
+*/
+router.post('/admin/centiiv/troubleshoot', protect, adminProtect, shareController.troubleshootCentiivPayment);
 /**
  * @swagger
  * /shares/admin/purchase-report:
