@@ -2356,6 +2356,1460 @@ router.post('/admin/manual/cancel', protect, adminProtect, shareController.admin
  *         $ref: '#/components/responses/ServerError'
  */
 router.delete('/admin/manual/:transactionId', protect, adminProtect, shareController.adminDeleteManualPayment);
+// Add these route definitions with Swagger documentation to your routes file
+
+/**
+ * @swagger
+ * /shares/centiiv/direct-pay:
+ *   post:
+ *     tags: [Shares - Centiiv Payment]
+ *     summary: Initiate Centiiv Direct Pay (Enhanced)
+ *     description: |
+ *       Create a direct payment link using Centiiv's Direct Pay API with automatic callback URLs.
+ *       
+ *       **NEW FEATURES:**
+ *       - ✅ Instant payment links (no invoice delay)
+ *       - ✅ Automatic success/failure redirects
+ *       - ✅ Real-time payment status updates
+ *       - ✅ Callback URL integration
+ *       - ✅ Better user experience
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - quantity
+ *             properties:
+ *               quantity:
+ *                 type: integer
+ *                 minimum: 1
+ *                 example: 50
+ *                 description: Number of shares to purchase
+ *               amount:
+ *                 type: number
+ *                 minimum: 1
+ *                 example: 50000
+ *                 description: Custom amount (if not using quantity calculation)
+ *               note:
+ *                 type: string
+ *                 example: "AfriMobile Share Purchase - 50 shares"
+ *                 description: Payment description/note
+ *     responses:
+ *       200:
+ *         description: Centiiv Direct Pay initiated successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *                   example: "Centiiv Direct Pay initiated successfully"
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     transactionId:
+ *                       type: string
+ *                       example: "TXN-A1B2C3D4-123456"
+ *                     paymentId:
+ *                       type: string
+ *                       example: "f9ab6f"
+ *                     paymentUrl:
+ *                       type: string
+ *                       example: "https://centiiv.com/pay/f9ab6f"
+ *                       description: Direct URL to redirect user for payment
+ *                     redirectTo:
+ *                       type: string
+ *                       example: "https://centiiv.com/pay/f9ab6f"
+ *                       description: Frontend should redirect user to this URL
+ *                     amount:
+ *                       type: number
+ *                       example: 50000
+ *                     shares:
+ *                       type: integer
+ *                       example: 50
+ *                     callbackUrl:
+ *                       type: string
+ *                       example: "https://yourfrontend.com/dashboard/shares/payment-success?transaction=TXN-A1B2C3D4-123456&method=centiiv-direct&type=fiat"
+ *       400:
+ *         $ref: '#/components/responses/ValidationError'
+ *       401:
+ *         $ref: '#/components/responses/UnauthorizedError'
+ *       500:
+ *         $ref: '#/components/responses/ServerError'
+
+/**
+ * @swagger
+ * /shares/centiiv/callback:
+ *   get:
+ *     tags: [Shares - Centiiv Payment]
+ *     summary: Centiiv payment callback handler
+ *     description: |
+ *       Handles payment status callbacks from Centiiv after payment completion.
+ *       This endpoint is called automatically by Centiiv and redirects users appropriately.
+ *       
+ *       **Callback Flow:**
+ *       1. User completes payment on Centiiv
+ *       2. Centiiv redirects to this callback URL
+ *       3. System processes payment result
+ *       4. User redirected to success/failure page
+ *     parameters:
+ *       - in: query
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Centiiv payment ID
+ *         example: "f9ab6f"
+ *       - in: query
+ *         name: type
+ *         schema:
+ *           type: string
+ *         description: Transaction type
+ *         example: "invoice"
+ *       - in: query
+ *         name: status
+ *         required: true
+ *         schema:
+ *           type: string
+ *           enum: [success, failed, cancelled]
+ *         description: Payment status from Centiiv
+ *         example: "success"
+ *       - in: query
+ *         name: payment_method
+ *         schema:
+ *           type: string
+ *         description: Payment method used
+ *         example: "bank_transfer"
+ *       - in: query
+ *         name: transaction
+ *         schema:
+ *           type: string
+ *         description: Our internal transaction ID
+ *         example: "TXN-A1B2C3D4-123456"
+ *     responses:
+ *       302:
+ *         description: Redirect to success page
+ *         headers:
+ *           Location:
+ *             description: Redirect URL to frontend success page
+ *             schema:
+ *               type: string
+ *               example: "https://yourfrontend.com/dashboard/shares/payment-success?transaction=TXN-A1B2C3D4-123456&method=centiiv&status=success"
+ *       200:
+ *         description: Callback processed (JSON response for non-success statuses)
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *                   example: "Payment failed"
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     transactionId:
+ *                       type: string
+ *                     paymentId:
+ *                       type: string
+ *                     status:
+ *                       type: string
+ *                     shares:
+ *                       type: integer
+ *                     amount:
+ *                       type: number
+ *       404:
+ *         description: Transaction not found
+ *       500:
+ *         $ref: '#/components/responses/ServerError'
+
+/**
+ * @swagger
+ * /shares/centiiv/crypto-pay:
+ *   post:
+ *     tags: [Shares - Centiiv Payment]
+ *     summary: Initiate Centiiv Crypto Payment
+ *     description: |
+ *       Generate crypto payment instructions for share purchase with callback URL support.
+ *       
+ *       **Crypto Payment Flow:**
+ *       1. User submits crypto payment request
+ *       2. System generates payment instructions
+ *       3. User sends crypto to company wallet
+ *       4. User submits transaction hash
+ *       5. System verifies on blockchain
+ *       6. Automatic redirect on verification
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - quantity
+ *               - walletAddress
+ *             properties:
+ *               quantity:
+ *                 type: integer
+ *                 minimum: 1
+ *                 example: 50
+ *                 description: Number of shares to purchase
+ *               currency:
+ *                 type: string
+ *                 enum: [usdt, busd]
+ *                 default: usdt
+ *                 example: "usdt"
+ *                 description: Cryptocurrency to use
+ *               walletAddress:
+ *                 type: string
+ *                 example: "0x742d35Cc6643C673532925e2aC5c48C0F30A37a0"
+ *                 description: User's wallet address
+ *     responses:
+ *       200:
+ *         description: Crypto payment instructions generated
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *                   example: "Crypto payment instructions generated"
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     transactionId:
+ *                       type: string
+ *                       example: "TXN-A1B2C3D4-123456"
+ *                     paymentInstructions:
+ *                       type: object
+ *                       properties:
+ *                         recipientAddress:
+ *                           type: string
+ *                           example: "0x742d35Cc6643C673532925e2aC5c48C0F30A37a0"
+ *                         amount:
+ *                           type: number
+ *                           example: 50.25
+ *                         currency:
+ *                           type: string
+ *                           example: "USDT"
+ *                         network:
+ *                           type: string
+ *                           example: "BSC"
+ *                         shares:
+ *                           type: integer
+ *                           example: 50
+ *                     callbackUrl:
+ *                       type: string
+ *                       example: "https://yourfrontend.com/dashboard/shares/payment-success?transaction=TXN-A1B2C3D4-123456&method=centiiv-crypto&type=crypto"
+ *                     instructions:
+ *                       type: array
+ *                       items:
+ *                         type: string
+ *                       example:
+ *                         - "Send exactly 50.25 USDT to: 0x742d35Cc6643C673532925e2aC5c48C0F30A37a0"
+ *                         - "Network: BSC (Binance Smart Chain)"
+ *                         - "After sending, submit the transaction hash for verification"
+ *       400:
+ *         description: Crypto payments not available or invalid parameters
+ *       401:
+ *         $ref: '#/components/responses/UnauthorizedError'
+ *       500:
+ *         $ref: '#/components/responses/ServerError'
+
+/**
+ * @swagger
+ * /shares/centiiv/crypto-verify:
+ *   post:
+ *     tags: [Shares - Centiiv Payment]
+ *     summary: Submit Crypto Transaction Hash
+ *     description: |
+ *       Submit blockchain transaction hash for verification after making crypto payment.
+ *       
+ *       **Verification Process:**
+ *       1. User submits transaction hash
+ *       2. System starts blockchain verification
+ *       3. Automatic verification runs in background
+ *       4. User receives real-time status updates
+ *       5. Redirect on successful verification
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - transactionId
+ *               - txHash
+ *             properties:
+ *               transactionId:
+ *                 type: string
+ *                 example: "TXN-A1B2C3D4-123456"
+ *                 description: Internal transaction ID from crypto-pay endpoint
+ *               txHash:
+ *                 type: string
+ *                 example: "0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef"
+ *                 description: Blockchain transaction hash
+ *     responses:
+ *       200:
+ *         description: Transaction hash submitted successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *                   example: "Transaction hash submitted successfully. Verification in progress..."
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     transactionId:
+ *                       type: string
+ *                       example: "TXN-A1B2C3D4-123456"
+ *                     txHash:
+ *                       type: string
+ *                       example: "0x1234567890abcdef..."
+ *                     status:
+ *                       type: string
+ *                       example: "verifying"
+ *                     estimatedVerificationTime:
+ *                       type: string
+ *                       example: "1-5 minutes"
+ *       400:
+ *         description: Invalid transaction ID or hash
+ *       401:
+ *         $ref: '#/components/responses/UnauthorizedError'
+ *       404:
+ *         description: Transaction not found
+ *       500:
+ *         $ref: '#/components/responses/ServerError'
+
+/**
+ * @swagger
+ * /shares/centiiv/status/{paymentId}:
+ *   get:
+ *     tags: [Shares - Centiiv Payment]
+ *     summary: Get Centiiv Payment Status
+ *     description: |
+ *       Get current status of a Centiiv payment with real-time updates from Centiiv API.
+ *       
+ *       **Status Information:**
+ *       - Local transaction status
+ *       - Live Centiiv payment status
+ *       - Payment details and history
+ *       - Callback URL information
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: paymentId
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Centiiv payment ID
+ *         example: "f9ab6f"
+ *     responses:
+ *       200:
+ *         description: Payment status retrieved successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     transactionId:
+ *                       type: string
+ *                       example: "TXN-A1B2C3D4-123456"
+ *                     paymentId:
+ *                       type: string
+ *                       example: "f9ab6f"
+ *                     localStatus:
+ *                       type: string
+ *                       example: "completed"
+ *                       description: Status in our database
+ *                     centiivStatus:
+ *                       type: object
+ *                       properties:
+ *                         id:
+ *                           type: string
+ *                           example: "f9ab6f"
+ *                         status:
+ *                           type: string
+ *                           example: "paid"
+ *                         amount:
+ *                           type: number
+ *                           example: 50000
+ *                         createdAt:
+ *                           type: string
+ *                           format: date-time
+ *                         paidAt:
+ *                           type: string
+ *                           format: date-time
+ *                       description: Live status from Centiiv API
+ *                     shares:
+ *                       type: integer
+ *                       example: 50
+ *                     amount:
+ *                       type: number
+ *                       example: 50000
+ *                     currency:
+ *                       type: string
+ *                       example: "naira"
+ *                     paymentMethod:
+ *                       type: string
+ *                       example: "centiiv-direct"
+ *                     createdAt:
+ *                       type: string
+ *                       format: date-time
+ *                     callbackUrl:
+ *                       type: string
+ *                       example: "https://yourfrontend.com/dashboard/shares/payment-success?..."
+ *       403:
+ *         description: Access denied - user doesn't own this payment
+ *       404:
+ *         description: Payment not found
+ *       401:
+ *         $ref: '#/components/responses/UnauthorizedError'
+ *       500:
+ *         $ref: '#/components/responses/ServerError'
+
+/**
+ * @swagger
+ * /shares/transactions/{transactionId}/status:
+ *   get:
+ *     tags: [Shares - Transaction Status]
+ *     summary: Get Transaction Status
+ *     description: |
+ *       Get current status of any transaction (Centiiv, PayStack, Web3, Manual, etc.)
+ *       
+ *       **Supported Transaction Types:**
+ *       - Centiiv Direct Pay
+ *       - Centiiv Crypto
+ *       - Centiiv Invoice
+ *       - PayStack
+ *       - Web3/Crypto
+ *       - Manual Payments
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: transactionId
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Internal transaction ID
+ *         example: "TXN-A1B2C3D4-123456"
+ *     responses:
+ *       200:
+ *         description: Transaction status retrieved successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 transaction:
+ *                   type: object
+ *                   properties:
+ *                     transactionId:
+ *                       type: string
+ *                       example: "TXN-A1B2C3D4-123456"
+ *                     status:
+ *                       type: string
+ *                       enum: [pending, completed, failed, verifying]
+ *                       example: "completed"
+ *                     shares:
+ *                       type: integer
+ *                       example: 50
+ *                     totalAmount:
+ *                       type: number
+ *                       example: 50000
+ *                     currency:
+ *                       type: string
+ *                       example: "naira"
+ *                     paymentMethod:
+ *                       type: string
+ *                       example: "centiiv-direct"
+ *                     createdAt:
+ *                       type: string
+ *                       format: date-time
+ *                     updatedAt:
+ *                       type: string
+ *                       format: date-time
+ *       403:
+ *         description: Access denied
+ *       404:
+ *         description: Transaction not found
+ *       401:
+ *         $ref: '#/components/responses/UnauthorizedError'
+ *       500:
+ *         $ref: '#/components/responses/ServerError'
+
+/**
+ * @swagger
+ * /shares/transactions/{transactionId}/details:
+ *   get:
+ *     tags: [Shares - Transaction Status]
+ *     summary: Get Detailed Transaction Information
+ *     description: |
+ *       Get comprehensive transaction details including user info, payment specifics, and method-specific data.
+ *       
+ *       **Detailed Information Includes:**
+ *       - Complete user information
+ *       - Payment method specific details
+ *       - Tier breakdown
+ *       - Admin notes and actions
+ *       - Callback URLs (for Centiiv)
+ *       - Blockchain data (for crypto)
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: transactionId
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Internal transaction ID
+ *         example: "TXN-A1B2C3D4-123456"
+ *     responses:
+ *       200:
+ *         description: Transaction details retrieved successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 transaction:
+ *                   type: object
+ *                   properties:
+ *                     transactionId:
+ *                       type: string
+ *                       example: "TXN-A1B2C3D4-123456"
+ *                     user:
+ *                       type: object
+ *                       properties:
+ *                         id:
+ *                           type: string
+ *                         name:
+ *                           type: string
+ *                         email:
+ *                           type: string
+ *                     shares:
+ *                       type: integer
+ *                       example: 50
+ *                     pricePerShare:
+ *                       type: number
+ *                       example: 1000
+ *                     totalAmount:
+ *                       type: number
+ *                       example: 50000
+ *                     currency:
+ *                       type: string
+ *                       example: "naira"
+ *                     paymentMethod:
+ *                       type: string
+ *                       example: "centiiv-direct"
+ *                     status:
+ *                       type: string
+ *                       example: "completed"
+ *                     createdAt:
+ *                       type: string
+ *                       format: date-time
+ *                     updatedAt:
+ *                       type: string
+ *                       format: date-time
+ *                     centiiv:
+ *                       type: object
+ *                       properties:
+ *                         paymentId:
+ *                           type: string
+ *                           example: "f9ab6f"
+ *                         paymentUrl:
+ *                           type: string
+ *                         callbackUrl:
+ *                           type: string
+ *                       description: Present for Centiiv payments
+ *                     crypto:
+ *                       type: object
+ *                       properties:
+ *                         fromWallet:
+ *                           type: string
+ *                         toWallet:
+ *                           type: string
+ *                         txHash:
+ *                           type: string
+ *                         network:
+ *                           type: string
+ *                           example: "BSC"
+ *                       description: Present for crypto payments
+ *                     tierBreakdown:
+ *                       type: object
+ *                       properties:
+ *                         tier1:
+ *                           type: integer
+ *                         tier2:
+ *                           type: integer
+ *                         tier3:
+ *                           type: integer
+ *                     adminNote:
+ *                       type: string
+ *                       description: Admin notes if any
+ *       403:
+ *         description: Access denied
+ *       404:
+ *         description: Transaction not found
+ *       401:
+ *         $ref: '#/components/responses/UnauthorizedError'
+ *       500:
+ *         $ref: '#/components/responses/ServerError'
+
+/**
+ * @swagger
+ * /shares/admin/centiiv/overview:
+ *   get:
+ *     tags: [Shares - Admin Centiiv Management]
+ *     summary: Complete Centiiv Payment Overview (Admin)
+ *     description: |
+ *       **COMPREHENSIVE ADMIN OVERVIEW** - View all Centiiv payment activities, workflows, and statuses across the entire project.
+ *       
+ *       **Complete Visibility:**
+ *       - ✅ All Centiiv payment methods (Invoice, Direct Pay, Crypto)
+ *       - ✅ Real-time status from Centiiv API
+ *       - ✅ Payment workflow tracking
+ *       - ✅ Success/failure analytics
+ *       - ✅ User behavior insights
+ *       - ✅ Financial summaries
+ *       - ✅ Payment method performance
+ *       - ✅ Callback URL tracking
+ *       - ✅ Error analysis and debugging
+ *       
+ *       **Perfect for:**
+ *       - Monitoring overall Centiiv performance
+ *       - Identifying payment issues
+ *       - Tracking conversion rates
+ *       - Financial reporting
+ *       - Customer support
+ *     security:
+ *       - adminAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: page
+ *         schema:
+ *           type: integer
+ *           minimum: 1
+ *           default: 1
+ *         description: Page number for pagination
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *           minimum: 1
+ *           maximum: 100
+ *           default: 50
+ *         description: Number of records per page
+ *       - in: query
+ *         name: status
+ *         schema:
+ *           type: string
+ *           enum: [pending, completed, failed, verifying]
+ *         description: Filter by payment status
+ *       - in: query
+ *         name: paymentType
+ *         schema:
+ *           type: string
+ *           enum: [centiiv, centiiv-direct, centiiv-crypto, centiiv-invoice]
+ *         description: Filter by Centiiv payment type
+ *       - in: query
+ *         name: fromDate
+ *         schema:
+ *           type: string
+ *           format: date
+ *         description: Filter payments from this date
+ *       - in: query
+ *         name: toDate
+ *         schema:
+ *           type: string
+ *           format: date
+ *         description: Filter payments to this date
+ *       - in: query
+ *         name: sortBy
+ *         schema:
+ *           type: string
+ *           enum: [date, amount, status, paymentType]
+ *           default: date
+ *         description: Sort payments by field
+ *       - in: query
+ *         name: sortOrder
+ *         schema:
+ *           type: string
+ *           enum: [asc, desc]
+ *           default: desc
+ *         description: Sort order
+ *     responses:
+ *       200:
+ *         description: Centiiv overview data retrieved successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *                   example: "Centiiv payment overview retrieved successfully"
+ *                 analytics:
+ *                   type: object
+ *                   properties:
+ *                     totalCentiivPayments:
+ *                       type: integer
+ *                       example: 156
+ *                       description: Total Centiiv payments across all types
+ *                     paymentMethodBreakdown:
+ *                       type: object
+ *                       properties:
+ *                         centiiv_invoice:
+ *                           type: object
+ *                           properties:
+ *                             count:
+ *                               type: integer
+ *                               example: 89
+ *                             totalAmount:
+ *                               type: number
+ *                               example: 4450000
+ *                             successRate:
+ *                               type: number
+ *                               example: 78.5
+ *                               description: Percentage of successful payments
+ *                         centiiv_direct:
+ *                           type: object
+ *                           properties:
+ *                             count:
+ *                               type: integer
+ *                               example: 45
+ *                             totalAmount:
+ *                               type: number
+ *                               example: 2250000
+ *                             successRate:
+ *                               type: number
+ *                               example: 85.7
+ *                         centiiv_crypto:
+ *                           type: object
+ *                           properties:
+ *                             count:
+ *                               type: integer
+ *                               example: 22
+ *                             totalAmount:
+ *                               type: number
+ *                               example: 1100000
+ *                             successRate:
+ *                               type: number
+ *                               example: 91.2
+ *                     statusBreakdown:
+ *                       type: object
+ *                       properties:
+ *                         completed:
+ *                           type: integer
+ *                           example: 128
+ *                         pending:
+ *                           type: integer
+ *                           example: 15
+ *                         failed:
+ *                           type: integer
+ *                           example: 8
+ *                         verifying:
+ *                           type: integer
+ *                           example: 5
+ *                     financialSummary:
+ *                       type: object
+ *                       properties:
+ *                         totalRevenue:
+ *                           type: number
+ *                           example: 7800000
+ *                           description: Total successful payment amount
+ *                         averagePaymentAmount:
+ *                           type: number
+ *                           example: 50000
+ *                         totalShares:
+ *                           type: integer
+ *                           example: 3900
+ *                         averageSharesPerPayment:
+ *                           type: number
+ *                           example: 25
+ *                     timeAnalytics:
+ *                       type: object
+ *                       properties:
+ *                         averageCompletionTime:
+ *                           type: string
+ *                           example: "3.5 minutes"
+ *                           description: Average time from initiation to completion
+ *                         paymentsLast24h:
+ *                           type: integer
+ *                           example: 12
+ *                         paymentsLast7days:
+ *                           type: integer
+ *                           example: 45
+ *                         paymentsLast30days:
+ *                           type: integer
+ *                           example: 156
+ *                     callbackAnalytics:
+ *                       type: object
+ *                       properties:
+ *                         successfulCallbacks:
+ *                           type: integer
+ *                           example: 142
+ *                         failedCallbacks:
+ *                           type: integer
+ *                           example: 3
+ *                         callbackSuccessRate:
+ *                           type: number
+ *                           example: 97.9
+ *                 payments:
+ *                   type: array
+ *                   items:
+ *                     type: object
+ *                     properties:
+ *                       transactionId:
+ *                         type: string
+ *                         example: "TXN-A1B2C3D4-123456"
+ *                       user:
+ *                         type: object
+ *                         properties:
+ *                           id:
+ *                             type: string
+ *                           name:
+ *user:
+                         type: object
+                         properties:
+                           id:
+                             type: string
+                           name:
+                             type: string
+                           email:
+                             type: string
+                           phone:
+                             type: string
+                       paymentDetails:
+                         type: object
+                         properties:
+                           shares:
+                             type: integer
+                             example: 50
+                           totalAmount:
+                             type: number
+                             example: 50000
+                           currency:
+                             type: string
+                             example: "naira"
+                           paymentType:
+                             type: string
+                             enum: [centiiv, centiiv-direct, centiiv-crypto]
+                             example: "centiiv-direct"
+                           status:
+                             type: string
+                             enum: [pending, completed, failed, verifying]
+                             example: "completed"
+                           createdAt:
+                             type: string
+                             format: date-time
+                           completedAt:
+                             type: string
+                             format: date-time
+                       centiivData:
+                         type: object
+                         properties:
+                           paymentId:
+                             type: string
+                             example: "f9ab6f"
+                           orderId:
+                             type: string
+                             example: "ord_1234567890"
+                             description: For invoice payments
+                           paymentUrl:
+                             type: string
+                             example: "https://centiiv.com/pay/f9ab6f"
+                           callbackUrl:
+                             type: string
+                             example: "https://yourfrontend.com/dashboard/shares/payment-success?..."
+                           centiivStatus:
+                             type: object
+                             properties:
+                               status:
+                                 type: string
+                                 example: "paid"
+                               lastChecked:
+                                 type: string
+                                 format: date-time
+                             description: Live status from Centiiv API
+                       workflowTracking:
+                         type: object
+                         properties:
+                           initiated:
+                             type: string
+                             format: date-time
+                           paymentPageVisited:
+                             type: string
+                             format: date-time
+                           callbackReceived:
+                             type: string
+                             format: date-time
+                           statusUpdated:
+                             type: string
+                             format: date-time
+                           userRedirected:
+                             type: string
+                             format: date-time
+                           sharesAllocated:
+                             type: string
+                             format: date-time
+                       cryptoDetails:
+                         type: object
+                         properties:
+                           fromWallet:
+                             type: string
+                           toWallet:
+                             type: string
+                           txHash:
+                             type: string
+                           network:
+                             type: string
+                           verificationStatus:
+                             type: string
+                         description: Present only for crypto payments
+                       adminActions:
+                         type: array
+                         items:
+                           type: object
+                           properties:
+                             action:
+                               type: string
+                               example: "manual_verification"
+                             adminId:
+                               type: string
+                             note:
+                               type: string
+                             timestamp:
+                               type: string
+                               format: date-time
+                       issues:
+                         type: array
+                         items:
+                           type: object
+                           properties:
+                             type:
+                               type: string
+                               enum: [callback_failed, verification_timeout, api_error, user_abandoned]
+                               example: "callback_failed"
+                             description:
+                               type: string
+                               example: "Callback URL returned 404 error"
+                             timestamp:
+                               type: string
+                               format: date-time
+                             resolved:
+                               type: boolean
+                               example: false
+                         description: Payment issues and errors
+                 filters:
+                   type: object
+                   properties:
+                     applied:
+                       type: object
+                       properties:
+                         status:
+                           type: string
+                         paymentType:
+                           type: string
+                         dateRange:
+                           type: object
+                           properties:
+                             from:
+                               type: string
+                             to:
+                               type: string
+                     available:
+                       type: object
+                       properties:
+                         statuses:
+                           type: array
+                           items:
+                             type: string
+                         paymentTypes:
+                           type: array
+                           items:
+                             type: string
+                 pagination:
+                   type: object
+                   properties:
+                     currentPage:
+                       type: integer
+                     totalPages:
+                       type: integer
+                     totalRecords:
+                       type: integer
+                     limit:
+                       type: integer
+                 recommendations:
+                   type: array
+                   items:
+                     type: object
+                     properties:
+                       type:
+                         type: string
+                         enum: [performance, issue_resolution, optimization]
+                       priority:
+                         type: string
+                         enum: [high, medium, low]
+                       message:
+                         type: string
+                       actionRequired:
+                         type: boolean
+                   example:
+                     - type: "performance"
+                       priority: "medium" 
+                       message: "Centiiv Direct Pay has 85.7% success rate - consider promoting this method"
+                       actionRequired: false
+                     - type: "issue_resolution"
+                       priority: "high"
+                       message: "5 payments stuck in 'verifying' status for over 1 hour - requires admin attention"
+                       actionRequired: true
+       401:
+         $ref: '#/components/responses/UnauthorizedError'
+       403:
+         $ref: '#/components/responses/ForbiddenError'  
+       500:
+         $ref: '#/components/responses/ServerError'
+
+/**
+ * @swagger
+ * /shares/admin/centiiv/analytics:
+ *   get:
+ *     tags: [Shares - Admin Centiiv Management]
+ *     summary: Centiiv Analytics Dashboard Data
+ *     description: |
+ *       **CENTIIV ANALYTICS DASHBOARD** - Get detailed analytics and metrics for all Centiiv payment methods.
+ *       
+ *       **Analytics Include:**
+ *       - 📊 Payment method performance comparison
+ *       - 💰 Revenue breakdown by method and time period
+ *       - 📈 Conversion rates and success metrics
+ *       - ⏱️ Average completion times
+ *       - 🔄 Callback success rates
+ *       - 👥 User behavior patterns
+ *       - 🚨 Issue trending and resolution rates
+ *       
+ *       **Perfect for:**
+ *       - Executive dashboards
+ *       - Performance optimization
+ *       - Business intelligence
+ *       - Payment method comparison
+ *     security:
+ *       - adminAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: period
+ *         schema:
+ *           type: string
+ *           enum: [7d, 30d, 90d, 365d, all]
+ *           default: 30d
+ *         description: Analytics time period
+ *       - in: query
+ *         name: groupBy
+ *         schema:
+ *           type: string
+ *           enum: [day, week, month]
+ *           default: day
+ *         description: Data grouping for trends
+ *     responses:
+ *       200:
+ *         description: Analytics data retrieved successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 analytics:
+ *                   type: object
+ *                   properties:
+ *                     summary:
+ *                       type: object
+ *                       properties:
+ *                         totalPayments:
+ *                           type: integer
+ *                           example: 1250
+ *                         totalRevenue:
+ *                           type: number
+ *                           example: 62500000
+ *                         averagePaymentSize:
+ *                           type: number
+ *                           example: 50000
+ *                         overallSuccessRate:
+ *                           type: number
+ *                           example: 82.4
+ *                     trends:
+ *                       type: object
+ *                       properties:
+ *                         dailyPayments:
+ *                           type: array
+ *                           items:
+ *                             type: object
+ *                             properties:
+ *                               date:
+ *                                 type: string
+ *                                 format: date
+ *                               count:
+ *                                 type: integer
+ *                               revenue:
+ *                                 type: number
+ *                               successRate:
+ *                                 type: number
+ *                         paymentMethodTrends:
+ *                           type: object
+ *                           properties:
+ *                             centiiv_direct:
+ *                               type: array
+ *                               items:
+ *                                 type: object
+ *                                 properties:
+ *                                   period:
+ *                                     type: string
+ *                                   count:
+ *                                     type: integer
+ *                                   successRate:
+ *                                     type: number
+ *                     comparison:
+ *                       type: object
+ *                       properties:
+ *                         methodPerformance:
+ *                           type: array
+ *                           items:
+ *                             type: object
+ *                             properties:
+ *                               method:
+ *                                 type: string
+ *                                 example: "centiiv-direct"
+ *                               count:
+ *                                 type: integer
+ *                                 example: 456
+ *                               revenue:
+ *                                 type: number
+ *                                 example: 22800000
+ *                               successRate:
+ *                                 type: number
+ *                                 example: 85.7
+ *                               avgCompletionTime:
+ *                                 type: string
+ *                                 example: "3.2 minutes"
+ *                               userSatisfaction:
+ *                                 type: number
+ *                                 example: 4.2
+ *                         vsOtherMethods:
+ *                           type: object
+ *                           properties:
+ *                             centiivVsPaystack:
+ *                               type: object
+ *                               properties:
+ *                                 centiivSuccessRate:
+ *                                   type: number
+ *                                   example: 82.4
+ *                                 paystackSuccessRate:
+ *                                   type: number
+ *                                   example: 78.9
+ *                                 performanceDiff:
+ *                                   type: number
+ *                                   example: 3.5
+ *                     userBehavior:
+ *                       type: object
+ *                       properties:
+ *                         abandonmentRate:
+ *                           type: number
+ *                           example: 15.2
+ *                           description: Percentage of users who start but don't complete payment
+ *                         retryRate:
+ *                           type: number
+ *                           example: 8.7
+ *                           description: Percentage of failed payments that are retried
+ *                         preferredMethods:
+ *                           type: array
+ *                           items:
+ *                             type: object
+ *                             properties:
+ *                               method:
+ *                                 type: string
+ *                               percentage:
+ *                                 type: number
+ *                         averageSessionTime:
+ *                           type: string
+ *                           example: "4.5 minutes"
+ *                     issues:
+ *                       type: object
+ *                       properties:
+ *                         commonIssues:
+ *                           type: array
+ *                           items:
+ *                             type: object
+ *                             properties:
+ *                               type:
+ *                                 type: string
+ *                                 example: "callback_timeout"
+ *                               count:
+ *                                 type: integer
+ *                                 example: 23
+ *                               percentage:
+ *                                 type: number
+ *                                 example: 1.8
+ *                               trend:
+ *                                 type: string
+ *                                 enum: [increasing, decreasing, stable]
+ *                                 example: "decreasing"
+ *                         resolutionTimes:
+ *                           type: object
+ *                           properties:
+ *                             average:
+ *                               type: string
+ *                               example: "2.3 hours"
+ *                             median:
+ *                               type: string
+ *                               example: "45 minutes"
+ *                 period:
+ *                   type: object
+ *                   properties:
+ *                     requested:
+ *                       type: string
+ *                       example: "30d"
+ *                     actualStart:
+ *                       type: string
+ *                       format: date-time
+ *                     actualEnd:
+ *                       type: string
+ *                       format: date-time
+       401:
+         $ref: '#/components/responses/UnauthorizedError'
+       403:
+         $ref: '#/components/responses/ForbiddenError'
+       500:
+         $ref: '#/components/responses/ServerError'
+
+/**
+ * @swagger
+ * /shares/admin/centiiv/troubleshoot:
+ *   post:
+ *     tags: [Shares - Admin Centiiv Management]
+ *     summary: Troubleshoot Centiiv Payment Issues
+ *     description: |
+ *       **CENTIIV TROUBLESHOOTING TOOL** - Diagnose and resolve payment issues automatically.
+ *       
+ *       **Troubleshooting Actions:**
+ *       - 🔍 Check payment status with Centiiv API
+ *       - 🔄 Retry failed callbacks
+ *       - ✅ Force status synchronization
+ *       - 📧 Resend user notifications
+ *       - 🔧 Fix stuck transactions
+ *       - 📊 Generate issue reports
+ *       
+ *       **Use Cases:**
+ *       - Fix stuck payments
+ *       - Resolve callback issues
+ *       - Sync status mismatches
+ *       - Customer support
+ *     security:
+ *       - adminAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - action
+ *             properties:
+ *               action:
+ *                 type: string
+ *                 enum: [check_status, retry_callback, force_sync, resend_notification, fix_stuck, generate_report]
+ *                 example: "check_status"
+ *                 description: Troubleshooting action to perform
+ *               transactionId:
+ *                 type: string
+ *                 example: "TXN-A1B2C3D4-123456"
+ *                 description: Specific transaction to troubleshoot (optional for reports)
+ *               paymentId:
+ *                 type: string
+ *                 example: "f9ab6f"
+ *                 description: Centiiv payment ID (alternative to transactionId)
+ *               bulkTransactionIds:
+ *                 type: array
+ *                 items:
+ *                   type: string
+ *                 example: ["TXN-A1B2-123456", "TXN-C3D4-789012"]
+ *                 description: Multiple transactions for bulk actions
+ *               reportCriteria:
+ *                 type: object
+ *                 properties:
+ *                   issueType:
+ *                     type: string
+ *                     enum: [callback_failed, stuck_pending, verification_timeout, api_errors]
+ *                   dateRange:
+ *                     type: object
+ *                     properties:
+ *                       from:
+ *                         type: string
+ *                         format: date
+ *                       to:
+ *                         type: string
+ *                         format: date
+ *                 description: Criteria for generating issue reports
+ *     responses:
+ *       200:
+ *         description: Troubleshooting action completed successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *                   example: "Payment status check completed successfully"
+ *                 results:
+ *                   type: object
+ *                   properties:
+ *                     action:
+ *                       type: string
+ *                       example: "check_status"
+ *                     transactionId:
+ *                       type: string
+ *                       example: "TXN-A1B2C3D4-123456"
+ *                     findings:
+ *                       type: array
+ *                       items:
+ *                         type: object
+ *                         properties:
+ *                           type:
+ *                             type: string
+ *                             enum: [status_mismatch, callback_missing, api_error, resolved]
+ *                           description:
+ *                             type: string
+ *                           severity:
+ *                             type: string
+ *                             enum: [low, medium, high, critical]
+ *                           autoFixed:
+ *                             type: boolean
+ *                           manualActionRequired:
+ *                             type: boolean
+ *                       example:
+ *                         - type: "status_mismatch"
+ *                           description: "Centiiv shows 'paid' but local status is 'pending'"
+ *                           severity: "high"
+ *                           autoFixed: true
+ *                           manualActionRequired: false
+ *                     actionsPerformed:
+ *                       type: array
+ *                       items:
+ *                         type: object
+ *                         properties:
+ *                           action:
+ *                             type: string
+ *                           result:
+ *                             type: string
+ *                           timestamp:
+ *                             type: string
+ *                             format: date-time
+ *                     recommendedFollowUp:
+ *                       type: array
+ *                       items:
+ *                         type: string
+ *                       example:
+ *                         - "Monitor transaction for 24 hours"
+ *                         - "Contact user to confirm payment receipt"
+ *                 bulkResults:
+ *                   type: object
+ *                   properties:
+ *                     processed:
+ *                       type: integer
+ *                       example: 25
+ *                     successful:
+ *                       type: integer
+ *                       example: 23
+ *                     failed:
+ *                       type: integer
+ *                       example: 2
+ *                     summary:
+ *                       type: array
+ *                       items:
+ *                         type: object
+ *                   description: Present for bulk operations
+ *                 report:
+ *                   type: object
+ *                   properties:
+ *                     issueType:
+ *                       type: string
+ *                     totalIssues:
+ *                       type: integer
+ *                     dateRange:
+ *                       type: object
+ *                     issues:
+ *                       type: array
+ *                       items:
+ *                         type: object
+ *                         properties:
+ *                           transactionId:
+ *                             type: string
+ *                           issue:
+ *                             type: string
+ *                           severity:
+ *                             type: string
+ *                           timestamp:
+ *                             type: string
+ *                             format: date-time
+ *                   description: Present for report generation
+ *       400:
+ *         description: Invalid troubleshooting parameters
+ *       401:
+ *         $ref: '#/components/responses/UnauthorizedError'
+ *       403:
+ *         $ref: '#/components/responses/ForbiddenError'
+ *       404:
+ *         description: Transaction not found
+ *       500:
+ *         $ref: '#/components/responses/ServerError'
 
 /**
  * @swagger

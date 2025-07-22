@@ -1,4 +1,4 @@
-// User Referral Details Analyzer - userAnalyzer.js
+// User Referral Details Analyzer - userAnalyzer.js (Modified for Username Support)
 const mongoose = require('mongoose');
 const path = require('path');
 
@@ -66,8 +66,70 @@ class UserReferralAnalyzer {
     };
   }
 
-  async analyzeUser(userId, options = {}) {
-    console.log(`🔍 Analyzing user: ${userId}`);
+  // Helper method to find user by different identifiers
+  async findUserByIdentifier(identifier) {
+    console.log(`🔍 Looking for user with identifier: ${identifier}`);
+    
+    let user = null;
+    
+    try {
+      // Check if it's a valid ObjectId
+      if (mongoose.Types.ObjectId.isValid(identifier) && identifier.length === 24) {
+        console.log('  Searching by ObjectId...');
+        user = await User.findById(identifier);
+        if (user) {
+          console.log(`  ✅ Found user by ID: ${user.userName} (${user.email})`);
+          return user;
+        }
+      }
+      
+      // Search by username (case insensitive)
+      console.log('  Searching by username...');
+      user = await User.findOne({ 
+        userName: { $regex: new RegExp(`^${identifier}$`, 'i') }
+      });
+      if (user) {
+        console.log(`  ✅ Found user by username: ${user.userName} (${user.email})`);
+        return user;
+      }
+      
+      // Search by email (case insensitive)
+      console.log('  Searching by email...');
+      user = await User.findOne({ 
+        email: { $regex: new RegExp(`^${identifier}$`, 'i') }
+      });
+      if (user) {
+        console.log(`  ✅ Found user by email: ${user.userName} (${user.email})`);
+        return user;
+      }
+      
+      // Search by phone number
+      console.log('  Searching by phone...');
+      user = await User.findOne({ phone: identifier });
+      if (user) {
+        console.log(`  ✅ Found user by phone: ${user.userName} (${user.email})`);
+        return user;
+      }
+      
+      // Search by referral code
+      console.log('  Searching by referral code...');
+      user = await User.findOne({ 'referralInfo.code': identifier });
+      if (user) {
+        console.log(`  ✅ Found user by referral code: ${user.userName} (${user.email})`);
+        return user;
+      }
+      
+      console.log('  ❌ User not found with any search method');
+      return null;
+      
+    } catch (error) {
+      console.error('❌ Error searching for user:', error.message);
+      throw error;
+    }
+  }
+
+  async analyzeUser(identifier, options = {}) {
+    console.log(`🔍 Analyzing user: ${identifier}`);
     console.log('================================');
     
     try {
@@ -77,8 +139,16 @@ class UserReferralAnalyzer {
       const modelsLoaded = await loadModels();
       if (!modelsLoaded) throw new Error('Failed to load models');
       
-      // Step 1: Get basic user info
-      await this.fetchUserInfo(userId);
+      // Step 1: Find and get basic user info
+      const user = await this.findUserByIdentifier(identifier);
+      if (!user) {
+        throw new Error(`User with identifier '${identifier}' not found`);
+      }
+      
+      const userId = user._id;
+      
+      // Store user info
+      await this.fetchUserInfo(userId, user);
       
       // Step 2: Get referral statistics
       await this.fetchReferralStats(userId);
@@ -114,28 +184,17 @@ class UserReferralAnalyzer {
       throw error;
     }
   }
-  async correctUserIssues(identifier, executeMode = false) {
-    console.log(`🔧 ${executeMode ? 'CORRECTING' : 'SIMULATING CORRECTIONS FOR'} USER: ${identifier}`);
-    
+
+  async fetchUserInfo(userId, user = null) {
     try {
-      // First find the user
-      let user;
-      if (mongoose.Types.ObjectId.isValid(identifier)) {
-        user = await User.findById(identifier);
-      } else {
-        user = await User.findOne({
-          $or: [
-            { email: identifier },
-            { userName: identifier }
-          ]
-        });
+      if (!user) {
+        user = await User.findById(userId);
       }
       
       if (!user) {
-        throw new Error(`User with identifier ${identifier} not found`);
+        throw new Error('User not found');
       }
       
-      const userId = user._id;
       this.analysisResults.userInfo = {
         id: user._id,
         userName: user.userName,
@@ -152,6 +211,9 @@ class UserReferralAnalyzer {
       };
       
       console.log(`✅ User found: ${user.userName} (${user.email})`);
+      console.log(`   Full Name: ${user.fullName || 'N/A'}`);
+      console.log(`   Referral Code: ${user.referralInfo?.code || 'None'}`);
+      console.log(`   Referred By: ${user.referralInfo?.referredBy || 'None'}`);
       
     } catch (error) {
       console.error('❌ Error fetching user info:', error);
@@ -374,28 +436,28 @@ class UserReferralAnalyzer {
     
     try {
       const user = await User.findById(userId);
-      if (!user.referralInfo?.code) return expectedCommissions;
+      if (!user.referralInfo?.referredBy) return expectedCommissions;
       
       // Get referral chain
       const referrerChain = [];
-      let currentUser = user;
+      let currentReferrer = user.referralInfo.referredBy;
       
       for (let gen = 1; gen <= 3; gen++) {
-        if (!currentUser.referralInfo?.code) break;
+        if (!currentReferrer) break;
         
-        const referrer = await User.findOne({ userName: currentUser.referralInfo.code });
+        const referrer = await User.findOne({ userName: currentReferrer });
         if (!referrer) break;
         
         referrerChain.push(referrer);
-        currentUser = referrer;
+        currentReferrer = referrer.referralInfo?.referredBy;
       }
       
-      const rates = { generation1: 15, generation2: 3, generation3: 2 };
+      const rates = { 1: 15, 2: 3, 3: 2 };
       
       for (let i = 0; i < referrerChain.length; i++) {
         const generation = i + 1;
         const referrer = referrerChain[i];
-        const rate = rates[`generation${generation}`];
+        const rate = rates[generation];
         
         if (rate && rate > 0) {
           const amount = (transaction.amount * rate) / 100;
@@ -409,7 +471,9 @@ class UserReferralAnalyzer {
             rate,
             sourceTransaction: transaction.id,
             sourceTransactionModel: transaction.sourceModel,
-            purchaseType: transaction.type
+            purchaseType: transaction.type,
+            userId: userId,
+            sourceAmount: transaction.amount
           });
         }
       }
@@ -486,8 +550,8 @@ class UserReferralAnalyzer {
       let currentUser = await User.findById(userId);
       
       // Go up the referral chain
-      while (currentUser && currentUser.referralInfo?.code && chain.length < 10) {
-        const referrer = await User.findOne({ userName: currentUser.referralInfo.code });
+      while (currentUser && currentUser.referralInfo?.referredBy && chain.length < 10) {
+        const referrer = await User.findOne({ userName: currentUser.referralInfo.referredBy });
         if (!referrer) break;
         
         chain.push({
@@ -516,7 +580,7 @@ class UserReferralAnalyzer {
       
       // Find users who were referred by this user
       const directReferrals = await User.find({
-        'referralInfo.code': user.userName
+        'referralInfo.referredBy': user.userName
       }).select('_id userName email fullName createdAt');
       
       const downlineUsers = [];
@@ -566,9 +630,11 @@ class UserReferralAnalyzer {
     console.log(`• Name: ${user.fullName || 'N/A'}`);
     console.log(`• Username: ${user.userName}`);
     console.log(`• Email: ${user.email}`);
+    console.log(`• Phone: ${user.phone || 'N/A'}`);
     console.log(`• Account Status: ${user.accountStatus}`);
     console.log(`• KYC Status: ${user.kycStatus}`);
     console.log(`• Joined: ${user.createdAt.toLocaleDateString()}`);
+    console.log(`• Referral Code: ${user.referralCode}`);
     console.log(`• Referred By: ${user.referredBy}`);
     
     console.log('\n💰 REFERRAL REWARDS SUMMARY:');
@@ -679,11 +745,11 @@ class UserReferralAnalyzer {
 }
 
 // Main functions
-async function analyzeUserReferrals(userId, options = {}) {
+async function analyzeUserReferrals(identifier, options = {}) {
   const analyzer = new UserReferralAnalyzer();
   
   try {
-    const results = await analyzer.analyzeUser(userId, options);
+    const results = await analyzer.analyzeUser(identifier, options);
     return results;
   } catch (error) {
     console.error('💥 User analysis failed:', error);
@@ -696,8 +762,8 @@ async function analyzeUserReferrals(userId, options = {}) {
   }
 }
 
-async function quickUserCheck(userId) {
-  console.log(`🔍 Quick check for user: ${userId}`);
+async function quickUserCheck(identifier) {
+  console.log(`🔍 Quick check for user: ${identifier}`);
   
   try {
     const connected = await connectToDatabase();
@@ -706,15 +772,30 @@ async function quickUserCheck(userId) {
     const modelsLoaded = await loadModels();
     if (!modelsLoaded) throw new Error('Failed to load models');
     
-    const user = await User.findById(userId).select('userName email referralInfo');
+    // Find user by identifier
+    let user = null;
+    
+    if (mongoose.Types.ObjectId.isValid(identifier) && identifier.length === 24) {
+      user = await User.findById(identifier).select('userName email referralInfo');
+    } else {
+      user = await User.findOne({
+        $or: [
+          { userName: { $regex: new RegExp(`^${identifier}$`, 'i') } },
+          { email: { $regex: new RegExp(`^${identifier}$`, 'i') } },
+          { phone: identifier },
+          { 'referralInfo.code': identifier }
+        ]
+      }).select('userName email referralInfo');
+    }
+    
     if (!user) {
       console.log('❌ User not found');
       return null;
     }
     
-    const referralStats = await Referral.findOne({ user: userId });
-    const commissions = await ReferralTransaction.countDocuments({ referredUser: userId, status: 'completed' });
-    const transactions = await UserShare.findOne({ user: userId });
+    const referralStats = await Referral.findOne({ user: user._id });
+    const commissions = await ReferralTransaction.countDocuments({ referredUser: user._id, status: 'completed' });
+    const transactions = await UserShare.findOne({ user: user._id });
     const completedTxCount = transactions ? transactions.transactions.filter(tx => tx.status === 'completed').length : 0;
     
     console.log(`✅ User: ${user.userName}`);
@@ -754,13 +835,13 @@ if (require.main === module) {
   const command = args[0];
   
   if (command === 'analyze') {
-    const userId = args[1];
-    if (!userId) {
-      console.log('❌ Please provide user ID: node userAnalyzer.js analyze <userId>');
+    const identifier = args[1];
+    if (!identifier) {
+      console.log('❌ Please provide user identifier: node userAnalyzer.js analyze <username|email|userId>');
       process.exit(1);
     }
     
-    analyzeUserReferrals(userId)
+    analyzeUserReferrals(identifier)
       .then(results => {
         console.log('\n✅ User analysis completed');
         process.exit(0);
@@ -771,13 +852,13 @@ if (require.main === module) {
       });
       
   } else if (command === 'quick') {
-    const userId = args[1];
-    if (!userId) {
-      console.log('❌ Please provide user ID: node userAnalyzer.js quick <userId>');
+    const identifier = args[1];
+    if (!identifier) {
+      console.log('❌ Please provide user identifier: node userAnalyzer.js quick <username|email|userId>');
       process.exit(1);
     }
     
-    quickUserCheck(userId)
+    quickUserCheck(identifier)
       .then(results => {
         console.log('\n✅ Quick check completed');
         process.exit(0);
@@ -791,20 +872,31 @@ if (require.main === module) {
     console.log('📖 USER REFERRAL ANALYZER USAGE:');
     console.log('================================');
     console.log('');
+    console.log('🔍 SEARCH BY MULTIPLE IDENTIFIERS:');
+    console.log('  • Username (case insensitive)');
+    console.log('  • Email address (case insensitive)');
+    console.log('  • Phone number');
+    console.log('  • User ID (ObjectId)');
+    console.log('  • Referral code');
+    console.log('');
     console.log('Command line usage:');
-    console.log('  node userAnalyzer.js analyze <userId>    # Full analysis of user referrals');
-    console.log('  node userAnalyzer.js quick <userId>      # Quick check of user stats');
+    console.log('  node userAnalyzer.js analyze <identifier>    # Full analysis of user referrals');
+    console.log('  node userAnalyzer.js quick <identifier>      # Quick check of user stats');
     console.log('');
     console.log('Programmatic usage:');
     console.log('  const { analyzeUserReferrals, quickUserCheck } = require("./userAnalyzer");');
-    console.log('  await analyzeUserReferrals("userId");     # Full analysis');
-    console.log('  await quickUserCheck("userId");          # Quick check');
+    console.log('  await analyzeUserReferrals("username");      # Full analysis');
+    console.log('  await quickUserCheck("username");           # Quick check');
     console.log('');
     console.log('Examples:');
+    console.log('  node userAnalyzer.js analyze john123');
+    console.log('  node userAnalyzer.js analyze john@example.com');
+    console.log('  node userAnalyzer.js analyze +2348012345678');
     console.log('  node userAnalyzer.js analyze 507f1f77bcf86cd799439011');
-    console.log('  node userAnalyzer.js quick 507f1f77bcf86cd799439011');
+    console.log('  node userAnalyzer.js quick john123');
     console.log('');
     console.log('The analyzer will:');
+    console.log('• Automatically detect the identifier type and search accordingly');
     console.log('• Fetch complete user information');
     console.log('• Show all referral rewards and why they were earned');
     console.log('• Identify any issues or corrections needed');
