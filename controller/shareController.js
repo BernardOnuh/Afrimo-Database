@@ -3140,20 +3140,19 @@ exports.getShareStatistics = async (req, res) => {
 // Enhanced Centiiv Integration with Callback URLs for Crypto & Fiat Payments
 
 /**
- * @desc    Initiate Centiiv Direct Pay (Fiat) with Callback URL
+ * @desc    Initiate Centiiv Direct Pay (Fiat) with proper callback URL integration
  * @route   POST /api/shares/centiiv/direct-pay
  * @access  Private (User)
  */
 exports.initiateCentiivDirectPay = async (req, res) => {
   try {
-    const { quantity } = req.body; // ✅ REMOVED amount parameter - only use quantity
+    const { quantity, note } = req.body;
     const userId = req.user.id;
     
     console.log('🚀 [Centiiv Direct Pay] Payment initiation started:', {
-      userId, quantity // ✅ Only log quantity, not amount
+      userId, quantity, note
     });
     
-    // ✅ FIXED: Validate quantity instead of amount
     if (!quantity || quantity <= 0) {
       return res.status(400).json({
         success: false,
@@ -3173,7 +3172,8 @@ exports.initiateCentiivDirectPay = async (req, res) => {
       });
     }
     
-    // ✅ FIXED: Always calculate shares from quantity
+    // Calculate shares from quantity
+    const Share = require('../models/Share');
     const purchaseDetails = await Share.calculatePurchase(parseInt(quantity), 'naira');
     if (!purchaseDetails.success) {
       return res.status(400).json({
@@ -3183,20 +3183,27 @@ exports.initiateCentiivDirectPay = async (req, res) => {
     }
     
     const shares = purchaseDetails.totalShares;
-    const amount = purchaseDetails.totalPrice; // ✅ Calculate amount from shares
+    const amount = purchaseDetails.totalPrice;
     
     // Generate transaction ID
+    const crypto = require('crypto');
+    const generateTransactionId = () => {
+      return `TXN-${crypto.randomBytes(4).toString('hex').toUpperCase()}-${Date.now().toString().slice(-6)}`;
+    };
     const transactionId = generateTransactionId();
     
-    // Create callback URL
-    const frontendUrl = process.env.FRONTEND_URL || 'https://yourfrontend.com';
-    const callbackUrl = `${frontendUrl}/dashboard/shares/payment-success?transaction=${transactionId}&method=centiiv-direct&type=fiat`;
+    // 🔥 FIX: Create proper callback URL that Centiiv will redirect to
+    const frontendUrl = process.env.FRONTEND_URL || 'https://www.afrimobiletech.com';
+    const backendUrl = process.env.BACKEND_URL || 'https://afrimobile-d240af77c383.herokuapp.com';
     
-    // Create Centiiv Direct Pay request
+    // This is where Centiiv will redirect users after payment
+    const callbackUrl = `${backendUrl}/api/shares/centiiv/callback?transaction=${transactionId}&method=centiiv-direct`;
+    
+    // Create Centiiv Direct Pay request with callback URL
     const centiivRequest = {
-      amount: parseFloat(amount), // ✅ Use calculated amount
-      note: `AfriMobile Share Purchase - ${shares} shares`, // ✅ Use calculated shares
-      callback_url: callbackUrl
+      amount: parseFloat(amount),
+      note: note || `AfriMobile Share Purchase - ${shares} shares`,
+      callback_url: callbackUrl  // 🔥 CRITICAL: This tells Centiiv where to redirect
     };
     
     console.log('📦 [Centiiv Direct Pay] Request payload:', JSON.stringify(centiivRequest, null, 2));
@@ -3231,9 +3238,9 @@ exports.initiateCentiivDirectPay = async (req, res) => {
     
     const paymentData = centiivResponse.data;
     
-    // ✅ FIXED: Handle the actual Centiiv API response structure
+    // Extract payment details from Centiiv response
     const paymentId = paymentData.data?.id || paymentData.id;
-    const paymentUrl = paymentData.data?.link || paymentData.data?.payment_url || paymentData.link || paymentData.payment_url;
+    let paymentUrl = paymentData.data?.link || paymentData.data?.payment_url || paymentData.link || paymentData.payment_url;
     
     console.log('🔍 [Centiiv Direct Pay] Extracted data:', {
       paymentId,
@@ -3243,33 +3250,50 @@ exports.initiateCentiivDirectPay = async (req, res) => {
     
     if (!paymentId || !paymentUrl) {
       console.error('❌ [Centiiv Direct Pay] Invalid response structure');
-      console.log('📋 [Centiiv Direct Pay] Available response keys:', Object.keys(paymentData));
       return res.status(500).json({
         success: false,
         message: 'Invalid payment response',
-        responseData: paymentData // ✅ Include response for debugging
+        responseData: paymentData
       });
     }
     
-    // ✅ FIX: Use correct paymentMethod enum value and schema-compliant fields
+    // 🔥 FIX: Ensure the payment URL includes the callback parameter
+    // Centiiv should return a URL like: https://centiiv.com/pay?id=212332&type=payment_link
+    // We need to append our callback URL to it if it's not already there
+    try {
+      const url = new URL(paymentUrl);
+      
+      // If callback_url is not in the payment URL, add it
+      if (!url.searchParams.has('callback_url')) {
+        url.searchParams.set('callback_url', callbackUrl);
+        paymentUrl = url.toString();
+        console.log('🔧 [Centiiv Direct Pay] Added callback_url to payment URL:', paymentUrl);
+      }
+    } catch (urlError) {
+      console.warn('⚠️ [Centiiv Direct Pay] Could not parse payment URL:', urlError.message);
+      // If URL parsing fails, append callback manually
+      const separator = paymentUrl.includes('?') ? '&' : '?';
+      paymentUrl = `${paymentUrl}${separator}callback_url=${encodeURIComponent(callbackUrl)}`;
+      console.log('🔧 [Centiiv Direct Pay] Manually added callback_url:', paymentUrl);
+    }
+    
+    // Save transaction to database
+    const UserShare = require('../models/UserShare');
     const shareData = {
       transactionId,
-      shares: shares, // ✅ Use calculated shares
+      shares: shares,
       pricePerShare: amount / shares,
       currency: 'naira',
-      totalAmount: amount, // ✅ Use calculated amount
-      paymentMethod: 'centiiv', // ✅ CORRECT: Valid enum value from schema
+      totalAmount: amount,
+      paymentMethod: 'centiiv',
       status: 'pending',
       tierBreakdown: purchaseDetails.tierBreakdown,
       
-      // ✅ CORRECT: Use schema-compliant Centiiv fields
-      centiivOrderId: paymentId, // Maps to existing schema field
-      centiivInvoiceUrl: paymentUrl, // Maps to existing schema field
-      
-      // ✅ OPTIONAL: Add custom fields for additional Centiiv data if needed
-      // Note: These fields aren't in the schema, so they won't be saved unless you add them
-      // centiivCallbackUrl: callbackUrl,
-      // centiivPaymentType: 'direct-pay'
+      // Store Centiiv payment details
+      centiivOrderId: paymentId,
+      centiivInvoiceUrl: paymentUrl,
+      centiivPaymentId: paymentId,
+      callbackUrl: callbackUrl
     };
     
     console.log('💾 [Centiiv Direct Pay] About to save shareData:', JSON.stringify(shareData, null, 2));
@@ -3284,18 +3308,22 @@ exports.initiateCentiivDirectPay = async (req, res) => {
       data: {
         transactionId,
         paymentId,
-        paymentUrl,
-        amount: amount, // ✅ Return calculated amount
-        shares: shares, // ✅ Return calculated shares  
-        quantity: quantity, // ✅ Return original quantity input
-        callbackUrl: callbackUrl,
-        redirectTo: paymentUrl // ✅ Frontend should redirect user to this URL
+        paymentUrl,                    // 🔥 This now includes callback_url
+        amount: amount,
+        shares: shares,
+        quantity: quantity,
+        callbackUrl: callbackUrl,      // The backend callback URL
+        redirectTo: paymentUrl,        // Frontend should redirect user to this URL
+        instructions: [
+          "User will be redirected to Centiiv payment page",
+          "After payment, Centiiv will redirect to our callback URL",
+          "Our callback will then redirect to the frontend success page"
+        ]
       }
     });
     
   } catch (error) {
     console.error('💥 [Centiiv Direct Pay] Unexpected error:', error.message);
-    console.error('💥 [Centiiv Direct Pay] Stack trace:', error.stack); // ✅ ADD: More detailed error logging
     res.status(500).json({
       success: false,
       message: 'Failed to initiate payment',
@@ -3305,82 +3333,126 @@ exports.initiateCentiivDirectPay = async (req, res) => {
 };
 
 /**
- * @desc    Handle Centiiv Callback (Success Redirect)
+ * @desc    Handle Centiiv Callback (Success/Failure Redirect) - UPDATED
  * @route   GET /api/shares/centiiv/callback
  * @access  Public (Centiiv callback)
  */
 exports.handleCentiivCallback = async (req, res) => {
   try {
-    const { id, type, status, payment_method, transaction } = req.query;
+    const { 
+      id,           // Centiiv payment ID
+      status,       // payment status (success, failed, cancelled, etc.)
+      transaction,  // our transaction ID
+      method,       // payment method (centiiv-direct)
+      amount,       // payment amount
+      reference     // payment reference
+    } = req.query;
     
     console.log('🔔 [Centiiv Callback] Received callback:', {
-      id, type, status, payment_method, transaction
+      id, status, transaction, method, amount, reference,
+      fullQuery: req.query
     });
     
     // Validate required parameters
-    if (!id || !status) {
+    if (!id && !transaction) {
       console.error('[Centiiv Callback] Missing required parameters');
-      return res.status(400).json({
-        success: false,
-        message: 'Invalid callback parameters'
-      });
+      return res.status(400).send(`
+        <html>
+          <body>
+            <h2>Payment Callback Error</h2>
+            <p>Missing required payment parameters.</p>
+            <a href="${process.env.FRONTEND_URL || 'https://www.afrimobiletech.com'}/dashboard">Return to Dashboard</a>
+          </body>
+        </html>
+      `);
     }
     
-    // Find transaction by Centiiv payment ID or transaction ID
+    // Find transaction by our transaction ID or Centiiv payment ID
     let userShareRecord = null;
+    let transactionRecord = null;
     
     if (transaction) {
       // Look for our transaction ID first
       userShareRecord = await UserShare.findOne({
         'transactions.transactionId': transaction
-      });
+      }).populate('user', 'name email');
+      
+      if (userShareRecord) {
+        transactionRecord = userShareRecord.transactions.find(
+          t => t.transactionId === transaction
+        );
+      }
     }
     
-    if (!userShareRecord) {
+    if (!userShareRecord && id) {
       // Look for Centiiv payment ID
       userShareRecord = await UserShare.findOne({
         'transactions.centiivPaymentId': id
-      });
+      }).populate('user', 'name email');
+      
+      if (userShareRecord) {
+        transactionRecord = userShareRecord.transactions.find(
+          t => t.centiivPaymentId === id || t.centiivOrderId === id
+        );
+      }
     }
     
-    if (!userShareRecord) {
+    if (!userShareRecord || !transactionRecord) {
       console.error('[Centiiv Callback] Transaction not found');
-      return res.status(404).json({
-        success: false,
-        message: 'Transaction not found'
-      });
+      
+      // Redirect to frontend with error
+      const frontendUrl = process.env.FRONTEND_URL || 'https://www.afrimobiletech.com';
+      const errorUrl = `${frontendUrl}/dashboard/shares/payment-error?reason=transaction_not_found&id=${id || 'unknown'}`;
+      
+      return res.redirect(errorUrl);
     }
     
-    const transactionRecord = userShareRecord.transactions.find(
-      t => t.centiivPaymentId === id || t.transactionId === transaction
-    );
-    
-    if (!transactionRecord) {
-      console.error('[Centiiv Callback] Transaction record not found');
-      return res.status(404).json({
-        success: false,
-        message: 'Transaction record not found'
-      });
-    }
-    
-    // Handle different statuses
+    // Determine the new status based on Centiiv's status
     let newStatus = 'pending';
-    if (status === 'success') {
-      newStatus = 'completed';
-    } else if (status === 'failed' || status === 'cancelled') {
-      newStatus = 'failed';
+    let statusMessage = 'Payment status updated';
+    
+    // Map Centiiv status to our internal status
+    switch (status?.toLowerCase()) {
+      case 'success':
+      case 'paid':
+      case 'completed':
+        newStatus = 'completed';
+        statusMessage = 'Payment completed successfully';
+        break;
+      case 'failed':
+      case 'declined':
+        newStatus = 'failed';
+        statusMessage = 'Payment failed';
+        break;
+      case 'cancelled':
+      case 'canceled':
+        newStatus = 'failed';
+        statusMessage = 'Payment was cancelled';
+        break;
+      case 'pending':
+      case 'processing':
+        newStatus = 'pending';
+        statusMessage = 'Payment is being processed';
+        break;
+      default:
+        console.log(`[Centiiv Callback] Unknown status: ${status}, defaulting to pending`);
+        newStatus = 'pending';
+        statusMessage = `Payment status: ${status}`;
     }
+    
+    console.log(`[Centiiv Callback] Updating transaction ${transactionRecord.transactionId} from ${transactionRecord.status} to ${newStatus}`);
     
     // Update transaction status
     await UserShare.updateTransactionStatus(
-      userShareRecord.user,
+      userShareRecord.user._id,
       transactionRecord.transactionId,
       newStatus,
-      `Centiiv callback: ${status} via ${payment_method || 'unknown'}`
+      `Centiiv callback: ${status} via ${method || 'direct-pay'}`
     );
     
     // If successful, update global share counts and process referrals
     if (newStatus === 'completed') {
+      const Share = require('../models/Share');
       const shareConfig = await Share.getCurrentConfig();
       shareConfig.sharesSold += transactionRecord.shares;
       
@@ -3395,8 +3467,9 @@ exports.handleCentiivCallback = async (req, res) => {
       
       // Process referral commissions
       try {
+        const { processReferralCommission } = require('../utils/referralUtils');
         const referralResult = await processReferralCommission(
-          userShareRecord.user,
+          userShareRecord.user._id,
           transactionRecord.totalAmount,
           'share',
           transactionRecord.transactionId
@@ -3407,16 +3480,16 @@ exports.handleCentiivCallback = async (req, res) => {
       }
       
       // Send confirmation email
-      const user = await User.findById(userShareRecord.user);
-      if (user && user.email) {
+      if (userShareRecord.user && userShareRecord.user.email) {
         try {
+          const { sendEmail } = require('../utils/emailService');
           await sendEmail({
-            email: user.email,
+            email: userShareRecord.user.email,
             subject: 'AfriMobile - Share Purchase Successful',
             html: `
               <h2>Share Purchase Confirmation</h2>
-              <p>Dear ${user.name},</p>
-              <p>Your purchase of ${transactionRecord.shares} shares for ₦${transactionRecord.totalAmount} has been completed successfully via ${payment_method || 'Centiiv'}.</p>
+              <p>Dear ${userShareRecord.user.name},</p>
+              <p>Your purchase of ${transactionRecord.shares} shares for ₦${transactionRecord.totalAmount} has been completed successfully via Centiiv.</p>
               <p>Transaction Reference: ${transactionRecord.transactionId}</p>
               <p>Payment ID: ${id}</p>
               <p>Thank you for your investment in AfriMobile!</p>
@@ -3428,33 +3501,34 @@ exports.handleCentiivCallback = async (req, res) => {
       }
     }
     
-    // For successful payments, redirect to success page
-    if (status === 'success') {
-      const frontendUrl = process.env.FRONTEND_URL || 'https://yourfrontend.com';
-      const redirectUrl = `${frontendUrl}/dashboard/shares/payment-success?transaction=${transactionRecord.transactionId}&method=centiiv&status=success`;
-      
-      return res.redirect(redirectUrl);
-    }
+    // 🔥 REDIRECT TO FRONTEND WITH STATUS
+    const frontendUrl = process.env.FRONTEND_URL || 'https://www.afrimobiletech.com';
     
-    // For other statuses, return JSON response
-    res.status(200).json({
-      success: true,
-      message: `Payment ${status}`,
-      data: {
-        transactionId: transactionRecord.transactionId,
-        paymentId: id,
-        status: newStatus,
-        shares: transactionRecord.shares,
-        amount: transactionRecord.totalAmount
-      }
-    });
+    if (newStatus === 'completed') {
+      // Redirect to success page
+      const successUrl = `${frontendUrl}/dashboard/shares/payment-success?transaction=${transactionRecord.transactionId}&method=centiiv&status=success&shares=${transactionRecord.shares}&amount=${transactionRecord.totalAmount}`;
+      console.log(`[Centiiv Callback] Redirecting to success: ${successUrl}`);
+      return res.redirect(successUrl);
+    } else if (newStatus === 'failed') {
+      // Redirect to failure page
+      const failureUrl = `${frontendUrl}/dashboard/shares/payment-failed?transaction=${transactionRecord.transactionId}&method=centiiv&reason=${encodeURIComponent(statusMessage)}`;
+      console.log(`[Centiiv Callback] Redirecting to failure: ${failureUrl}`);
+      return res.redirect(failureUrl);
+    } else {
+      // Redirect to pending page
+      const pendingUrl = `${frontendUrl}/dashboard/shares/payment-pending?transaction=${transactionRecord.transactionId}&method=centiiv&status=${status}`;
+      console.log(`[Centiiv Callback] Redirecting to pending: ${pendingUrl}`);
+      return res.redirect(pendingUrl);
+    }
     
   } catch (error) {
     console.error('Error handling Centiiv callback:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Failed to process callback'
-    });
+    
+    // Redirect to error page
+    const frontendUrl = process.env.FRONTEND_URL || 'https://www.afrimobiletech.com';
+    const errorUrl = `${frontendUrl}/dashboard/shares/payment-error?reason=server_error`;
+    
+    return res.redirect(errorUrl);
   }
 };
 
