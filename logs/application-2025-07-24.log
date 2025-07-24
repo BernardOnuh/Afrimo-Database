@@ -1,0 +1,15 @@
+{"environment":"development","level":"info","memoryUsage":{"arrayBuffers":19087936,"external":22647466,"heapTotal":190644224,"heapUsed":85705616,"rss":223002624},"message":"Server started successfully","port":5001,"processId":95920,"timestamp":"2025-07-24T16:12:32.743Z"}
+{"environment":"development","level":"info","memoryUsage":{"arrayBuffers":19085025,"external":22640299,"heapTotal":192217088,"heapUsed":84650832,"rss":218726400},"message":"Server started successfully","port":5001,"processId":95981,"timestamp":"2025-07-24T16:12:36.489Z"}
+{"level":"info","message":"Enhanced startup information displayed","timestamp":"2025-07-24T16:12:37.579Z"}
+{"error":"setUserAsAdmin is not a function","level":"error","message":"Admin setup failed","timestamp":"2025-07-24T16:12:39.491Z"}
+{"level":"info","message":"Background job registered: verifyProcessingWithdrawals","timestamp":"2025-07-24T16:12:39.507Z"}
+{"level":"info","message":"Background job registered: verifyPendingWithdrawals","timestamp":"2025-07-24T16:12:39.507Z"}
+{"level":"info","message":"Withdrawal verification jobs started","timestamp":"2025-07-24T16:12:39.507Z"}
+{"level":"info","message":"✅ Started job: verifyProcessingWithdrawals","timestamp":"2025-07-24T16:12:39.507Z"}
+{"level":"info","message":"✅ Started job: verifyPendingWithdrawals","timestamp":"2025-07-24T16:12:39.508Z"}
+{"level":"info","message":"Application startup completed successfully","timestamp":"2025-07-24T16:12:39.508Z"}
+{"level":"info","message":"Database reconnected successfully","timestamp":"2025-07-24T16:16:50.523Z"}
+{"error":"Connection to ac-hwvsmsd-shard-00-02.uvjmhm9.mongodb.net:27017 interrupted due to server monitor timeout","level":"warn","message":"Database health check failed","timestamp":"2025-07-24T16:16:50.619Z"}
+{"level":"warn","message":"Database disconnected","timestamp":"2025-07-24T16:17:02.841Z"}
+{"level":"info","message":"Database connected successfully","timestamp":"2025-07-24T16:17:02.843Z"}
+{"level":"info","message":"Database reconnected successfully","timestamp":"2025-07-24T16:17:02.843Z"}
