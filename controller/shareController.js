@@ -3305,156 +3305,222 @@ exports.initiateCentiivDirectPay = async (req, res) => {
 };
 
 /**
- * @desc    Handle Centiiv Callback (Success Redirect)
+ * @desc    Handle Centiiv Callback (ENHANCED VERSION)
  * @route   GET /api/shares/centiiv/callback
  * @access  Public (Centiiv callback)
  */
 exports.handleCentiivCallback = async (req, res) => {
   try {
-    const { id, type, status, payment_method, transaction } = req.query;
+    const { id, type, status, payment_method, transaction, reference } = req.query;
     
     console.log('🔔 [Centiiv Callback] Received callback:', {
-      id, type, status, payment_method, transaction
+      id, type, status, payment_method, transaction, reference,
+      fullUrl: req.url,
+      allParams: req.query
     });
     
     // Validate required parameters
-    if (!id || !status) {
-      console.error('[Centiiv Callback] Missing required parameters');
-      return res.status(400).json({
-        success: false,
-        message: 'Invalid callback parameters'
-      });
+    if (!id) {
+      console.error('[Centiiv Callback] Missing Payment ID');
+      const frontendUrl = process.env.FRONTEND_URL || 'https://www.afrimobiletech.com';
+      const errorUrl = `${frontendUrl}/dashboard/shares/payment-error?error=missing_payment_id`;
+      return res.redirect(errorUrl);
     }
     
-    // Find transaction by Centiiv payment ID or transaction ID
+    // Find transaction by multiple methods (priority order)
     let userShareRecord = null;
+    let transactionRecord = null;
+    let searchMethod = '';
     
-    if (transaction) {
-      // Look for our transaction ID first
+    // Method 1: Find by reference (our transaction ID that we sent to Centiiv)
+    if (reference) {
+      console.log('[Centiiv Callback] Searching by reference:', reference);
+      userShareRecord = await UserShare.findOne({
+        'transactions.transactionId': reference
+      });
+      
+      if (userShareRecord) {
+        transactionRecord = userShareRecord.transactions.find(
+          t => t.transactionId === reference
+        );
+        searchMethod = 'reference';
+      }
+    }
+    
+    // Method 2: Find by transaction parameter (from our old callback URLs)
+    if (!userShareRecord && transaction) {
+      console.log('[Centiiv Callback] Searching by transaction:', transaction);
       userShareRecord = await UserShare.findOne({
         'transactions.transactionId': transaction
       });
+      
+      if (userShareRecord) {
+        transactionRecord = userShareRecord.transactions.find(
+          t => t.transactionId === transaction
+        );
+        searchMethod = 'transaction_param';
+      }
     }
     
+    // Method 3: Find by Centiiv payment ID
     if (!userShareRecord) {
-      // Look for Centiiv payment ID
+      console.log('[Centiiv Callback] Searching by Centiiv payment ID:', id);
       userShareRecord = await UserShare.findOne({
         'transactions.centiivPaymentId': id
       });
+      
+      if (userShareRecord) {
+        transactionRecord = userShareRecord.transactions.find(
+          t => t.centiivPaymentId === id
+        );
+        searchMethod = 'payment_id';
+      }
     }
     
+    // Method 4: Find by Centiiv order ID (for invoice payments)
     if (!userShareRecord) {
-      console.error('[Centiiv Callback] Transaction not found');
-      return res.status(404).json({
-        success: false,
-        message: 'Transaction not found'
+      console.log('[Centiiv Callback] Searching by Centiiv order ID:', id);
+      userShareRecord = await UserShare.findOne({
+        'transactions.centiivOrderId': id
       });
+      
+      if (userShareRecord) {
+        transactionRecord = userShareRecord.transactions.find(
+          t => t.centiivOrderId === id
+        );
+        searchMethod = 'order_id';
+      }
     }
     
-    const transactionRecord = userShareRecord.transactions.find(
-      t => t.centiivPaymentId === id || t.transactionId === transaction
-    );
+    console.log('[Centiiv Callback] Search result:', {
+      found: !!userShareRecord,
+      method: searchMethod,
+      transactionId: transactionRecord?.transactionId
+    });
     
-    if (!transactionRecord) {
-      console.error('[Centiiv Callback] Transaction record not found');
-      return res.status(404).json({
-        success: false,
-        message: 'Transaction record not found'
-      });
+    if (!userShareRecord || !transactionRecord) {
+      console.error('[Centiiv Callback] Transaction not found after all search methods');
+      console.error('[Centiiv Callback] Search attempted with:', { id, transaction, reference });
+      
+      // 🔥 FIX: Redirect to error page with debug info
+      const frontendUrl = process.env.FRONTEND_URL || 'https://www.afrimobiletech.com';
+      const errorUrl = `${frontendUrl}/dashboard/shares/payment-error?error=transaction_not_found&id=${id}&ref=${reference || 'none'}&tx=${transaction || 'none'}`;
+      
+      return res.redirect(errorUrl);
     }
     
-    // Handle different statuses
+    console.log('[Centiiv Callback] Transaction found:', {
+      transactionId: transactionRecord.transactionId,
+      currentStatus: transactionRecord.status,
+      paymentMethod: transactionRecord.paymentMethod,
+      foundBy: searchMethod
+    });
+    
+    // Map Centiiv status to our status
     let newStatus = 'pending';
-    if (status === 'success') {
+    if (status === 'success' || status === 'paid' || status === 'completed') {
       newStatus = 'completed';
-    } else if (status === 'failed' || status === 'cancelled') {
+    } else if (status === 'failed' || status === 'cancelled' || status === 'expired') {
       newStatus = 'failed';
     }
     
-    // Update transaction status
+    console.log('[Centiiv Callback] Status mapping:', {
+      centiivStatus: status,
+      ourStatus: newStatus
+    });
+    
+    // Update transaction status with detailed note
+    const updateNote = `Centiiv callback: ${status} via ${payment_method || 'unknown'} (Payment ID: ${id})`;
+    
     await UserShare.updateTransactionStatus(
       userShareRecord.user,
       transactionRecord.transactionId,
       newStatus,
-      `Centiiv callback: ${status} via ${payment_method || 'unknown'}`
+      updateNote
     );
+    
+    console.log('[Centiiv Callback] Transaction status updated to:', newStatus);
     
     // If successful, update global share counts and process referrals
     if (newStatus === 'completed') {
-      const shareConfig = await Share.getCurrentConfig();
-      shareConfig.sharesSold += transactionRecord.shares;
-      
-      // Update tier sales
-      if (transactionRecord.tierBreakdown) {
-        shareConfig.tierSales.tier1Sold += transactionRecord.tierBreakdown.tier1 || 0;
-        shareConfig.tierSales.tier2Sold += transactionRecord.tierBreakdown.tier2 || 0;
-        shareConfig.tierSales.tier3Sold += transactionRecord.tierBreakdown.tier3 || 0;
-      }
-      
-      await shareConfig.save();
-      
-      // Process referral commissions
       try {
-        const referralResult = await processReferralCommission(
-          userShareRecord.user,
-          transactionRecord.totalAmount,
-          'share',
-          transactionRecord.transactionId
-        );
-        console.log('Referral commission process result:', referralResult);
-      } catch (referralError) {
-        console.error('Error processing referral commissions:', referralError);
-      }
-      
-      // Send confirmation email
-      const user = await User.findById(userShareRecord.user);
-      if (user && user.email) {
-        try {
-          await sendEmail({
-            email: user.email,
-            subject: 'AfriMobile - Share Purchase Successful',
-            html: `
-              <h2>Share Purchase Confirmation</h2>
-              <p>Dear ${user.name},</p>
-              <p>Your purchase of ${transactionRecord.shares} shares for ₦${transactionRecord.totalAmount} has been completed successfully via ${payment_method || 'Centiiv'}.</p>
-              <p>Transaction Reference: ${transactionRecord.transactionId}</p>
-              <p>Payment ID: ${id}</p>
-              <p>Thank you for your investment in AfriMobile!</p>
-            `
-          });
-        } catch (emailError) {
-          console.error('Failed to send confirmation email:', emailError);
+        const shareConfig = await Share.getCurrentConfig();
+        shareConfig.sharesSold += transactionRecord.shares;
+        
+        // Update tier sales
+        if (transactionRecord.tierBreakdown) {
+          shareConfig.tierSales.tier1Sold += transactionRecord.tierBreakdown.tier1 || 0;
+          shareConfig.tierSales.tier2Sold += transactionRecord.tierBreakdown.tier2 || 0;
+          shareConfig.tierSales.tier3Sold += transactionRecord.tierBreakdown.tier3 || 0;
         }
+        
+        await shareConfig.save();
+        console.log('[Centiiv Callback] Share config updated');
+        
+        // Process referral commissions
+        try {
+          const referralResult = await processReferralCommission(
+            userShareRecord.user,
+            transactionRecord.totalAmount,
+            'share',
+            transactionRecord.transactionId
+          );
+          console.log('[Centiiv Callback] Referral commission processed:', referralResult);
+        } catch (referralError) {
+          console.error('[Centiiv Callback] Referral commission error:', referralError);
+        }
+        
+        // Send confirmation email
+        const user = await User.findById(userShareRecord.user);
+        if (user && user.email) {
+          try {
+            await sendEmail({
+              email: user.email,
+              subject: 'AfriMobile - Share Purchase Successful',
+              html: `
+                <h2>Share Purchase Confirmation</h2>
+                <p>Dear ${user.name},</p>
+                <p>Your purchase of ${transactionRecord.shares} shares for ₦${transactionRecord.totalAmount} has been completed successfully via Centiiv ${payment_method || ''}.</p>
+                <p>Transaction Reference: ${transactionRecord.transactionId}</p>
+                <p>Payment ID: ${id}</p>
+                <p>Thank you for your investment in AfriMobile!</p>
+              `
+            });
+            console.log('[Centiiv Callback] Confirmation email sent');
+          } catch (emailError) {
+            console.error('[Centiiv Callback] Failed to send confirmation email:', emailError);
+          }
+        }
+      } catch (updateError) {
+        console.error('[Centiiv Callback] Error updating share config:', updateError);
       }
     }
     
-    // For successful payments, redirect to success page
-    if (status === 'success') {
-      const frontendUrl = process.env.FRONTEND_URL || 'https://yourfrontend.com';
-      const redirectUrl = `${frontendUrl}/dashboard/shares/payment-success?transaction=${transactionRecord.transactionId}&method=centiiv&status=success`;
-      
-      return res.redirect(redirectUrl);
+    // 🔥 FIX: Always redirect to frontend with comprehensive status
+    const frontendUrl = process.env.FRONTEND_URL || 'https://www.afrimobiletech.com';
+    
+    let redirectUrl;
+    if (newStatus === 'completed') {
+      redirectUrl = `${frontendUrl}/dashboard/shares/payment-success?transaction=${transactionRecord.transactionId}&method=centiiv-direct&status=success&shares=${transactionRecord.shares}&amount=${transactionRecord.totalAmount}&paymentId=${id}`;
+    } else if (newStatus === 'failed') {
+      redirectUrl = `${frontendUrl}/dashboard/shares/payment-failed?transaction=${transactionRecord.transactionId}&method=centiiv-direct&status=${status}&reason=${status}&paymentId=${id}`;
+    } else {
+      redirectUrl = `${frontendUrl}/dashboard/shares/payment-pending?transaction=${transactionRecord.transactionId}&method=centiiv-direct&status=${status}&paymentId=${id}`;
     }
     
-    // For other statuses, return JSON response
-    res.status(200).json({
-      success: true,
-      message: `Payment ${status}`,
-      data: {
-        transactionId: transactionRecord.transactionId,
-        paymentId: id,
-        status: newStatus,
-        shares: transactionRecord.shares,
-        amount: transactionRecord.totalAmount
-      }
-    });
+    console.log('[Centiiv Callback] Redirecting to:', redirectUrl);
+    
+    // Redirect user to frontend
+    return res.redirect(redirectUrl);
     
   } catch (error) {
-    console.error('Error handling Centiiv callback:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Failed to process callback'
-    });
+    console.error('💥 [Centiiv Callback] Error processing callback:', error);
+    
+    // Even in error, redirect to frontend with error status
+    const frontendUrl = process.env.FRONTEND_URL || 'https://yourfrontend.com';
+    const errorUrl = `${frontendUrl}/dashboard/shares/payment-error?error=callback_error&message=${encodeURIComponent(error.message)}`;
+    
+    return res.redirect(errorUrl);
   }
 };
 
@@ -4304,7 +4370,7 @@ exports.submitCryptoTransactionHash = async (req, res) => {
 };
 
 /**
- * @desc    Get Centiiv Payment Status
+ * @desc    Get Centiiv Payment Status (ENHANCED)
  * @route   GET /api/shares/centiiv/status/:paymentId
  * @access  Private (User/Admin)
  */
@@ -4317,9 +4383,12 @@ exports.getCentiivPaymentStatus = async (req, res) => {
     const user = await User.findById(userId);
     const isAdmin = user && user.isAdmin;
     
-    // Find transaction
+    // Find transaction by payment ID
     const userShareRecord = await UserShare.findOne({
-      'transactions.centiivPaymentId': paymentId
+      $or: [
+        { 'transactions.centiivPaymentId': paymentId },
+        { 'transactions.centiivOrderId': paymentId }
+      ]
     });
     
     if (!userShareRecord) {
@@ -4338,8 +4407,15 @@ exports.getCentiivPaymentStatus = async (req, res) => {
     }
     
     const transaction = userShareRecord.transactions.find(
-      t => t.centiivPaymentId === paymentId
+      t => t.centiivPaymentId === paymentId || t.centiivOrderId === paymentId
     );
+    
+    if (!transaction) {
+      return res.status(404).json({
+        success: false,
+        message: 'Transaction not found'
+      });
+    }
     
     // Get latest status from Centiiv API
     let centiivStatus = null;
@@ -4347,17 +4423,23 @@ exports.getCentiivPaymentStatus = async (req, res) => {
       const apiKey = process.env.CENTIIV_API_KEY;
       const baseUrl = process.env.CENTIIV_BASE_URL || 'https://api.centiiv.com/api/v1';
       
-      const centiivResponse = await axios.get(
-        `${baseUrl}/direct-pay/${paymentId}`,
-        {
+      let apiEndpoint;
+      if (transaction.centiivPaymentId) {
+        apiEndpoint = `${baseUrl}/direct-pay/${transaction.centiivPaymentId}`;
+      } else if (transaction.centiivOrderId) {
+        apiEndpoint = `${baseUrl}/order/${transaction.centiivOrderId}`;
+      }
+      
+      if (apiEndpoint) {
+        const centiivResponse = await axios.get(apiEndpoint, {
           headers: {
             'accept': 'application/json',
             'authorization': `Bearer ${apiKey}`
           }
-        }
-      );
-      
-      centiivStatus = centiivResponse.data;
+        });
+        
+        centiivStatus = centiivResponse.data;
+      }
     } catch (apiError) {
       console.error('Error fetching Centiiv status:', apiError.message);
     }
@@ -4366,7 +4448,7 @@ exports.getCentiivPaymentStatus = async (req, res) => {
       success: true,
       data: {
         transactionId: transaction.transactionId,
-        paymentId: paymentId,
+        paymentId: transaction.centiivPaymentId || transaction.centiivOrderId,
         localStatus: transaction.status,
         centiivStatus: centiivStatus,
         shares: transaction.shares,
@@ -4374,7 +4456,8 @@ exports.getCentiivPaymentStatus = async (req, res) => {
         currency: transaction.currency,
         paymentMethod: transaction.paymentMethod,
         createdAt: transaction.createdAt,
-        callbackUrl: transaction.callbackUrl
+        callbackUrl: transaction.centiivCallbackUrl,
+        paymentUrl: transaction.centiivPaymentUrl
       }
     });
     

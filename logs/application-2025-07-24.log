@@ -1,0 +1,17 @@
+{"environment":"development","level":"info","memoryUsage":{"arrayBuffers":19100343,"external":22664129,"heapTotal":191430656,"heapUsed":85543232,"rss":197951488},"message":"Server started successfully","port":5001,"processId":94338,"timestamp":"2025-07-24T15:30:44.167Z"}
+{"error":"setUserAsAdmin is not a function","level":"error","message":"Admin setup failed","timestamp":"2025-07-24T15:30:47.167Z"}
+{"level":"info","message":"Background job registered: verifyProcessingWithdrawals","timestamp":"2025-07-24T15:30:47.173Z"}
+{"level":"info","message":"Background job registered: verifyPendingWithdrawals","timestamp":"2025-07-24T15:30:47.173Z"}
+{"level":"info","message":"Withdrawal verification jobs started","timestamp":"2025-07-24T15:30:47.174Z"}
+{"level":"info","message":"✅ Started job: verifyProcessingWithdrawals","timestamp":"2025-07-24T15:30:47.174Z"}
+{"level":"info","message":"✅ Started job: verifyPendingWithdrawals","timestamp":"2025-07-24T15:30:47.174Z"}
+{"level":"info","message":"Application startup completed successfully","timestamp":"2025-07-24T15:30:47.174Z"}
+{"environment":"development","level":"info","memoryUsage":{"arrayBuffers":18761359,"external":22325145,"heapTotal":213975040,"heapUsed":62104328,"rss":241827840},"message":"Server started successfully","port":5001,"processId":94411,"timestamp":"2025-07-24T15:31:53.191Z"}
+{"level":"info","message":"Enhanced startup information displayed","timestamp":"2025-07-24T15:31:55.438Z"}
+{"error":"setUserAsAdmin is not a function","level":"error","message":"Admin setup failed","timestamp":"2025-07-24T15:31:56.190Z"}
+{"level":"info","message":"Background job registered: verifyProcessingWithdrawals","timestamp":"2025-07-24T15:31:56.194Z"}
+{"level":"info","message":"Background job registered: verifyPendingWithdrawals","timestamp":"2025-07-24T15:31:56.194Z"}
+{"level":"info","message":"Withdrawal verification jobs started","timestamp":"2025-07-24T15:31:56.194Z"}
+{"level":"info","message":"✅ Started job: verifyProcessingWithdrawals","timestamp":"2025-07-24T15:31:56.195Z"}
+{"level":"info","message":"✅ Started job: verifyPendingWithdrawals","timestamp":"2025-07-24T15:31:56.195Z"}
+{"level":"info","message":"Application startup completed successfully","timestamp":"2025-07-24T15:31:56.195Z"}

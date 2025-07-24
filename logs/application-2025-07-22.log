@@ -250,3 +250,23 @@
 {"level":"info","message":"✅ Started job: verifyProcessingWithdrawals","timestamp":"2025-07-22T16:49:59.491Z"}
 {"level":"info","message":"✅ Started job: verifyPendingWithdrawals","timestamp":"2025-07-22T16:49:59.491Z"}
 {"level":"info","message":"Application startup completed successfully","timestamp":"2025-07-22T16:49:59.491Z"}
+{"environment":"development","level":"info","memoryUsage":{"arrayBuffers":19100343,"external":22664129,"heapTotal":193003520,"heapUsed":86614336,"rss":174243840},"message":"Server started successfully","port":5001,"processId":47732,"timestamp":"2025-07-22T16:55:27.365Z"}
+{"error":"setUserAsAdmin is not a function","level":"error","message":"Admin setup failed","timestamp":"2025-07-22T16:55:30.364Z"}
+{"level":"info","message":"Background job registered: verifyProcessingWithdrawals","timestamp":"2025-07-22T16:55:30.373Z"}
+{"level":"info","message":"Background job registered: verifyPendingWithdrawals","timestamp":"2025-07-22T16:55:30.373Z"}
+{"level":"info","message":"Withdrawal verification jobs started","timestamp":"2025-07-22T16:55:30.374Z"}
+{"level":"info","message":"✅ Started job: verifyProcessingWithdrawals","timestamp":"2025-07-22T16:55:30.374Z"}
+{"level":"info","message":"✅ Started job: verifyPendingWithdrawals","timestamp":"2025-07-22T16:55:30.374Z"}
+{"level":"info","message":"Application startup completed successfully","timestamp":"2025-07-22T16:55:30.374Z"}
+{"level":"info","message":"Database reconnected successfully","timestamp":"2025-07-22T18:06:54.656Z"}
+{"level":"warn","message":"Database disconnected","timestamp":"2025-07-22T19:04:01.089Z"}
+{"level":"info","message":"Database connected successfully","timestamp":"2025-07-22T19:04:01.100Z"}
+{"level":"info","message":"Database reconnected successfully","timestamp":"2025-07-22T19:04:01.101Z"}
+{"level":"info","message":"Database reconnected successfully","timestamp":"2025-07-22T19:09:51.815Z"}
+{"level":"warn","message":"Database disconnected","timestamp":"2025-07-22T19:10:01.421Z"}
+{"level":"info","message":"Database connected successfully","timestamp":"2025-07-22T19:10:01.448Z"}
+{"level":"info","message":"Database reconnected successfully","timestamp":"2025-07-22T19:10:01.448Z"}
+{"level":"info","message":"Database reconnected successfully","timestamp":"2025-07-22T19:21:09.266Z"}
+{"level":"info","message":"Database reconnected successfully","timestamp":"2025-07-22T19:21:09.273Z"}
+{"error":"Connection to ac-hwvsmsd-shard-00-02.uvjmhm9.mongodb.net:27017 interrupted due to server monitor timeout","level":"warn","message":"Database health check failed","timestamp":"2025-07-22T19:21:09.275Z"}
+{"level":"warn","message":"Database disconnected","timestamp":"2025-07-22T19:21:19.847Z"}
