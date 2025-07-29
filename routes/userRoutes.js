@@ -873,4 +873,21 @@ router.get('/admin/admins', protect, adminProtect, userController.getAllAdmins);
  */
 router.post('/admin/revoke-rights', protect, adminProtect, userController.revokeAdminRights);
 
+// SmileID KYC Integration Routes
+
+// Create KYC verification link for a user
+router.post('/kyc/create-link', userController.createKYCLink);
+
+// Create multiple KYC verification links (bulk)
+router.post('/kyc/create-bulk-links', userController.createBulkKYCLinks);
+
+// Get KYC link status and information
+router.get('/kyc/link-status/:linkId', userController.getKYCLinkStatus);
+
+// SmileID webhook endpoint (for receiving verification results)
+router.post('/kyc/webhook/smileid', express.raw({ type: 'application/json' }), userController.handleSmileIDWebhook);
+
+// Alternative webhook endpoint if you prefer a separate route file
+// router.post('/webhook/smileid', express.raw({ type: 'application/json' }), userController.handleSmileIDWebhook);
+
 module.exports = router;

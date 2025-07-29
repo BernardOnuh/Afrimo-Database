@@ -1,19 +1,23 @@
 // controller/userController.js
-const User = require('../models/User');
-const jwt = require('jsonwebtoken');
-const crypto = require('crypto');
-const { sendEmail } = require('../utils/emailService');
-const { 
-  passwordResetTemplate, 
+const User = require("../models/User");
+const jwt = require("jsonwebtoken");
+const crypto = require("crypto");
+const { sendEmail } = require("../utils/emailService");
+const {
+  passwordResetTemplate,
   passwordChangedTemplate,
-  welcomeTemplate 
-} = require('../utils/emailTemplates');
-const referralController = require('../controller/referralController');
+  welcomeTemplate,
+} = require("../utils/emailTemplates");
+const referralController = require("../controller/referralController");
+
+// controller/userController.js
+const SmileIDService = require("../services/smileIDService");
+const smileIDService = new SmileIDService();
 
 // Helper function to generate JWT
 const generateToken = (userId) => {
   return jwt.sign({ id: userId }, process.env.JWT_SECRET, {
-    expiresIn: process.env.JWT_EXPIRE || '7d'
+    expiresIn: process.env.JWT_EXPIRE || "7d",
   });
 };
 
@@ -24,12 +28,12 @@ const isValidEthAddress = (address) => {
 
 exports.registerUser = async (req, res) => {
   try {
-    const { 
-      name, 
+    const {
+      name,
       fullName,
       userName,
-      email, 
-      password, 
+      email,
+      password,
       phone,
       country,
       countryCode,
@@ -38,14 +42,14 @@ exports.registerUser = async (req, res) => {
       city,
       interest,
       walletAddress,
-      referralCode 
+      referralCode,
     } = req.body;
 
     // Basic validation
     if ((!name && !fullName) || !email || !password) {
       return res.status(400).json({
         success: false,
-        message: 'Please provide name, email and password'
+        message: "Please provide name, email and password",
       });
     }
 
@@ -54,7 +58,7 @@ exports.registerUser = async (req, res) => {
     if (existingUser) {
       return res.status(400).json({
         success: false,
-        message: 'User with this email already exists'
+        message: "User with this email already exists",
       });
     }
 
@@ -64,7 +68,7 @@ exports.registerUser = async (req, res) => {
       if (existingUsername) {
         return res.status(400).json({
           success: false,
-          message: 'This username is already taken'
+          message: "This username is already taken",
         });
       }
     }
@@ -73,7 +77,7 @@ exports.registerUser = async (req, res) => {
     if (walletAddress && !isValidEthAddress(walletAddress)) {
       return res.status(400).json({
         success: false,
-        message: 'Invalid wallet address format'
+        message: "Invalid wallet address format",
       });
     }
 
@@ -83,7 +87,7 @@ exports.registerUser = async (req, res) => {
       if (existingWallet) {
         return res.status(400).json({
           success: false,
-          message: 'This wallet address is already registered'
+          message: "This wallet address is already registered",
         });
       }
     }
@@ -102,11 +106,13 @@ exports.registerUser = async (req, res) => {
       city: city || null,
       interest: interest || null,
       walletAddress: walletAddress || null,
-      referralInfo: referralCode ? {
-        code: referralCode,
-        source: req.body.referralSource || 'direct',
-        timestamp: new Date()
-      } : null
+      referralInfo: referralCode
+        ? {
+            code: referralCode,
+            source: req.body.referralSource || "direct",
+            timestamp: new Date(),
+          }
+        : null,
     });
 
     // Save user to database
@@ -117,9 +123,11 @@ exports.registerUser = async (req, res) => {
       try {
         // Call the processNewUserReferral function with the new user's ID
         await referralController.processNewUserReferral(user._id);
-        console.log(`Referral processed for new user ${user.email} with code ${referralCode}`);
+        console.log(
+          `Referral processed for new user ${user.email} with code ${referralCode}`
+        );
       } catch (referralError) {
-        console.error('Error processing referral:', referralError);
+        console.error("Error processing referral:", referralError);
         // Continue with registration even if referral processing fails
       }
     }
@@ -128,23 +136,25 @@ exports.registerUser = async (req, res) => {
     const token = generateToken(user._id);
 
     // Send welcome email
-    const loginUrl = `${process.env.FRONTEND_URL || 'http://localhost:3000'}/login`;
-    
+    const loginUrl = `${
+      process.env.FRONTEND_URL || "http://localhost:3000"
+    }/login`;
+
     try {
       await sendEmail({
         email: user.email,
-        subject: 'Welcome to AfriMobile',
-        html: welcomeTemplate(user.name, loginUrl)
+        subject: "Welcome to AfriMobile",
+        html: welcomeTemplate(user.name, loginUrl),
       });
     } catch (emailError) {
-      console.error('Welcome email could not be sent:', emailError);
+      console.error("Welcome email could not be sent:", emailError);
       // Continue with registration even if welcome email fails
     }
 
     // Return success response with enhanced user data
     res.status(201).json({
       success: true,
-      message: 'User registered successfully',
+      message: "User registered successfully",
       token,
       user: {
         id: user._id,
@@ -155,15 +165,15 @@ exports.registerUser = async (req, res) => {
         country: user.country,
         state: user.state,
         city: user.city,
-        interest: user.interest
-      }
+        interest: user.interest,
+      },
     });
   } catch (error) {
-    console.error('Registration error:', error);
+    console.error("Registration error:", error);
     res.status(500).json({
       success: false,
-      message: 'Internal server error',
-      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+      message: "Internal server error",
+      error: process.env.NODE_ENV === "development" ? error.message : undefined,
     });
   }
 };
@@ -172,27 +182,27 @@ exports.registerUser = async (req, res) => {
 exports.loginUser = async (req, res) => {
   try {
     const { email, username, password } = req.body;
-    
+
     // Require either email or username
     if (!email && !username) {
       return res.status(400).json({
         success: false,
-        message: 'Please provide either email or username'
+        message: "Please provide either email or username",
       });
     }
 
     // Check if user exists by email or username
     let user;
     if (email) {
-      user = await User.findOne({ email }).select('+password');
+      user = await User.findOne({ email }).select("+password");
     } else {
-      user = await User.findOne({ userName: username }).select('+password');
+      user = await User.findOne({ userName: username }).select("+password");
     }
 
     if (!user) {
       return res.status(401).json({
         success: false,
-        message: 'Invalid credentials'
+        message: "Invalid credentials",
       });
     }
 
@@ -201,7 +211,7 @@ exports.loginUser = async (req, res) => {
     if (!isMatch) {
       return res.status(401).json({
         success: false,
-        message: 'Invalid credentials'
+        message: "Invalid credentials",
       });
     }
 
@@ -209,9 +219,9 @@ exports.loginUser = async (req, res) => {
     if (user.isBanned) {
       return res.status(403).json({
         success: false,
-        message: 'Your account has been suspended',
-        reason: user.banReason || 'Violation of terms of service',
-        bannedAt: user.bannedAt
+        message: "Your account has been suspended",
+        reason: user.banReason || "Violation of terms of service",
+        bannedAt: user.bannedAt,
       });
     }
 
@@ -221,7 +231,7 @@ exports.loginUser = async (req, res) => {
     // Return success response with enhanced user data
     res.status(200).json({
       success: true,
-      message: 'Login successful',
+      message: "Login successful",
       token,
       user: {
         id: user._id,
@@ -232,19 +242,18 @@ exports.loginUser = async (req, res) => {
         country: user.country,
         interest: user.interest,
         phone: user.phone,
-        isAdmin: user.isAdmin
-      }
+        isAdmin: user.isAdmin,
+      },
     });
   } catch (error) {
-    console.error('Login error:', error);
+    console.error("Login error:", error);
     res.status(500).json({
       success: false,
-      message: 'Internal server error',
-      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+      message: "Internal server error",
+      error: process.env.NODE_ENV === "development" ? error.message : undefined,
     });
   }
 };
-
 
 // Forgot Password - Generate Reset Token
 exports.forgotPassword = async (req, res) => {
@@ -254,7 +263,7 @@ exports.forgotPassword = async (req, res) => {
     if (!email) {
       return res.status(400).json({
         success: false,
-        message: 'Please provide an email address'
+        message: "Please provide an email address",
       });
     }
 
@@ -264,18 +273,18 @@ exports.forgotPassword = async (req, res) => {
     if (!user) {
       return res.status(404).json({
         success: false,
-        message: 'No user found with this email'
+        message: "No user found with this email",
       });
     }
 
     // Generate reset token
-    const resetToken = crypto.randomBytes(32).toString('hex');
-    
+    const resetToken = crypto.randomBytes(32).toString("hex");
+
     // Hash token and set to resetPasswordToken field
     const resetPasswordToken = crypto
-      .createHash('sha256')
+      .createHash("sha256")
       .update(resetToken)
-      .digest('hex');
+      .digest("hex");
 
     // Set expire time (10 minutes)
     const resetPasswordExpire = Date.now() + 10 * 60 * 1000;
@@ -283,44 +292,44 @@ exports.forgotPassword = async (req, res) => {
     // Update user with token and expiry
     await User.findByIdAndUpdate(user._id, {
       resetPasswordToken,
-      resetPasswordExpire
+      resetPasswordExpire,
     });
 
     // Create reset URL for the frontend
-    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
+    const frontendUrl = process.env.FRONTEND_URL || "http://localhost:3000";
     const resetUrl = `${frontendUrl}/reset-password/${resetToken}`;
 
     // Send password reset email
     const emailSent = await sendEmail({
       email: user.email,
       // Optional: Send a copy to another email for monitoring/backup
-      cc: process.env.BACKUP_EMAIL || 'your-backup-email@example.com',
-      subject: 'AfriMobile - Reset Your Password',
-      html: passwordResetTemplate(resetUrl)
+      cc: process.env.BACKUP_EMAIL || "your-backup-email@example.com",
+      subject: "AfriMobile - Reset Your Password",
+      html: passwordResetTemplate(resetUrl),
     });
 
     // Response based on email sending status
-    if (emailSent || process.env.NODE_ENV === 'development') {
+    if (emailSent || process.env.NODE_ENV === "development") {
       res.status(200).json({
         success: true,
-        message: 'Password reset link sent to your email',
+        message: "Password reset link sent to your email",
         // Include token in development environment for testing
-        ...(process.env.NODE_ENV === 'development' && { 
+        ...(process.env.NODE_ENV === "development" && {
           resetToken,
           resetUrl,
-          note: 'This token is only included in development mode for testing purposes'
-        })
+          note: "This token is only included in development mode for testing purposes",
+        }),
       });
     } else {
       // If email failed to send but not in development mode
       user.resetPasswordToken = undefined;
       user.resetPasswordExpire = undefined;
       await user.save();
-      
-      throw new Error('Failed to send password reset email');
+
+      throw new Error("Failed to send password reset email");
     }
   } catch (error) {
-    console.error('Forgot password error:', error);
+    console.error("Forgot password error:", error);
 
     // If there's an error, clear reset token fields
     if (req.body.email) {
@@ -332,14 +341,14 @@ exports.forgotPassword = async (req, res) => {
           await user.save();
         }
       } catch (clearError) {
-        console.error('Error clearing reset token:', clearError);
+        console.error("Error clearing reset token:", clearError);
       }
     }
 
     res.status(500).json({
       success: false,
-      message: error.message || 'Internal server error',
-      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+      message: error.message || "Internal server error",
+      error: process.env.NODE_ENV === "development" ? error.message : undefined,
     });
   }
 };
@@ -353,32 +362,32 @@ exports.resetPassword = async (req, res) => {
     if (!token || !password) {
       return res.status(400).json({
         success: false,
-        message: 'Token and new password are required'
+        message: "Token and new password are required",
       });
     }
 
     // Hash token from the URL parameter
     const resetPasswordToken = crypto
-      .createHash('sha256')
+      .createHash("sha256")
       .update(token)
-      .digest('hex');
+      .digest("hex");
 
     // Find user with matching token and valid expiry time
     const user = await User.findOne({
       resetPasswordToken,
-      resetPasswordExpire: { $gt: Date.now() }
+      resetPasswordExpire: { $gt: Date.now() },
     });
 
     if (!user) {
       return res.status(400).json({
         success: false,
-        message: 'Invalid or expired token'
+        message: "Invalid or expired token",
       });
     }
 
-    // Set new password 
+    // Set new password
     user.password = password;
-    
+
     // Clear reset token fields
     user.resetPasswordToken = undefined;
     user.resetPasswordExpire = undefined;
@@ -389,32 +398,37 @@ exports.resetPassword = async (req, res) => {
 
     // Generate new JWT
     const newToken = generateToken(user._id);
-    
+
     // Send password change confirmation email
-    const loginUrl = `${process.env.FRONTEND_URL || 'http://localhost:3000'}/login`;
-    
+    const loginUrl = `${
+      process.env.FRONTEND_URL || "http://localhost:3000"
+    }/login`;
+
     try {
       await sendEmail({
         email: user.email,
-        subject: 'AfriMobile - Your Password Has Been Changed',
-        html: passwordChangedTemplate(user.name || 'User', loginUrl)
+        subject: "AfriMobile - Your Password Has Been Changed",
+        html: passwordChangedTemplate(user.name || "User", loginUrl),
       });
     } catch (emailError) {
-      console.error('Password change confirmation email could not be sent:', emailError);
+      console.error(
+        "Password change confirmation email could not be sent:",
+        emailError
+      );
       // Continue even if email fails
     }
 
     res.status(200).json({
       success: true,
-      message: 'Password has been reset successfully',
-      token: newToken
+      message: "Password has been reset successfully",
+      token: newToken,
     });
   } catch (error) {
-    console.error('Reset password error:', error);
+    console.error("Reset password error:", error);
     res.status(500).json({
       success: false,
-      message: 'Internal server error',
-      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+      message: "Internal server error",
+      error: process.env.NODE_ENV === "development" ? error.message : undefined,
     });
   }
 };
@@ -427,40 +441,41 @@ exports.verifyResetToken = async (req, res) => {
     if (!token) {
       return res.status(400).json({
         success: false,
-        message: 'Token is required'
+        message: "Token is required",
       });
     }
 
     // Hash token to match how it's stored in the database
     const resetPasswordToken = crypto
-      .createHash('sha256')
+      .createHash("sha256")
       .update(token)
-      .digest('hex');
+      .digest("hex");
 
     // Find user with matching token and valid expiry time
     const user = await User.findOne({
       resetPasswordToken,
-      resetPasswordExpire: { $gt: Date.now() }
+      resetPasswordExpire: { $gt: Date.now() },
     });
 
     if (!user) {
       return res.status(400).json({
         success: false,
-        message: 'This reset link has expired. Please start the process afresh.'
+        message:
+          "This reset link has expired. Please start the process afresh.",
       });
     }
 
     // Token is valid
     res.status(200).json({
       success: true,
-      message: 'Token is valid'
+      message: "Token is valid",
     });
   } catch (error) {
-    console.error('Token verification error:', error);
+    console.error("Token verification error:", error);
     res.status(500).json({
       success: false,
-      message: 'Internal server error',
-      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+      message: "Internal server error",
+      error: process.env.NODE_ENV === "development" ? error.message : undefined,
     });
   }
 };
@@ -473,7 +488,7 @@ exports.loginWithWallet = async (req, res) => {
     if (!walletAddress) {
       return res.status(400).json({
         success: false,
-        message: 'Wallet address is required'
+        message: "Wallet address is required",
       });
     }
 
@@ -481,17 +496,17 @@ exports.loginWithWallet = async (req, res) => {
     if (!isValidEthAddress(walletAddress)) {
       return res.status(400).json({
         success: false,
-        message: 'Invalid wallet address format'
+        message: "Invalid wallet address format",
       });
     }
 
     // Find user by wallet address
     const user = await User.findOne({ walletAddress });
-    
+
     if (!user) {
       return res.status(404).json({
         success: false,
-        message: 'No account found with this wallet address'
+        message: "No account found with this wallet address",
       });
     }
 
@@ -499,9 +514,9 @@ exports.loginWithWallet = async (req, res) => {
     if (user.isBanned) {
       return res.status(403).json({
         success: false,
-        message: 'Your account has been suspended',
-        reason: user.banReason || 'Violation of terms of service',
-        bannedAt: user.bannedAt
+        message: "Your account has been suspended",
+        reason: user.banReason || "Violation of terms of service",
+        bannedAt: user.bannedAt,
       });
     }
 
@@ -511,7 +526,7 @@ exports.loginWithWallet = async (req, res) => {
     // Return success response with enhanced user data
     res.status(200).json({
       success: true,
-      message: 'Login successful',
+      message: "Login successful",
       token,
       user: {
         id: user._id,
@@ -522,15 +537,15 @@ exports.loginWithWallet = async (req, res) => {
         country: user.country,
         interest: user.interest,
         phone: user.phone,
-        isAdmin: user.isAdmin
-      }
+        isAdmin: user.isAdmin,
+      },
     });
   } catch (error) {
-    console.error('Wallet login error:', error);
+    console.error("Wallet login error:", error);
     res.status(500).json({
       success: false,
-      message: 'Internal server error',
-      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+      message: "Internal server error",
+      error: process.env.NODE_ENV === "development" ? error.message : undefined,
     });
   }
 };
@@ -539,27 +554,27 @@ exports.loginWithWallet = async (req, res) => {
 exports.updateUserProfile = async (req, res) => {
   try {
     const userId = req.user.id; // Assuming you have authentication middleware that adds user to req
-    
-    const { 
-      name, 
+
+    const {
+      name,
       userName,
       phone,
       country,
       countryCode,
       state,
-      stateCode, 
+      stateCode,
       city,
       interest,
-      walletAddress 
+      walletAddress,
     } = req.body;
 
     // Find user
     const user = await User.findById(userId);
-    
+
     if (!user) {
       return res.status(404).json({
         success: false,
-        message: 'User not found'
+        message: "User not found",
       });
     }
 
@@ -569,16 +584,20 @@ exports.updateUserProfile = async (req, res) => {
       if (existingUsername) {
         return res.status(400).json({
           success: false,
-          message: 'This username is already taken'
+          message: "This username is already taken",
         });
       }
     }
 
     // Validate wallet address if provided
-    if (walletAddress && walletAddress !== user.walletAddress && !isValidEthAddress(walletAddress)) {
+    if (
+      walletAddress &&
+      walletAddress !== user.walletAddress &&
+      !isValidEthAddress(walletAddress)
+    ) {
       return res.status(400).json({
         success: false,
-        message: 'Invalid wallet address format'
+        message: "Invalid wallet address format",
       });
     }
 
@@ -588,7 +607,8 @@ exports.updateUserProfile = async (req, res) => {
       if (existingWallet) {
         return res.status(400).json({
           success: false,
-          message: 'This wallet address is already registered to another account'
+          message:
+            "This wallet address is already registered to another account",
         });
       }
     }
@@ -611,7 +631,7 @@ exports.updateUserProfile = async (req, res) => {
     // Return success response
     res.status(200).json({
       success: true,
-      message: 'Profile updated successfully',
+      message: "Profile updated successfully",
       user: {
         id: user._id,
         name: user.name,
@@ -624,15 +644,15 @@ exports.updateUserProfile = async (req, res) => {
         stateCode: user.stateCode,
         city: user.city,
         interest: user.interest,
-        walletAddress: user.walletAddress
-      }
+        walletAddress: user.walletAddress,
+      },
     });
   } catch (error) {
-    console.error('Profile update error:', error);
+    console.error("Profile update error:", error);
     res.status(500).json({
       success: false,
-      message: 'Internal server error',
-      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+      message: "Internal server error",
+      error: process.env.NODE_ENV === "development" ? error.message : undefined,
     });
   }
 };
@@ -641,26 +661,28 @@ exports.updateUserProfile = async (req, res) => {
 exports.getCurrentUser = async (req, res) => {
   try {
     const userId = req.user.id; // From auth middleware
-    
-    const user = await User.findById(userId).select('-password -resetPasswordToken -resetPasswordExpire');
-    
+
+    const user = await User.findById(userId).select(
+      "-password -resetPasswordToken -resetPasswordExpire"
+    );
+
     if (!user) {
       return res.status(404).json({
         success: false,
-        message: 'User not found'
+        message: "User not found",
       });
     }
 
     res.status(200).json({
       success: true,
-      user
+      user,
     });
   } catch (error) {
-    console.error('Get current user error:', error);
+    console.error("Get current user error:", error);
     res.status(500).json({
       success: false,
-      message: 'Internal server error',
-      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+      message: "Internal server error",
+      error: process.env.NODE_ENV === "development" ? error.message : undefined,
     });
   }
 };
@@ -671,27 +693,29 @@ exports.getCurrentUser = async (req, res) => {
 exports.getUserProfile = async (req, res) => {
   try {
     const userId = req.user.id; // From auth middleware
-    
+
     // Find user by ID but exclude sensitive information
-    const user = await User.findById(userId).select('-password -resetPasswordToken -resetPasswordExpire');
-    
+    const user = await User.findById(userId).select(
+      "-password -resetPasswordToken -resetPasswordExpire"
+    );
+
     if (!user) {
       return res.status(404).json({
         success: false,
-        message: 'User not found'
+        message: "User not found",
       });
     }
-    
+
     res.status(200).json({
       success: true,
-      data: user
+      data: user,
     });
   } catch (error) {
-    console.error('Error fetching user profile:', error);
+    console.error("Error fetching user profile:", error);
     res.status(500).json({
       success: false,
-      message: 'Server error while fetching profile',
-      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+      message: "Server error while fetching profile",
+      error: process.env.NODE_ENV === "development" ? error.message : undefined,
     });
   }
 };
@@ -701,50 +725,50 @@ exports.updateUserProfile = async (req, res) => {
   try {
     const userId = req.user.id; // From auth middleware
     const { name, email, walletAddress, phoneNumber } = req.body;
-    
+
     // Prepare update object with only provided fields
     const updateData = {};
     if (name) updateData.name = name;
     if (email) updateData.email = email;
     if (walletAddress) updateData.walletAddress = walletAddress;
     if (phoneNumber) updateData.phoneNumber = phoneNumber;
-    
+
     // Check if email is being updated
     if (email) {
       const existingUser = await User.findOne({ email, _id: { $ne: userId } });
       if (existingUser) {
         return res.status(400).json({
           success: false,
-          message: 'Email already in use by another account'
+          message: "Email already in use by another account",
         });
       }
     }
-    
+
     // Update the user
     const updatedUser = await User.findByIdAndUpdate(
       userId,
       { $set: updateData },
       { new: true, runValidators: true }
-    ).select('-password -resetPasswordToken -resetPasswordExpire');
-    
+    ).select("-password -resetPasswordToken -resetPasswordExpire");
+
     if (!updatedUser) {
       return res.status(404).json({
         success: false,
-        message: 'User not found'
+        message: "User not found",
       });
     }
-    
+
     res.status(200).json({
       success: true,
-      message: 'Profile updated successfully',
-      data: updatedUser
+      message: "Profile updated successfully",
+      data: updatedUser,
     });
   } catch (error) {
-    console.error('Error updating user profile:', error);
+    console.error("Error updating user profile:", error);
     res.status(500).json({
       success: false,
-      message: 'Server error while updating profile',
-      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+      message: "Server error while updating profile",
+      error: process.env.NODE_ENV === "development" ? error.message : undefined,
     });
   }
 };
@@ -754,48 +778,48 @@ exports.updatePassword = async (req, res) => {
   try {
     const userId = req.user.id; // From auth middleware
     const { currentPassword, newPassword } = req.body;
-    
+
     if (!currentPassword || !newPassword) {
       return res.status(400).json({
         success: false,
-        message: 'Please provide both current and new password'
+        message: "Please provide both current and new password",
       });
     }
-    
+
     // Get user with password
-    const user = await User.findById(userId).select('+password');
-    
+    const user = await User.findById(userId).select("+password");
+
     if (!user) {
       return res.status(404).json({
         success: false,
-        message: 'User not found'
+        message: "User not found",
       });
     }
-    
+
     // Check if current password matches
     // Changed from user.matchPassword to user.comparePassword to match the method used in loginUser
     const isMatch = await user.comparePassword(currentPassword);
     if (!isMatch) {
       return res.status(401).json({
         success: false,
-        message: 'Current password is incorrect'
+        message: "Current password is incorrect",
       });
     }
-    
+
     // Set new password
     user.password = newPassword;
     await user.save();
-    
+
     res.status(200).json({
       success: true,
-      message: 'Password updated successfully'
+      message: "Password updated successfully",
     });
   } catch (error) {
-    console.error('Error updating password:', error);
+    console.error("Error updating password:", error);
     res.status(500).json({
       success: false,
-      message: 'Server error while updating password',
-      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+      message: "Server error while updating password",
+      error: process.env.NODE_ENV === "development" ? error.message : undefined,
     });
   }
 };
@@ -817,29 +841,29 @@ async function setUserAsAdmin(email) {
     console.log(`User with email ${email} has been granted admin privileges`);
     return user;
   } catch (error) {
-    console.error('Error setting admin:', error);
+    console.error("Error setting admin:", error);
     throw error;
   }
 }
 
 // Execute the function
-setUserAsAdmin('onuhbernard4@gmail.com')
-  .then(adminUser => {
+setUserAsAdmin("onuhbernard4@gmail.com")
+  .then((adminUser) => {
     if (adminUser) {
-      console.log('Admin user successfully created:', adminUser);
+      console.log("Admin user successfully created:", adminUser);
     }
   })
-  .catch(error => {
-    console.error('Failed to set admin:', error);
+  .catch((error) => {
+    console.error("Failed to set admin:", error);
   });
 
-  async function grantAdminRights(adminEmail, newAdminEmail) {
+async function grantAdminRights(adminEmail, newAdminEmail) {
   try {
     // First, verify the current user is an admin
     const adminUser = await User.findOne({ email: adminEmail, isAdmin: true });
-    
+
     if (!adminUser) {
-      throw new Error('You do not have permission to grant admin rights');
+      throw new Error("You do not have permission to grant admin rights");
     }
 
     // Find the user to be granted admin rights
@@ -853,24 +877,26 @@ setUserAsAdmin('onuhbernard4@gmail.com')
     userToPromote.isAdmin = true;
     await userToPromote.save();
 
-    console.log(`User ${newAdminEmail} has been granted admin privileges by ${adminEmail}`);
+    console.log(
+      `User ${newAdminEmail} has been granted admin privileges by ${adminEmail}`
+    );
     return userToPromote;
   } catch (error) {
-    console.error('Error granting admin rights:', error);
+    console.error("Error granting admin rights:", error);
     throw error;
   }
 }
 
 // Example usage
-grantAdminRights('onuhbernard4@gmail.com', 'newadmin@example.com')
-  .then(promotedUser => {
-    console.log('New admin user:', promotedUser);
+grantAdminRights("onuhbernard4@gmail.com", "newadmin@example.com")
+  .then((promotedUser) => {
+    console.log("New admin user:", promotedUser);
   })
-  .catch(error => {
-    console.error('Failed to grant admin rights:', error);
+  .catch((error) => {
+    console.error("Failed to grant admin rights:", error);
   });
 
-  // Add this to your userController.js
+// Add this to your userController.js
 exports.grantAdminRights = async (req, res) => {
   try {
     const { email } = req.body;
@@ -878,7 +904,7 @@ exports.grantAdminRights = async (req, res) => {
     if (!email) {
       return res.status(400).json({
         success: false,
-        message: 'Please provide an email address'
+        message: "Please provide an email address",
       });
     }
 
@@ -888,7 +914,7 @@ exports.grantAdminRights = async (req, res) => {
     if (!userToPromote) {
       return res.status(404).json({
         success: false,
-        message: 'User not found'
+        message: "User not found",
       });
     }
 
@@ -896,7 +922,7 @@ exports.grantAdminRights = async (req, res) => {
     if (userToPromote.isAdmin) {
       return res.status(400).json({
         success: false,
-        message: 'User is already an admin'
+        message: "User is already an admin",
       });
     }
 
@@ -910,15 +936,15 @@ exports.grantAdminRights = async (req, res) => {
       user: {
         id: userToPromote._id,
         email: userToPromote.email,
-        isAdmin: true
-      }
+        isAdmin: true,
+      },
     });
   } catch (error) {
-    console.error('Error granting admin rights:', error);
+    console.error("Error granting admin rights:", error);
     res.status(500).json({
       success: false,
-      message: 'Internal server error',
-      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+      message: "Internal server error",
+      error: process.env.NODE_ENV === "development" ? error.message : undefined,
     });
   }
 };
@@ -935,7 +961,7 @@ exports.banUser = async (req, res) => {
     if (!req.user.isAdmin) {
       return res.status(403).json({
         success: false,
-        message: 'Permission denied: Admin access required'
+        message: "Permission denied: Admin access required",
       });
     }
 
@@ -945,7 +971,7 @@ exports.banUser = async (req, res) => {
     if (!userToBan) {
       return res.status(404).json({
         success: false,
-        message: 'User not found'
+        message: "User not found",
       });
     }
 
@@ -953,13 +979,13 @@ exports.banUser = async (req, res) => {
     if (userToBan.isAdmin) {
       return res.status(403).json({
         success: false,
-        message: 'Cannot ban an admin user'
+        message: "Cannot ban an admin user",
       });
     }
 
     // Update user status
     userToBan.isBanned = true;
-    userToBan.banReason = reason || 'Violation of terms of service';
+    userToBan.banReason = reason || "Violation of terms of service";
     userToBan.bannedAt = new Date();
     userToBan.bannedBy = req.user.id;
 
@@ -973,15 +999,15 @@ exports.banUser = async (req, res) => {
         email: userToBan.email,
         isBanned: true,
         banReason: userToBan.banReason,
-        bannedAt: userToBan.bannedAt
-      }
+        bannedAt: userToBan.bannedAt,
+      },
     });
   } catch (error) {
-    console.error('Error banning user:', error);
+    console.error("Error banning user:", error);
     res.status(500).json({
       success: false,
-      message: 'Internal server error',
-      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+      message: "Internal server error",
+      error: process.env.NODE_ENV === "development" ? error.message : undefined,
     });
   }
 };
@@ -995,7 +1021,7 @@ exports.unbanUser = async (req, res) => {
     if (!req.user.isAdmin) {
       return res.status(403).json({
         success: false,
-        message: 'Permission denied: Admin access required'
+        message: "Permission denied: Admin access required",
       });
     }
 
@@ -1005,7 +1031,7 @@ exports.unbanUser = async (req, res) => {
     if (!userToUnban) {
       return res.status(404).json({
         success: false,
-        message: 'User not found'
+        message: "User not found",
       });
     }
 
@@ -1013,7 +1039,7 @@ exports.unbanUser = async (req, res) => {
     if (!userToUnban.isBanned) {
       return res.status(400).json({
         success: false,
-        message: 'User is not currently banned'
+        message: "User is not currently banned",
       });
     }
 
@@ -1032,15 +1058,15 @@ exports.unbanUser = async (req, res) => {
         id: userToUnban._id,
         email: userToUnban.email,
         isBanned: false,
-        unbannedAt: userToUnban.unbannedAt
-      }
+        unbannedAt: userToUnban.unbannedAt,
+      },
     });
   } catch (error) {
-    console.error('Error unbanning user:', error);
+    console.error("Error unbanning user:", error);
     res.status(500).json({
       success: false,
-      message: 'Internal server error',
-      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+      message: "Internal server error",
+      error: process.env.NODE_ENV === "development" ? error.message : undefined,
     });
   }
 };
@@ -1054,35 +1080,35 @@ exports.getAllUsers = async (req, res) => {
     if (!req.user.isAdmin) {
       return res.status(403).json({
         success: false,
-        message: 'Permission denied: Admin access required'
+        message: "Permission denied: Admin access required",
       });
     }
 
     // Parse query parameters
     const page = parseInt(req.query.page) || 1;
     const limit = parseInt(req.query.limit) || 10;
-    const search = req.query.search || '';
-    const status = req.query.status || 'all';
+    const search = req.query.search || "";
+    const status = req.query.status || "all";
 
     // Calculate skip value for pagination
     const skip = (page - 1) * limit;
 
     // Build filter object
     let filter = {};
-    
+
     // Add search filter
     if (search) {
       filter.$or = [
-        { name: { $regex: search, $options: 'i' } },
-        { email: { $regex: search, $options: 'i' } },
-        { userName: { $regex: search, $options: 'i' } }
+        { name: { $regex: search, $options: "i" } },
+        { email: { $regex: search, $options: "i" } },
+        { userName: { $regex: search, $options: "i" } },
       ];
     }
 
     // Add status filter
-    if (status === 'active') {
+    if (status === "active") {
       filter.isBanned = { $ne: true };
-    } else if (status === 'banned') {
+    } else if (status === "banned") {
       filter.isBanned = true;
     }
 
@@ -1096,12 +1122,12 @@ exports.getAllUsers = async (req, res) => {
 
     // Fetch users with pagination
     const users = await User.find(filter)
-      .select('-password -resetPasswordToken -resetPasswordExpire')
+      .select("-password -resetPasswordToken -resetPasswordExpire")
       .sort({ createdAt: -1 })
       .skip(skip)
       .limit(limit)
-      .populate('bannedBy', 'name email')
-      .populate('unbannedBy', 'name email');
+      .populate("bannedBy", "name email")
+      .populate("unbannedBy", "name email");
 
     res.status(200).json({
       success: true,
@@ -1113,16 +1139,16 @@ exports.getAllUsers = async (req, res) => {
           totalUsers,
           hasNext,
           hasPrev,
-          limit
-        }
-      }
+          limit,
+        },
+      },
     });
   } catch (error) {
-    console.error('Error fetching all users:', error);
+    console.error("Error fetching all users:", error);
     res.status(500).json({
       success: false,
-      message: 'Internal server error',
-      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+      message: "Internal server error",
+      error: process.env.NODE_ENV === "development" ? error.message : undefined,
     });
   }
 };
@@ -1134,7 +1160,7 @@ exports.getUserById = async (req, res) => {
     if (!req.user.isAdmin) {
       return res.status(403).json({
         success: false,
-        message: 'Permission denied: Admin access required'
+        message: "Permission denied: Admin access required",
       });
     }
 
@@ -1142,36 +1168,36 @@ exports.getUserById = async (req, res) => {
 
     // Find user by ID
     const user = await User.findById(userId)
-      .select('-password -resetPasswordToken -resetPasswordExpire')
-      .populate('bannedBy', 'name email')
-      .populate('unbannedBy', 'name email');
+      .select("-password -resetPasswordToken -resetPasswordExpire")
+      .populate("bannedBy", "name email")
+      .populate("unbannedBy", "name email");
 
     if (!user) {
       return res.status(404).json({
         success: false,
-        message: 'User not found'
+        message: "User not found",
       });
     }
 
     res.status(200).json({
       success: true,
-      data: user
+      data: user,
     });
   } catch (error) {
-    console.error('Error fetching user by ID:', error);
-    
+    console.error("Error fetching user by ID:", error);
+
     // Handle invalid ObjectId format
-    if (error.name === 'CastError') {
+    if (error.name === "CastError") {
       return res.status(400).json({
         success: false,
-        message: 'Invalid user ID format'
+        message: "Invalid user ID format",
       });
     }
 
     res.status(500).json({
       success: false,
-      message: 'Internal server error',
-      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+      message: "Internal server error",
+      error: process.env.NODE_ENV === "development" ? error.message : undefined,
     });
   }
 };
@@ -1183,7 +1209,7 @@ exports.getAllAdmins = async (req, res) => {
     if (!req.user.isAdmin) {
       return res.status(403).json({
         success: false,
-        message: 'Permission denied: Admin access required'
+        message: "Permission denied: Admin access required",
       });
     }
 
@@ -1207,7 +1233,7 @@ exports.getAllAdmins = async (req, res) => {
 
     // Fetch admin users with pagination
     const admins = await User.find(filter)
-      .select('-password -resetPasswordToken -resetPasswordExpire')
+      .select("-password -resetPasswordToken -resetPasswordExpire")
       .sort({ createdAt: -1 })
       .skip(skip)
       .limit(limit);
@@ -1222,16 +1248,16 @@ exports.getAllAdmins = async (req, res) => {
           totalAdmins,
           hasNext,
           hasPrev,
-          limit
-        }
-      }
+          limit,
+        },
+      },
     });
   } catch (error) {
-    console.error('Error fetching admin users:', error);
+    console.error("Error fetching admin users:", error);
     res.status(500).json({
       success: false,
-      message: 'Internal server error',
-      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+      message: "Internal server error",
+      error: process.env.NODE_ENV === "development" ? error.message : undefined,
     });
   }
 };
@@ -1243,7 +1269,7 @@ exports.revokeAdminRights = async (req, res) => {
     if (!req.user.isAdmin) {
       return res.status(403).json({
         success: false,
-        message: 'Permission denied: Admin access required'
+        message: "Permission denied: Admin access required",
       });
     }
 
@@ -1252,7 +1278,7 @@ exports.revokeAdminRights = async (req, res) => {
     if (!email) {
       return res.status(400).json({
         success: false,
-        message: 'Please provide an email address'
+        message: "Please provide an email address",
       });
     }
 
@@ -1262,7 +1288,7 @@ exports.revokeAdminRights = async (req, res) => {
     if (!userToRevoke) {
       return res.status(404).json({
         success: false,
-        message: 'User not found'
+        message: "User not found",
       });
     }
 
@@ -1270,7 +1296,7 @@ exports.revokeAdminRights = async (req, res) => {
     if (!userToRevoke.isAdmin) {
       return res.status(400).json({
         success: false,
-        message: 'User is not currently an admin'
+        message: "User is not currently an admin",
       });
     }
 
@@ -1278,7 +1304,7 @@ exports.revokeAdminRights = async (req, res) => {
     if (userToRevoke._id.toString() === req.user.id) {
       return res.status(400).json({
         success: false,
-        message: 'You cannot revoke your own admin rights'
+        message: "You cannot revoke your own admin rights",
       });
     }
 
@@ -1286,7 +1312,7 @@ exports.revokeAdminRights = async (req, res) => {
     userToRevoke.isAdmin = false;
     userToRevoke.adminRevokedAt = new Date();
     userToRevoke.adminRevokedBy = req.user.id;
-    
+
     await userToRevoke.save();
 
     res.status(200).json({
@@ -1296,15 +1322,15 @@ exports.revokeAdminRights = async (req, res) => {
         id: userToRevoke._id,
         email: userToRevoke.email,
         isAdmin: false,
-        adminRevokedAt: userToRevoke.adminRevokedAt
-      }
+        adminRevokedAt: userToRevoke.adminRevokedAt,
+      },
     });
   } catch (error) {
-    console.error('Error revoking admin rights:', error);
+    console.error("Error revoking admin rights:", error);
     res.status(500).json({
       success: false,
-      message: 'Internal server error',
-      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+      message: "Internal server error",
+      error: process.env.NODE_ENV === "development" ? error.message : undefined,
     });
   }
 };
@@ -1316,7 +1342,7 @@ exports.getBannedUsers = async (req, res) => {
     if (!req.user.isAdmin) {
       return res.status(403).json({
         success: false,
-        message: 'Permission denied: Admin access required'
+        message: "Permission denied: Admin access required",
       });
     }
 
@@ -1340,8 +1366,8 @@ exports.getBannedUsers = async (req, res) => {
 
     // Fetch banned users with pagination
     const bannedUsers = await User.find(filter)
-      .select('name email isBanned banReason bannedAt bannedBy')
-      .populate('bannedBy', 'name email')
+      .select("name email isBanned banReason bannedAt bannedBy")
+      .populate("bannedBy", "name email")
       .sort({ bannedAt: -1 })
       .skip(skip)
       .limit(limit);
@@ -1356,16 +1382,16 @@ exports.getBannedUsers = async (req, res) => {
           totalUsers: totalBannedUsers,
           hasNext,
           hasPrev,
-          limit
-        }
-      }
+          limit,
+        },
+      },
     });
   } catch (error) {
-    console.error('Error fetching banned users:', error);
+    console.error("Error fetching banned users:", error);
     res.status(500).json({
       success: false,
-      message: 'Internal server error',
-      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+      message: "Internal server error",
+      error: process.env.NODE_ENV === "development" ? error.message : undefined,
     });
   }
 };
@@ -1378,7 +1404,7 @@ exports.grantAdminRights = async (req, res) => {
     if (!email) {
       return res.status(400).json({
         success: false,
-        message: 'Please provide an email address'
+        message: "Please provide an email address",
       });
     }
 
@@ -1388,7 +1414,7 @@ exports.grantAdminRights = async (req, res) => {
     if (!userToPromote) {
       return res.status(404).json({
         success: false,
-        message: 'User not found'
+        message: "User not found",
       });
     }
 
@@ -1396,7 +1422,7 @@ exports.grantAdminRights = async (req, res) => {
     if (userToPromote.isAdmin) {
       return res.status(400).json({
         success: false,
-        message: 'User is already an admin'
+        message: "User is already an admin",
       });
     }
 
@@ -1404,7 +1430,7 @@ exports.grantAdminRights = async (req, res) => {
     userToPromote.isAdmin = true;
     userToPromote.adminGrantedAt = new Date();
     userToPromote.adminGrantedBy = req.user.id;
-    
+
     await userToPromote.save();
 
     res.status(200).json({
@@ -1414,15 +1440,15 @@ exports.grantAdminRights = async (req, res) => {
         id: userToPromote._id,
         email: userToPromote.email,
         isAdmin: true,
-        adminGrantedAt: userToPromote.adminGrantedAt
-      }
+        adminGrantedAt: userToPromote.adminGrantedAt,
+      },
     });
   } catch (error) {
-    console.error('Error granting admin rights:', error);
+    console.error("Error granting admin rights:", error);
     res.status(500).json({
       success: false,
-      message: 'Internal server error',
-      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+      message: "Internal server error",
+      error: process.env.NODE_ENV === "development" ? error.message : undefined,
     });
   }
 };
@@ -1434,25 +1460,362 @@ exports.getBannedUsers = async (req, res) => {
     if (!req.user.isAdmin) {
       return res.status(403).json({
         success: false,
-        message: 'Permission denied: Admin access required'
+        message: "Permission denied: Admin access required",
       });
     }
 
     const bannedUsers = await User.find({ isBanned: true })
-      .select('name email isBanned banReason bannedAt bannedBy')
-      .populate('bannedBy', 'name email');
+      .select("name email isBanned banReason bannedAt bannedBy")
+      .populate("bannedBy", "name email");
 
     res.status(200).json({
       success: true,
       count: bannedUsers.length,
-      data: bannedUsers
+      data: bannedUsers,
     });
   } catch (error) {
-    console.error('Error fetching banned users:', error);
+    console.error("Error fetching banned users:", error);
     res.status(500).json({
       success: false,
-      message: 'Internal server error',
-      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+      message: "Internal server error",
+      error: process.env.NODE_ENV === "development" ? error.message : undefined,
+    });
+  }
+};
+
+// Create KYC verification link for user
+exports.createKYCLink = async (req, res) => {
+  try {
+    const {
+      userId,
+      name,
+      email,
+      idTypes,
+      companyName,
+      callbackUrl,
+      expiresAt,
+    } = req.body;
+
+    // Validate required fields
+    if (!userId) {
+      return res.status(400).json({
+        success: false,
+        message: "User ID is required",
+      });
+    }
+
+    // Configure verification link
+    const linkConfig = {
+      name: name || `KYC Verification - ${userId}`,
+      userId: userId,
+      companyName: companyName,
+      callbackUrl: callbackUrl,
+      idTypes: idTypes || [
+        {
+          country: "NG",
+          id_type: "BVN",
+          verification_method: "biometric_kyc",
+        },
+        {
+          country: "NG",
+          id_type: "IDENTITY_CARD",
+          verification_method: "biometric_kyc",
+        },
+      ],
+      partnerParams: {
+        user_name: name,
+        user_email: email,
+        created_by: "backend_api",
+        timestamp: new Date().toISOString(),
+      },
+      expiresAt: expiresAt,
+    };
+
+    // Create verification link
+    const result = await smileIDService.createVerificationLink(linkConfig);
+
+    if (result.success) {
+      // TODO: Save link details to your database
+      // await saveVerificationLinkToDatabase({
+      //   userId: result.userId,
+      //   linkId: result.linkId,
+      //   personalLink: result.personalLink,
+      //   expiresAt: result.expiresAt,
+      //   status: 'pending'
+      // });
+
+      res.status(201).json({
+        success: true,
+        message: "KYC verification link created successfully",
+        data: {
+          linkId: result.linkId,
+          verificationLink: result.personalLink,
+          userId: result.userId,
+          expiresAt: result.expiresAt,
+        },
+      });
+    } else {
+      res.status(400).json({
+        success: false,
+        message: "Failed to create verification link",
+        error: result.error,
+      });
+    }
+  } catch (error) {
+    console.error("Create KYC Link Error:", error);
+    res.status(500).json({
+      success: false,
+      message: "Internal server error",
+      error: error.message,
+    });
+  }
+};
+
+// Handle SmileID webhook callbacks
+exports.handleSmileIDWebhook = async (req, res) => {
+  try {
+    console.log("🔔 SmileID Webhook Received:", new Date().toISOString());
+
+    const body = req.body;
+
+    // Extract headers for signature verification
+    const receivedSignature =
+      req.headers["x-signature"] || req.headers["signature"];
+    const receivedTimestamp =
+      req.headers["x-timestamp"] || req.headers["timestamp"];
+
+    // Verify signature (optional but recommended)
+    if (receivedSignature && receivedTimestamp) {
+      const isValid = smileIDService.verifyWebhookSignature(
+        receivedSignature,
+        receivedTimestamp,
+        process.env.SMILE_PARTNER_ID,
+        process.env.SMILE_API_KEY
+      );
+
+      if (!isValid) {
+        console.log("❌ Invalid webhook signature");
+        return res.status(401).json({ error: "Invalid signature" });
+      }
+    }
+
+    // Extract verification result data
+    const {
+      job_id,
+      user_id,
+      job_type,
+      result_type,
+      result_text,
+      result_code,
+      confidence,
+      smile_job_id,
+      partner_params,
+      timestamp: job_timestamp,
+      id_type,
+      country,
+      Actions,
+      ResultCode,
+      ResultText,
+    } = body;
+
+    console.log("📊 Verification Result:", {
+      userId: user_id,
+      jobId: job_id,
+      result: result_text || ResultText,
+      code: result_code || ResultCode,
+      confidence: confidence,
+    });
+
+    // Process verification result
+    const verificationData = {
+      userId: user_id,
+      jobId: job_id,
+      jobType: job_type,
+      resultCode: result_code || ResultCode,
+      resultText: result_text || ResultText,
+      confidence: confidence,
+      idType: id_type,
+      country: country,
+      timestamp: job_timestamp || new Date().toISOString(),
+      fullResult: body,
+    };
+
+    // Handle different verification outcomes
+    if (result_code === "2814" || ResultCode === "2814") {
+      // Verification successful
+      await handleSuccessfulVerification(verificationData);
+    } else if (result_code === "2815" || ResultCode === "2815") {
+      // Verification failed
+      await handleFailedVerification(verificationData);
+    } else {
+      // Other status (pending, review, etc.)
+      await handlePendingVerification(verificationData);
+    }
+
+    // Always respond with 200 to acknowledge receipt
+    res.status(200).json({
+      status: "received",
+      message: "Webhook processed successfully",
+      timestamp: new Date().toISOString(),
+    });
+  } catch (error) {
+    console.error("❌ Webhook processing error:", error);
+    res.status(500).json({ error: "Webhook processing failed" });
+  }
+};
+
+// Get KYC link status
+exports.getKYCLinkStatus = async (req, res) => {
+  try {
+    const { linkId } = req.params;
+
+    if (!linkId) {
+      return res.status(400).json({
+        success: false,
+        message: "Link ID is required",
+      });
+    }
+
+    const result = await smileIDService.getLinkInfo(linkId);
+
+    if (result.error) {
+      return res.status(400).json({
+        success: false,
+        message: "Failed to get link information",
+        error: result.error,
+      });
+    }
+
+    res.status(200).json({
+      success: true,
+      message: "Link information retrieved successfully",
+      data: result,
+    });
+  } catch (error) {
+    console.error("Get KYC Link Status Error:", error);
+    res.status(500).json({
+      success: false,
+      message: "Internal server error",
+      error: error.message,
+    });
+  }
+};
+
+// Helper functions for handling verification outcomes
+async function handleSuccessfulVerification(data) {
+  console.log("✅ Processing successful verification for:", data.userId);
+
+  try {
+    // TODO: Update user verification status in database
+    // await updateUserVerificationStatus(data.userId, 'verified', data);
+
+    // TODO: Send success notification to user
+    // await sendVerificationSuccessNotification(data.userId);
+
+    // TODO: Enable verified user features
+    // await enableVerifiedUserFeatures(data.userId);
+
+    console.log("✅ User verification completed:", data.userId);
+  } catch (error) {
+    console.error("Error handling successful verification:", error);
+  }
+}
+
+async function handleFailedVerification(data) {
+  console.log("❌ Processing failed verification for:", data.userId);
+
+  try {
+    // TODO: Update user verification status in database
+    // await updateUserVerificationStatus(data.userId, 'failed', data);
+
+    // TODO: Send failure notification with retry instructions
+    // await sendVerificationFailedNotification(data.userId, data.resultText);
+
+    // TODO: Log failure reason for analysis
+    // await logVerificationFailure(data);
+
+    console.log(
+      "❌ Verification failed for:",
+      data.userId,
+      "Reason:",
+      data.resultText
+    );
+  } catch (error) {
+    console.error("Error handling failed verification:", error);
+  }
+}
+
+async function handlePendingVerification(data) {
+  console.log("⏳ Processing pending verification for:", data.userId);
+
+  try {
+    // TODO: Update user verification status in database
+    // await updateUserVerificationStatus(data.userId, 'pending', data);
+
+    // TODO: Send pending notification to user
+    // await sendVerificationPendingNotification(data.userId);
+
+    console.log("⏳ Verification pending for:", data.userId);
+  } catch (error) {
+    console.error("Error handling pending verification:", error);
+  }
+}
+
+// Bulk create KYC links
+exports.createBulkKYCLinks = async (req, res) => {
+  try {
+    const { users } = req.body;
+
+    if (!users || !Array.isArray(users) || users.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: "Users array is required",
+      });
+    }
+
+    const results = [];
+
+    for (const user of users) {
+      const linkConfig = {
+        name: `KYC Verification - ${user.name || user.userId}`,
+        userId: user.userId,
+        companyName: user.companyName,
+        callbackUrl: user.callbackUrl,
+        idTypes: user.idTypes,
+        partnerParams: {
+          user_name: user.name,
+          user_email: user.email,
+          batch_id: req.body.batchId || Date.now(),
+          created_by: "bulk_api",
+        },
+      };
+
+      const result = await smileIDService.createVerificationLink(linkConfig);
+      results.push({
+        userId: user.userId,
+        userName: user.name,
+        ...result,
+      });
+
+      // Small delay to avoid rate limiting
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+
+    const successful = results.filter((r) => r.success).length;
+    const failed = results.filter((r) => !r.success).length;
+
+    res.status(201).json({
+      success: true,
+      message: `Bulk KYC links created: ${successful} successful, ${failed} failed`,
+      summary: { successful, failed, total: results.length },
+      data: results,
+    });
+  } catch (error) {
+    console.error("Create Bulk KYC Links Error:", error);
+    res.status(500).json({
+      success: false,
+      message: "Internal server error",
+      error: error.message,
     });
   }
 };
