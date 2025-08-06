@@ -6,3 +6,13 @@
 {"level":"info","message":"✅ Started job: verifyProcessingWithdrawals","timestamp":"2025-07-29T17:03:35.337Z"}
 {"level":"info","message":"✅ Started job: verifyPendingWithdrawals","timestamp":"2025-07-29T17:03:35.338Z"}
 {"level":"info","message":"Application startup completed successfully","timestamp":"2025-07-29T17:03:35.339Z"}
+{"level":"info","message":"Database reconnected successfully","timestamp":"2025-07-29T17:28:56.460Z"}
+{"level":"info","message":"Database reconnected successfully","timestamp":"2025-07-29T17:28:56.483Z"}
+{"level":"warn","message":"Database disconnected","timestamp":"2025-07-29T19:24:04.076Z"}
+{"level":"info","message":"Database connected successfully","timestamp":"2025-07-29T19:24:05.218Z"}
+{"level":"info","message":"Database reconnected successfully","timestamp":"2025-07-29T19:24:05.218Z"}
+{"level":"info","message":"Database reconnected successfully","timestamp":"2025-07-29T19:25:26.787Z"}
+{"level":"info","message":"Database reconnected successfully","timestamp":"2025-07-29T19:25:26.791Z"}
+{"level":"warn","message":"Database disconnected","timestamp":"2025-07-29T19:25:37.307Z"}
+{"level":"info","message":"Database connected successfully","timestamp":"2025-07-29T19:25:38.580Z"}
+{"level":"info","message":"Database reconnected successfully","timestamp":"2025-07-29T19:25:38.581Z"}
