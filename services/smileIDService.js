@@ -46,8 +46,8 @@ class SmileIDService {
         },
         {
           country: "NG",
-          id_type: "IDENTITY_CARD",
-          verification_method: "doc_verification",
+          id_type: "NIN",  // ← Changed from "IDENTITY_CARD" to "NIN"
+          verification_method: "enhanced_kyc",  // ← Changed to "enhanced_kyc"
         },
       ],
       callback_url: config.callbackUrl || process.env.WEBHOOK_URL,
@@ -61,6 +61,12 @@ class SmileIDService {
     };
 
     try {
+      console.log('Creating SmileID link with config:', {
+        partner_id: this.partnerId,
+        user_id: requestBody.user_id,
+        id_types: requestBody.id_types
+      });
+
       const response = await fetch(this.baseUrl, {
         method: "POST",
         headers: {
@@ -70,6 +76,7 @@ class SmileIDService {
       });
 
       const result = await response.json();
+      console.log('SmileID API Response:', result);
 
       if (response.ok) {
         const linkId =

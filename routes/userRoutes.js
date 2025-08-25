@@ -1044,14 +1044,15 @@ router.get('/admin/users/:userId', protect, adminProtect, userController.getUser
  *         $ref: '#/components/responses/ServerError'
  */
 router.get('/admin/admins', protect, adminProtect, userController.getAllAdmins);
-
 /**
  * @swagger
  * /users/kyc/create-link:
  *   post:
  *     tags: [KYC]
  *     summary: Create KYC verification link
- *     description: Create a SmileID KYC verification link for a user
+ *     description: Create a SmileID KYC verification link for a user. Only userId is required, all other fields have sensible defaults.
+ *     security:
+ *       - bearerAuth: []
  *     requestBody:
  *       required: true
  *       content:
@@ -1060,33 +1061,54 @@ router.get('/admin/admins', protect, adminProtect, userController.getAllAdmins);
  *             type: object
  *             required:
  *               - userId
- *               - partnerId
  *             properties:
  *               userId:
  *                 type: string
  *                 description: User ID for whom to create the KYC link
  *                 example: "60f7c6b4c8f1a2b3c4d5e6f7"
- *               partnerId:
+ *               name:
  *                 type: string
- *                 description: SmileID partner ID
- *                 example: "partner_123"
+ *                 description: User's full name (optional, will use user's name from database if not provided)
+ *                 example: "John Doe"
+ *               email:
+ *                 type: string
+ *                 format: email
+ *                 description: User's email address (optional, will use user's email from database if not provided)
+ *                 example: "john@example.com"
  *               country:
  *                 type: string
- *                 description: Country code (ISO 2-letter)
+ *                 description: Country code (ISO 2-letter), defaults to "NG"
  *                 example: "NG"
- *               idType:
+ *                 default: "NG"
+ *               idTypes:
+ *                 type: array
+ *                 description: Custom ID types (optional, will use Nigeria-supported defaults if not provided)
+ *                 items:
+ *                   type: object
+ *                   properties:
+ *                     country:
+ *                       type: string
+ *                       example: "NG"
+ *                     id_type:
+ *                       type: string
+ *                       example: "BVN"
+ *                       enum: [BVN, NIN, PASSPORT, DRIVERS_LICENSE, VOTER_ID]
+ *                     verification_method:
+ *                       type: string
+ *                       example: "enhanced_kyc"
+ *                       enum: [enhanced_kyc, biometric_kyc, doc_verification]
+ *               companyName:
  *                 type: string
- *                 description: Type of ID document to verify
- *                 example: "PASSPORT"
- *                 enum: [PASSPORT, NATIONAL_ID, DRIVERS_LICENSE, VOTER_ID]
+ *                 description: Company name (optional, uses COMPANY_NAME environment variable or "Afrimobile" if not provided)
+ *                 example: "Afrimobile"
  *               callbackUrl:
  *                 type: string
- *                 description: URL to receive webhook notifications
+ *                 description: URL to receive webhook notifications (optional, uses default webhook endpoint if not provided)
  *                 example: "https://yourapp.com/webhook/kyc"
  *               expiresAt:
  *                 type: string
  *                 format: date-time
- *                 description: Link expiration time (optional, defaults to 7 days)
+ *                 description: Link expiration time (optional, defaults to 24 hours from creation)
  *                 example: "2023-01-22T10:30:00.000Z"
  *     responses:
  *       201:
@@ -1103,13 +1125,77 @@ router.get('/admin/admins', protect, adminProtect, userController.getAllAdmins);
  *                   type: string
  *                   example: "KYC verification link created successfully"
  *                 data:
- *                   $ref: '#/components/schemas/KYCLink'
+ *                   type: object
+ *                   properties:
+ *                     linkId:
+ *                       type: string
+ *                       description: Unique identifier for the KYC link
+ *                       example: "kyc_link_123456789"
+ *                     url:
+ *                       type: string
+ *                       description: The verification URL users can access
+ *                       example: "https://links.sandbox.usesmileid.com/partner_123/kyc_link_123456789"
+ *                     userId:
+ *                       type: string
+ *                       description: User ID this link was created for
+ *                       example: "60f7c6b4c8f1a2b3c4d5e6f7"
+ *                     expiresAt:
+ *                       type: string
+ *                       format: date-time
+ *                       description: When the link expires
+ *                       example: "2023-01-22T10:30:00.000Z"
+ *                     supportedIdTypes:
+ *                       type: array
+ *                       description: List of ID types supported by this link
+ *                       items:
+ *                         type: object
+ *                         properties:
+ *                           country:
+ *                             type: string
+ *                             example: "NG"
+ *                           id_type:
+ *                             type: string
+ *                             example: "BVN"
+ *                           verification_method:
+ *                             type: string
+ *                             example: "enhanced_kyc"
+ *                     country:
+ *                       type: string
+ *                       description: Country this link is configured for
+ *                       example: "NG"
  *       400:
- *         $ref: '#/components/responses/ValidationError'
+ *         description: Bad request - validation failed or link creation failed
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *             examples:
+ *               validation_error:
+ *                 summary: Missing required field
+ *                 value:
+ *                   success: false
+ *                   message: "User ID is required"
+ *               creation_error:
+ *                 summary: SmileID API error
+ *                 value:
+ *                   success: false
+ *                   message: "Failed to create verification link"
+ *                   error: "API Error: Invalid partner configuration"
+ *       401:
+ *         $ref: '#/components/responses/UnauthorizedError'
+ *       404:
+ *         description: User not found
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *             example:
+ *               success: false
+ *               message: "User not found"
  *       500:
  *         $ref: '#/components/responses/ServerError'
  */
-router.post('/kyc/create-link', userController.createKYCLink);
+router.post('/kyc/create-link', protect, userController.createKYCLink);
 
 /**
  * @swagger
@@ -1117,7 +1203,9 @@ router.post('/kyc/create-link', userController.createKYCLink);
  *   post:
  *     tags: [KYC]
  *     summary: Create multiple KYC verification links
- *     description: Create multiple SmileID KYC verification links in bulk
+ *     description: Create multiple SmileID KYC verification links in bulk. Maximum 50 links per request.
+ *     security:
+ *       - bearerAuth: []
  *     requestBody:
  *       required: true
  *       content:
@@ -1136,38 +1224,72 @@ router.post('/kyc/create-link', userController.createKYCLink);
  *                   type: object
  *                   required:
  *                     - userId
- *                     - partnerId
  *                   properties:
  *                     userId:
  *                       type: string
+ *                       description: User ID for the KYC link
  *                       example: "60f7c6b4c8f1a2b3c4d5e6f7"
- *                     partnerId:
+ *                     name:
  *                       type: string
- *                       example: "partner_123"
+ *                       description: User's name (optional)
+ *                       example: "John Doe"
+ *                     email:
+ *                       type: string
+ *                       description: User's email (optional)
+ *                       example: "john@example.com"
+ *                     country:
+ *                       type: string
+ *                       description: Country code (optional, defaults to "NG")
+ *                       example: "NG"
+ *                     idTypes:
+ *                       type: array
+ *                       description: Custom ID types for this specific link
+ *                       items:
+ *                         type: object
+ *                         properties:
+ *                           country:
+ *                             type: string
+ *                             example: "NG"
+ *                           id_type:
+ *                             type: string
+ *                             example: "BVN"
+ *                           verification_method:
+ *                             type: string
+ *                             example: "enhanced_kyc"
+ *                     callbackUrl:
+ *                       type: string
+ *                       description: Custom callback URL for this link
+ *                       example: "https://yourapp.com/webhook/kyc"
+ *               companyName:
+ *                 type: string
+ *                 description: Company name for all links (optional)
+ *                 example: "Afrimobile"
+ *               batchId:
+ *                 type: string
+ *                 description: Batch identifier for tracking (optional, auto-generated if not provided)
+ *                 example: "batch_20230115_001"
+ *               defaultCallbackUrl:
+ *                 type: string
+ *                 description: Default callback URL for all links
+ *                 example: "https://yourapp.com/webhook/kyc"
+ *               defaultIdTypes:
+ *                 type: array
+ *                 description: Default ID types for all links (uses Nigeria defaults if not provided)
+ *                 items:
+ *                   type: object
+ *                   properties:
  *                     country:
  *                       type: string
  *                       example: "NG"
- *                     idType:
+ *                     id_type:
  *                       type: string
- *                       example: "PASSPORT"
- *                     callbackUrl:
+ *                       example: "BVN"
+ *                     verification_method:
  *                       type: string
- *                       example: "https://yourapp.com/webhook/kyc"
- *               defaultCountry:
- *                 type: string
- *                 description: Default country for all links (can be overridden per link)
- *                 example: "NG"
- *               defaultIdType:
- *                 type: string
- *                 description: Default ID type for all links (can be overridden per link)
- *                 example: "PASSPORT"
- *               defaultCallbackUrl:
- *                 type: string
- *                 description: Default callback URL for all links (can be overridden per link)
- *                 example: "https://yourapp.com/webhook/kyc"
+ *                       example: "enhanced_kyc"
  *     responses:
  *       201:
- *         description: Bulk KYC links created successfully
+ *         description: Bulk KYC links processing completed
  *         content:
  *           application/json:
  *             schema:
@@ -1178,27 +1300,53 @@ router.post('/kyc/create-link', userController.createKYCLink);
  *                   example: true
  *                 message:
  *                   type: string
- *                   example: "Bulk KYC verification links created successfully"
+ *                   example: "Bulk KYC links created: 8 successful, 2 failed"
  *                 data:
  *                   type: object
  *                   properties:
  *                     successful:
  *                       type: array
- *                       items:
- *                         $ref: '#/components/schemas/KYCLink'
- *                     failed:
- *                       type: array
+ *                       description: Successfully created links
  *                       items:
  *                         type: object
  *                         properties:
  *                           userId:
  *                             type: string
  *                             example: "60f7c6b4c8f1a2b3c4d5e6f7"
+ *                           userName:
+ *                             type: string
+ *                             example: "John Doe"
+ *                           userEmail:
+ *                             type: string
+ *                             example: "john@example.com"
+ *                           linkId:
+ *                             type: string
+ *                             example: "kyc_link_123456789"
+ *                           url:
+ *                             type: string
+ *                             example: "https://links.sandbox.usesmileid.com/partner_123/kyc_link_123456789"
+ *                           expiresAt:
+ *                             type: string
+ *                             format: date-time
+ *                             example: "2023-01-22T10:30:00.000Z"
+ *                     failed:
+ *                       type: array
+ *                       description: Failed link creation attempts
+ *                       items:
+ *                         type: object
+ *                         properties:
+ *                           userId:
+ *                             type: string
+ *                             example: "60f7c6b4c8f1a2b3c4d5e6f8"
+ *                           userName:
+ *                             type: string
+ *                             example: "Jane Smith"
  *                           error:
  *                             type: string
  *                             example: "User not found"
  *                     summary:
  *                       type: object
+ *                       description: Summary statistics
  *                       properties:
  *                         total:
  *                           type: integer
@@ -1210,11 +1358,28 @@ router.post('/kyc/create-link', userController.createKYCLink);
  *                           type: integer
  *                           example: 2
  *       400:
- *         $ref: '#/components/responses/ValidationError'
+ *         description: Bad request - validation failed
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *             examples:
+ *               empty_array:
+ *                 summary: Empty links array
+ *                 value:
+ *                   success: false
+ *                   message: "Links array is required and must not be empty"
+ *               too_many_links:
+ *                 summary: Too many links requested
+ *                 value:
+ *                   success: false
+ *                   message: "Maximum 50 links can be created at once"
+ *       401:
+ *         $ref: '#/components/responses/UnauthorizedError'
  *       500:
  *         $ref: '#/components/responses/ServerError'
  */
-router.post('/kyc/create-bulk-links', userController.createBulkKYCLinks);
+router.post('/kyc/create-bulk-links', protect, userController.createBulkKYCLinks);
 
 /**
  * @swagger
@@ -1222,14 +1387,14 @@ router.post('/kyc/create-bulk-links', userController.createBulkKYCLinks);
  *   get:
  *     tags: [KYC]
  *     summary: Get KYC link status
- *     description: Get the current status and information of a KYC verification link
+ *     description: Retrieve the current status and information of a KYC verification link from SmileID
  *     parameters:
  *       - in: path
  *         name: linkId
  *         required: true
  *         schema:
  *           type: string
- *         description: KYC Link ID
+ *         description: The KYC Link ID returned when the link was created
  *         example: "kyc_link_123456789"
  *     responses:
  *       200:
@@ -1242,49 +1407,31 @@ router.post('/kyc/create-bulk-links', userController.createBulkKYCLinks);
  *                 success:
  *                   type: boolean
  *                   example: true
+ *                 message:
+ *                   type: string
+ *                   example: "Link information retrieved successfully"
  *                 data:
  *                   type: object
- *                   properties:
- *                     linkInfo:
- *                       $ref: '#/components/schemas/KYCLink'
- *                     verificationResult:
- *                       type: object
- *                       description: Verification results (if completed)
- *                       properties:
- *                         resultCode:
- *                           type: string
- *                           example: "1012"
- *                         resultText:
- *                           type: string
- *                           example: "Enroll User"
- *                         smileJobId:
- *                           type: string
- *                           example: "0000001111"
- *                         partnerParams:
- *                           type: object
- *                           properties:
- *                             user_id:
- *                               type: string
- *                               example: "60f7c6b4c8f1a2b3c4d5e6f7"
- *                             job_id:
- *                               type: string
- *                               example: "kyc_job_123"
- *                         confidence:
- *                           type: number
- *                           example: 99.7
- *                         timestamp:
- *                           type: string
- *                           format: date-time
- *                           example: "2023-01-20T15:30:45.123Z"
- *       404:
- *         description: KYC link not found
+ *                   description: SmileID link information response (structure varies based on SmileID API)
+ *                   additionalProperties: true
+ *       400:
+ *         description: Bad request - invalid link ID or failed to get link information
  *         content:
  *           application/json:
  *             schema:
  *               $ref: '#/components/schemas/Error'
- *             example:
- *               success: false
- *               message: "KYC link not found"
+ *             examples:
+ *               missing_link_id:
+ *                 summary: Missing link ID
+ *                 value:
+ *                   success: false
+ *                   message: "Link ID is required"
+ *               link_not_found:
+ *                 summary: Link not found or expired
+ *                 value:
+ *                   success: false
+ *                   message: "Failed to get link information"
+ *                   error: "Link not found or expired"
  *       500:
  *         $ref: '#/components/responses/ServerError'
  */
@@ -1296,7 +1443,15 @@ router.get('/kyc/link-status/:linkId', userController.getKYCLinkStatus);
  *   post:
  *     tags: [KYC]
  *     summary: SmileID webhook endpoint
- *     description: Receive verification results from SmileID webhook
+ *     description: |
+ *       Receive verification results from SmileID webhook. This endpoint processes verification results and updates user KYC status.
+ *       
+ *       **Important**: This endpoint expects raw JSON data and includes signature verification for security.
+ *       
+ *       **Result Codes**:
+ *       - `2814` - Verification successful (user will be marked as verified)
+ *       - `2815` - Verification failed (user will be marked as failed)
+ *       - Other codes - Verification pending (user will be marked as pending)
  *     requestBody:
  *       required: true
  *       content:
@@ -1304,78 +1459,79 @@ router.get('/kyc/link-status/:linkId', userController.getKYCLinkStatus);
  *           schema:
  *             type: object
  *             properties:
- *               signature:
- *                 type: string
- *                 description: SmileID signature for verification
- *                 example: "signature_hash_here"
- *               timestamp:
- *                 type: string
- *                 format: date-time
- *                 description: Timestamp of the webhook
- *                 example: "2023-01-20T15:30:45.123Z"
- *               link_id:
- *                 type: string
- *                 description: The KYC link ID
- *                 example: "kyc_link_123456789"
- *               result_code:
- *                 type: string
- *                 description: SmileID result code
- *                 example: "1012"
- *               result_text:
- *                 type: string
- *                 description: Human readable result
- *                 example: "Enroll User"
- *               smile_job_id:
+ *               job_id:
  *                 type: string
  *                 description: SmileID job identifier
+ *                 example: "job_123456"
+ *               user_id:
+ *                 type: string
+ *                 description: User ID from partner params (your user's ID)
+ *                 example: "60f7c6b4c8f1a2b3c4d5e6f7"
+ *               job_type:
+ *                 type: string
+ *                 description: Type of verification job performed
+ *                 example: "biometric_kyc"
+ *               result_type:
+ *                 type: string
+ *                 description: Type of verification result
+ *                 example: "ID Verification"
+ *               result_text:
+ *                 type: string
+ *                 description: Human readable result description
+ *                 example: "Enroll User"
+ *               result_code:
+ *                 type: string
+ *                 description: SmileID result code (2814=success, 2815=failed, others=pending)
+ *                 example: "2814"
+ *               confidence:
+ *                 type: number
+ *                 description: Confidence score of the verification (0-100)
+ *                 example: 99.7
+ *               smile_job_id:
+ *                 type: string
+ *                 description: SmileID internal job identifier
  *                 example: "0000001111"
  *               partner_params:
  *                 type: object
- *                 description: Custom parameters sent during link creation
+ *                 description: Custom parameters that were sent during link creation
  *                 properties:
  *                   user_id:
  *                     type: string
  *                     example: "60f7c6b4c8f1a2b3c4d5e6f7"
- *                   job_id:
- *                     type: string
- *                     example: "kyc_job_123"
- *               confidence:
- *                 type: number
- *                 description: Confidence score of the verification
- *                 example: 99.7
- *               id_info:
- *                 type: object
- *                 description: Extracted ID information
- *                 properties:
- *                   country:
- *                     type: string
- *                     example: "NG"
- *                   id_type:
- *                     type: string
- *                     example: "PASSPORT"
- *                   id_number:
- *                     type: string
- *                     example: "A12345678"
- *                   full_name:
+ *                   user_name:
  *                     type: string
  *                     example: "John Doe"
- *                   dob:
+ *                   user_email:
  *                     type: string
- *                     format: date
- *                     example: "1990-01-15"
- *               actions:
+ *                     example: "john@example.com"
+ *                   created_by:
+ *                     type: string
+ *                     example: "backend_api"
+ *               timestamp:
+ *                 type: string
+ *                 format: date-time
+ *                 description: Timestamp when the verification was completed
+ *                 example: "2023-01-20T15:30:45.123Z"
+ *               id_type:
+ *                 type: string
+ *                 description: Type of ID document that was verified
+ *                 example: "BVN"
+ *               country:
+ *                 type: string
+ *                 description: Country code where verification was performed
+ *                 example: "NG"
+ *               Actions:
  *                 type: object
- *                 description: Recommended actions based on verification
- *                 properties:
- *                   verify_id_number:
- *                     type: boolean
- *                     example: true
- *                   return_personal_info:
- *                     type: boolean
- *                     example: true
- *                   human_review_compare:
- *                     type: boolean
- *                     example: false
+ *                 description: Alternative field for recommended actions (SmileID may use different field names)
+ *                 additionalProperties: true
+ *               ResultCode:
+ *                 type: string
+ *                 description: Alternative result code field (SmileID may use different field names)
+ *                 example: "2814"
+ *               ResultText:
+ *                 type: string
+ *                 description: Alternative result text field (SmileID may use different field names)
+ *                 example: "Enroll User"
  *     responses:
  *       200:
  *         description: Webhook processed successfully
@@ -1390,8 +1546,12 @@ router.get('/kyc/link-status/:linkId', userController.getKYCLinkStatus);
  *                 message:
  *                   type: string
  *                   example: "Webhook processed successfully"
- *       400:
- *         description: Invalid webhook data or signature
+ *                 timestamp:
+ *                   type: string
+ *                   format: date-time
+ *                   example: "2023-01-20T15:30:45.123Z"
+ *       401:
+ *         description: Unauthorized - Invalid webhook signature
  *         content:
  *           application/json:
  *             schema:
@@ -1400,7 +1560,14 @@ router.get('/kyc/link-status/:linkId', userController.getKYCLinkStatus);
  *               success: false
  *               message: "Invalid webhook signature"
  *       500:
- *         $ref: '#/components/responses/ServerError'
+ *         description: Internal server error - Webhook processing failed
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *             example:
+ *               success: false
+ *               message: "Webhook processing failed"
  */
 router.post('/kyc/webhook/smileid', express.raw({ type: 'application/json' }), userController.handleSmileIDWebhook);
 
