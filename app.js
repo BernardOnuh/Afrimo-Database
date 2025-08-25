@@ -60,7 +60,6 @@ try {
 // Initialize express app
 const app = express();
 
-
 // Enhanced configuration object
 const AppConfig = {
   NODE_ENV: process.env.NODE_ENV || 'development',
@@ -73,9 +72,6 @@ const AppConfig = {
 if (AppConfig.IS_PRODUCTION) {
   app.set('trust proxy', 1);
 }
-
-
-
 
 // Global mongoose settings
 mongoose.set('strictQuery', true);
@@ -148,10 +144,7 @@ const corsOptions = {
   maxAge: 86400 // 24 hours
 };
 
-// Apply CORS middleware early
-app.use(cors(corsOptions));
-app.options('*', cors(corsOptions));
-
+// Apply CORS middleware early - FIXED: Removed duplicate
 app.use(cors(corsOptions));
 app.options('*', cors(corsOptions));
 
@@ -181,10 +174,10 @@ app.use(helmet({
   } : false
 }));
 
-// Enhanced Rate limiting
+// Enhanced Rate limiting - FIXED: Increased limits
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: AppConfig.IS_PRODUCTION ? 100 : 1000,
+  max: AppConfig.IS_PRODUCTION ? 1000 : 10000, // Increased from 100 to 1000 in production
   message: {
     success: false,
     message: 'Too many requests from this IP, please try again later',
@@ -193,7 +186,7 @@ const limiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   skip: (req, res) => {
-    const skipPaths = ['/', '/health', '/api/health', '/api/cors-test'];
+    const skipPaths = ['/', '/health', '/api/health', '/api/cors-test', '/api/simple-test'];
     return skipPaths.includes(req.path) || req.path.startsWith('/health');
   },
   keyGenerator: (req) => {
@@ -344,8 +337,6 @@ function setupDatabaseMonitoring() {
   });
 }
 
-
-
 // Enhanced Middleware
 app.use(express.json({ 
   limit: '10mb',
@@ -429,6 +420,17 @@ app.use((req, res, next) => {
   next();
 });
 
+// Add debugging middleware to log all requests in development - NEW
+if (AppConfig.IS_DEVELOPMENT) {
+  app.use('/api', (req, res, next) => {
+    console.log(`🔍 API Request: ${req.method} ${req.path}`);
+    console.log(`🔍 Origin: ${req.get('Origin')}`);
+    console.log(`🔍 User-Agent: ${req.get('User-Agent')}`);
+    console.log(`🔍 Content-Type: ${req.get('Content-Type')}`);
+    console.log(`🔍 Database State: ${mongoose.connection.readyState}`);
+    next();
+  });
+}
 
 // Enhanced Static file serving
 const staticOptions = {
@@ -452,6 +454,24 @@ app.use('/cofounder-payment-proofs', express.static(path.join(__dirname, 'upload
 
 // Setup Swagger documentation
 setupSwagger(app);
+
+// Add a simple test endpoint that bypasses most middleware - NEW
+app.get('/api/simple-test', (req, res) => {
+  res.json({
+    success: true,
+    message: 'Simple test endpoint working',
+    timestamp: new Date().toISOString(),
+    headers: {
+      origin: req.get('Origin'),
+      userAgent: req.get('User-Agent'),
+      contentType: req.get('Content-Type')
+    },
+    database: {
+      connected: mongoose.connection.readyState === 1,
+      state: mongoose.connection.readyState
+    }
+  });
+});
 
 // Enhanced Database status endpoint
 app.get('/api/db-status', (req, res) => {
@@ -492,9 +512,18 @@ app.get('/api/db-status', (req, res) => {
   });
 });
 
-// Enhanced API monitoring middleware
+// Enhanced API monitoring middleware - FIXED: Made database dependency less strict
 app.use('/api', (req, res, next) => {
-  if (mongoose.connection.readyState !== 1) {
+  // Allow certain endpoints to work without database
+  const allowedWithoutDB = [
+    '/api/cors-test', 
+    '/api/system/info', 
+    '/api/simple-test',
+    '/api/db-status',
+    '/api/system/health-status'
+  ];
+  
+  if (mongoose.connection.readyState !== 1 && !allowedWithoutDB.includes(req.path)) {
     return res.status(503).json({
       success: false,
       message: 'Database connection unavailable',
@@ -626,6 +655,7 @@ app.get('/', (req, res) => {
       dbStatus: '/api/db-status',
       corsTest: '/api/cors-test',
       systemInfo: '/api/system/info',
+      simpleTest: '/api/simple-test',
       docs: '/api-docs'
     }
   }, 'AfriMobile API is running successfully');
@@ -801,6 +831,7 @@ async function startApp() {
       console.log(`🏠 Health Check: http://localhost:${PORT}/`);
       console.log(`📊 DB Status: http://localhost:${PORT}/api/db-status`);
       console.log(`🔍 CORS Test: http://localhost:${PORT}/api/cors-test`);
+      console.log(`🧪 Simple Test: http://localhost:${PORT}/api/simple-test`);
       console.log(`ℹ️  System Info: http://localhost:${PORT}/api/system/info`);
       console.log(`🏥 Health Status: http://localhost:${PORT}/api/system/health-status`);
       console.log('**********************************************\n');
@@ -1023,6 +1054,7 @@ function displayEnhancedStartupInfo() {
   console.log(`   System Info: ${baseUrl}/api/system/info`);
   console.log(`   API Documentation: ${baseUrl}/api-docs`);
   console.log(`   CORS Test: ${baseUrl}/api/cors-test`);
+  console.log(`   Simple Test: ${baseUrl}/api/simple-test`);
   console.log('='.repeat(80));
   console.log('📁 FILE SERVING:');
   console.log(`   General Uploads: ${baseUrl}/uploads/`);
@@ -1040,6 +1072,9 @@ function displayEnhancedStartupInfo() {
   console.log('   ✅ Background Jobs Management');
   console.log('   ✅ Memory Usage Monitoring');
   console.log('   ✅ Graceful Shutdown Handling');
+  console.log('   ✅ Fixed CORS Configuration');
+  console.log('   ✅ Increased Rate Limits');
+  console.log('   ✅ Database-Independent Test Endpoints');
   console.log('='.repeat(80));
   
   const dbStatus = mongoose.connection.readyState === 1 ? 'Connected' : 'Disconnected';
@@ -1058,6 +1093,7 @@ function displayEnhancedStartupInfo() {
     console.log('   📝 Detailed error messages');
     console.log('   🐛 Debug logging enabled');
     console.log('   ⚡ Fast refresh for development');
+    console.log('   🔍 Request debugging middleware');
   } else {
     console.log('🏭 PRODUCTION MODE FEATURES:');
     console.log('   🔒 Security headers enforced');
