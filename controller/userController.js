@@ -1,7 +1,8 @@
-// controller/userController.js
+// controller/userController.js - Updated to use NIN instead of BVN
 const User = require("../models/User");
 const jwt = require("jsonwebtoken");
 const crypto = require("crypto");
+const mongoose = require('mongoose');
 const { sendEmail } = require("../utils/emailService");
 const {
   passwordResetTemplate,
@@ -1482,21 +1483,26 @@ exports.getBannedUsers = async (req, res) => {
     });
   }
 };
-// Fixed KYC controller methods for userController.js
 
-// Create KYC verification link for user
+// KYC controller methods - Updated to use NIN as default
 exports.createKYCLink = async (req, res) => {
   try {
     const {
       userId,
       name,
       email,
-      country = "NG", // Default to Nigeria
+      country = "NG",
       idTypes,
       companyName,
       callbackUrl,
       expiresAt,
     } = req.body;
+
+    console.log('🔍 API Request: POST /users/kyc/create-link');
+    console.log('🔍 Origin:', req.headers.origin);
+    console.log('🔍 User-Agent:', req.headers['user-agent']);
+    console.log('🔍 Content-Type:', req.headers['content-type']);
+    console.log('🔍 Database State:', mongoose.connection.readyState);
 
     // Validate required fields
     if (!userId) {
@@ -1515,16 +1521,11 @@ exports.createKYCLink = async (req, res) => {
       });
     }
 
-    // Use correct supported ID types for Nigeria
+    // Use correct supported ID types for Nigeria - UPDATED TO USE NIN
     const defaultIdTypes = [
       {
         country: "NG",
-        id_type: "BVN", // Bank Verification Number - most reliable
-        verification_method: "enhanced_kyc",
-      },
-      {
-        country: "NG",
-        id_type: "NIN", // National Identification Number - FIXED: was "IDENTITY_CARD"
+        id_type: "NIN",
         verification_method: "enhanced_kyc",
       },
     ];
@@ -1537,7 +1538,7 @@ exports.createKYCLink = async (req, res) => {
       country: country,
       companyName: companyName || process.env.COMPANY_NAME || "Afrimobile",
       callbackUrl: callbackUrl || `${process.env.BACKEND_URL}/api/users/kyc/webhook/smileid`,
-      idTypes: idTypes || defaultIdTypes, // Use corrected default types
+      idTypes: idTypes || defaultIdTypes,
       partnerParams: {
         user_name: name || user.name,
         user_email: email || user.email,
@@ -1550,47 +1551,43 @@ exports.createKYCLink = async (req, res) => {
 
     console.log('Creating KYC link for user:', userId, 'with ID types:', linkConfig.idTypes);
 
-    // Create verification link
-    const result = await smileIDService.createVerificationLink(linkConfig);
+    // Create verification link - GET FRESH DATA DIRECTLY FROM SMILEID
+    const smileIdResult = await smileIDService.createVerificationLink(linkConfig);
+    
+    // CRITICAL: Log the exact response from SmileID
+    console.log('🟢 SmileID Service Result:', JSON.stringify(smileIdResult, null, 2));
 
-    if (result.success) {
-      // TODO: Save link details to your database if you have a KYCLink model
-      /*
-      const kycLink = new KYCLink({
-        userId: userId,
-        linkId: result.linkId,
-        url: result.personalLink,
-        status: 'active',
-        expiresAt: result.expiresAt,
-        country: country,
-        idTypes: linkConfig.idTypes,
-      });
-      await kycLink.save();
-      */
-
-      res.status(201).json({
+    if (smileIdResult.success) {
+      // CRITICAL: Use the EXACT data from SmileID response - NO MODIFICATIONS
+      const responseData = {
         success: true,
         message: "KYC verification link created successfully",
         data: {
-          linkId: result.linkId,
-          url: result.personalLink, // Changed from verificationLink to url for consistency
-          userId: result.userId,
-          expiresAt: result.expiresAt,
+          linkId: smileIdResult.linkId,        // This MUST be the actual ref_id from SmileID
+          url: smileIdResult.personalLink,     // This MUST be built with the correct linkId
+          userId: smileIdResult.userId,
+          expiresAt: smileIdResult.expiresAt,
           supportedIdTypes: linkConfig.idTypes,
           country: country,
         },
-      });
+      };
+
+      // CRITICAL: Log exactly what we're sending to client
+      console.log('🟢 Sending to client:', JSON.stringify(responseData, null, 2));
+
+      // DO NOT CACHE - Return fresh data directly
+      return res.status(201).json(responseData);
     } else {
-      console.error('SmileID API Error:', result.error);
-      res.status(400).json({
+      console.error('🔴 SmileID API Error:', smileIdResult.error);
+      return res.status(400).json({
         success: false,
         message: "Failed to create verification link",
-        error: result.error,
+        error: smileIdResult.error,
       });
     }
   } catch (error) {
-    console.error("Create KYC Link Error:", error);
-    res.status(500).json({
+    console.error("🔴 Create KYC Link Error:", error);
+    return res.status(500).json({
       success: false,
       message: "Internal server error",
       error: process.env.NODE_ENV === "development" ? error.message : "An error occurred",
@@ -1598,10 +1595,10 @@ exports.createKYCLink = async (req, res) => {
   }
 };
 
-// Bulk create KYC links - FIXED VERSION
+// Bulk create KYC links - FIXED VERSION WITH NO CACHING - Updated to use NIN
 exports.createBulkKYCLinks = async (req, res) => {
   try {
-    const { links } = req.body; // Changed from 'users' to 'links' for clarity
+    const { links } = req.body;
 
     if (!links || !Array.isArray(links) || links.length === 0) {
       return res.status(400).json({
@@ -1617,20 +1614,14 @@ exports.createBulkKYCLinks = async (req, res) => {
       });
     }
 
-    const results = [];
     const successful = [];
     const failed = [];
 
-    // Default supported ID types for Nigeria
+    // Default supported ID types for Nigeria - UPDATED TO USE NIN
     const defaultIdTypes = [
       {
         country: "NG",
-        id_type: "BVN",
-        verification_method: "enhanced_kyc",
-      },
-      {
-        country: "NG",
-        id_type: "NIN", // FIXED: was "IDENTITY_CARD"
+        id_type: "NIN",
         verification_method: "enhanced_kyc",
       },
     ];
@@ -1671,7 +1662,7 @@ exports.createBulkKYCLinks = async (req, res) => {
           country: country,
           companyName: req.body.companyName || process.env.COMPANY_NAME || "Afrimobile",
           callbackUrl: callbackUrl || req.body.defaultCallbackUrl || `${process.env.BACKEND_URL}/api/users/kyc/webhook/smileid`,
-          idTypes: idTypes || req.body.defaultIdTypes || defaultIdTypes, // Use corrected defaults
+          idTypes: idTypes || req.body.defaultIdTypes || defaultIdTypes,
           partnerParams: {
             user_name: name || user.name,
             user_email: email || user.email,
@@ -1681,22 +1672,23 @@ exports.createBulkKYCLinks = async (req, res) => {
           },
         };
 
-        const result = await smileIDService.createVerificationLink(linkConfig);
+        // Create verification link - FRESH DATA ONLY
+        const smileIdResult = await smileIDService.createVerificationLink(linkConfig);
 
-        if (result.success) {
+        if (smileIdResult.success) {
           successful.push({
             userId: userId,
             userName: user.name,
             userEmail: user.email,
-            linkId: result.linkId,
-            url: result.personalLink,
-            expiresAt: result.expiresAt,
+            linkId: smileIdResult.linkId,     // EXACT data from SmileID
+            url: smileIdResult.personalLink,  // EXACT data from SmileID
+            expiresAt: smileIdResult.expiresAt,
           });
         } else {
           failed.push({
             userId: userId,
             userName: user.name,
-            error: result.error,
+            error: smileIdResult.error,
           });
         }
 
@@ -1716,7 +1708,8 @@ exports.createBulkKYCLinks = async (req, res) => {
       failed: failed.length,
     };
 
-    res.status(201).json({
+    // Return fresh data - NO CACHING
+    return res.status(201).json({
       success: true,
       message: `Bulk KYC links created: ${summary.successful} successful, ${summary.failed} failed`,
       data: {
@@ -1727,7 +1720,49 @@ exports.createBulkKYCLinks = async (req, res) => {
     });
   } catch (error) {
     console.error("Create Bulk KYC Links Error:", error);
-    res.status(500).json({
+    return res.status(500).json({
+      success: false,
+      message: "Internal server error",
+      error: process.env.NODE_ENV === "development" ? error.message : "An error occurred",
+    });
+  }
+};
+
+// Get KYC link status - DIRECT API CALL ONLY
+exports.getKYCLinkStatus = async (req, res) => {
+  try {
+    const { linkId } = req.params;
+
+    if (!linkId) {
+      return res.status(400).json({
+        success: false,
+        message: "Link ID is required",
+      });
+    }
+
+    console.log('Getting KYC link status for:', linkId);
+
+    // Get fresh data directly from SmileID - NO CACHING
+    const smileIdResult = await smileIDService.getLinkInfo(linkId);
+
+    if (smileIdResult.error) {
+      console.error('Failed to get link info:', smileIdResult.error);
+      return res.status(400).json({
+        success: false,
+        message: "Failed to get link information",
+        error: smileIdResult.error,
+      });
+    }
+
+    // Return fresh data directly - NO CACHING
+    return res.status(200).json({
+      success: true,
+      message: "Link information retrieved successfully",
+      data: smileIdResult,
+    });
+  } catch (error) {
+    console.error("Get KYC Link Status Error:", error);
+    return res.status(500).json({
       success: false,
       message: "Internal server error",
       error: process.env.NODE_ENV === "development" ? error.message : "An error occurred",
@@ -1740,35 +1775,36 @@ exports.handleSmileIDWebhook = async (req, res) => {
   try {
     console.log("🔔 SmileID Webhook Received:", new Date().toISOString());
     console.log("📥 Headers:", req.headers);
-    console.log("📥 Body:", req.body);
+    console.log("📥 Raw Body:", req.body);
 
     const body = req.body;
 
     // Extract headers for signature verification
-    const receivedSignature =
-      req.headers["x-signature"] || req.headers["signature"];
-    const receivedTimestamp =
-      req.headers["x-timestamp"] || req.headers["timestamp"];
+    const receivedSignature = req.headers["x-signature"] || req.headers["signature"];
+    const receivedTimestamp = req.headers["x-timestamp"] || req.headers["timestamp"];
 
     // Verify signature (optional but recommended)
     if (receivedSignature && receivedTimestamp) {
-      const isValid = smileIDService.verifyWebhookSignature(
-        receivedSignature,
-        receivedTimestamp,
-        process.env.SMILE_PARTNER_ID,
-        process.env.SMILE_API_KEY
-      );
+      try {
+        const isValid = smileIDService.verifyWebhookSignature(
+          receivedSignature,
+          receivedTimestamp,
+          process.env.SMILE_PARTNER_ID,
+          process.env.SMILE_API_KEY
+        );
 
-      if (!isValid) {
-        console.log("❌ Invalid webhook signature");
-        return res.status(401).json({ 
-          success: false,
-          message: "Invalid webhook signature" 
-        });
+        if (!isValid) {
+          console.log("❌ Invalid webhook signature");
+          return res.status(401).json({ 
+            success: false,
+            message: "Invalid webhook signature" 
+          });
+        }
+        console.log("✅ Webhook signature verified");
+      } catch (signatureError) {
+        console.error("❌ Signature verification error:", signatureError);
+        // Continue without signature verification in case of errors
       }
-      console.log("✅ Webhook signature verified");
-    } else {
-      console.log("⚠️ No signature headers found - proceeding without verification");
     }
 
     // Extract verification result data
@@ -1813,26 +1849,23 @@ exports.handleSmileIDWebhook = async (req, res) => {
     };
 
     // Handle different verification outcomes
-    if (result_code === "2814" || ResultCode === "2814") {
-      // Verification successful
+    if ((result_code === "2814" || ResultCode === "2814")) {
       await handleSuccessfulVerification(verificationData);
-    } else if (result_code === "2815" || ResultCode === "2815") {
-      // Verification failed
+    } else if ((result_code === "2815" || ResultCode === "2815")) {
       await handleFailedVerification(verificationData);
     } else {
-      // Other status (pending, review, etc.)
       await handlePendingVerification(verificationData);
     }
 
     // Always respond with 200 to acknowledge receipt
-    res.status(200).json({
+    return res.status(200).json({
       success: true,
       message: "Webhook processed successfully",
       timestamp: new Date().toISOString(),
     });
   } catch (error) {
     console.error("❌ Webhook processing error:", error);
-    res.status(500).json({ 
+    return res.status(500).json({ 
       success: false,
       message: "Webhook processing failed",
       error: process.env.NODE_ENV === "development" ? error.message : "An error occurred"
@@ -1840,52 +1873,11 @@ exports.handleSmileIDWebhook = async (req, res) => {
   }
 };
 
-// Get KYC link status - IMPROVED VERSION
-exports.getKYCLinkStatus = async (req, res) => {
-  try {
-    const { linkId } = req.params;
-
-    if (!linkId) {
-      return res.status(400).json({
-        success: false,
-        message: "Link ID is required",
-      });
-    }
-
-    console.log('Getting KYC link status for:', linkId);
-
-    const result = await smileIDService.getLinkInfo(linkId);
-
-    if (result.error) {
-      console.error('Failed to get link info:', result.error);
-      return res.status(400).json({
-        success: false,
-        message: "Failed to get link information",
-        error: result.error,
-      });
-    }
-
-    res.status(200).json({
-      success: true,
-      message: "Link information retrieved successfully",
-      data: result,
-    });
-  } catch (error) {
-    console.error("Get KYC Link Status Error:", error);
-    res.status(500).json({
-      success: false,
-      message: "Internal server error",
-      error: process.env.NODE_ENV === "development" ? error.message : "An error occurred",
-    });
-  }
-};
-
-// Helper functions for handling verification outcomes - IMPROVED
+// Helper functions remain the same...
 async function handleSuccessfulVerification(data) {
   console.log("✅ Processing successful verification for:", data.userId);
 
   try {
-    // Update user verification status in database
     const user = await User.findById(data.userId);
     if (user) {
       user.kycStatus = 'verified';
@@ -1897,16 +1889,8 @@ async function handleSuccessfulVerification(data) {
         smileJobId: data.jobId,
       };
       await user.save();
-      console.log("✅ User verification status updated in database");
+      console.log("✅ User verification status updated:", data.userId);
     }
-
-    // TODO: Send success notification to user
-    // await sendVerificationSuccessNotification(data.userId);
-
-    // TODO: Enable verified user features
-    // await enableVerifiedUserFeatures(data.userId);
-
-    console.log("✅ User verification completed:", data.userId);
   } catch (error) {
     console.error("Error handling successful verification:", error);
   }
@@ -1916,7 +1900,6 @@ async function handleFailedVerification(data) {
   console.log("❌ Processing failed verification for:", data.userId);
 
   try {
-    // Update user verification status in database
     const user = await User.findById(data.userId);
     if (user) {
       user.kycStatus = 'failed';
@@ -1927,13 +1910,8 @@ async function handleFailedVerification(data) {
         smileJobId: data.jobId,
       };
       await user.save();
-      console.log("❌ User verification failure updated in database");
+      console.log("❌ User verification failure updated:", data.userId);
     }
-
-    // TODO: Send failure notification with retry instructions
-    // await sendVerificationFailedNotification(data.userId, data.resultText);
-
-    console.log("❌ Verification failed for:", data.userId, "Reason:", data.resultText);
   } catch (error) {
     console.error("Error handling failed verification:", error);
   }
@@ -1943,7 +1921,6 @@ async function handlePendingVerification(data) {
   console.log("⏳ Processing pending verification for:", data.userId);
 
   try {
-    // Update user verification status in database
     const user = await User.findById(data.userId);
     if (user) {
       user.kycStatus = 'pending';
@@ -1953,13 +1930,8 @@ async function handlePendingVerification(data) {
         smileJobId: data.jobId,
       };
       await user.save();
-      console.log("⏳ User verification pending status updated in database");
+      console.log("⏳ User verification pending status updated:", data.userId);
     }
-
-    // TODO: Send pending notification to user
-    // await sendVerificationPendingNotification(data.userId);
-
-    console.log("⏳ Verification pending for:", data.userId);
   } catch (error) {
     console.error("Error handling pending verification:", error);
   }

@@ -1050,7 +1050,7 @@ router.get('/admin/admins', protect, adminProtect, userController.getAllAdmins);
  *   post:
  *     tags: [KYC]
  *     summary: Create KYC verification link
- *     description: Create a SmileID KYC verification link for a user. Only userId is required, all other fields have sensible defaults.
+ *     description: Create a SmileID KYC verification link for a user. Only userId is required, all other fields have sensible defaults. Links automatically expire exactly 60 days from creation (any provided expiresAt value is ignored).
  *     security:
  *       - bearerAuth: []
  *     requestBody:
@@ -1091,8 +1091,8 @@ router.get('/admin/admins', protect, adminProtect, userController.getAllAdmins);
  *                       example: "NG"
  *                     id_type:
  *                       type: string
- *                       example: "BVN"
- *                       enum: [BVN, NIN, PASSPORT, DRIVERS_LICENSE, VOTER_ID]
+ *                       example: "NIN"
+ *                       enum: [NIN, BVN, PASSPORT, DRIVERS_LICENSE, VOTER_ID]
  *                     verification_method:
  *                       type: string
  *                       example: "enhanced_kyc"
@@ -1108,8 +1108,8 @@ router.get('/admin/admins', protect, adminProtect, userController.getAllAdmins);
  *               expiresAt:
  *                 type: string
  *                 format: date-time
- *                 description: Link expiration time (optional, defaults to 24 hours from creation)
- *                 example: "2023-01-22T10:30:00.000Z"
+ *                 description: Link expiration time (optional, defaults to 60 days from creation)
+ *                 example: "2023-04-14T10:30:00.000Z"
  *     responses:
  *       201:
  *         description: KYC link created successfully
@@ -1142,8 +1142,8 @@ router.get('/admin/admins', protect, adminProtect, userController.getAllAdmins);
  *                     expiresAt:
  *                       type: string
  *                       format: date-time
- *                       description: When the link expires
- *                       example: "2023-01-22T10:30:00.000Z"
+ *                       description: When the link expires (60 days from creation)
+ *                       example: "2023-04-14T10:30:00.000Z"
  *                     supportedIdTypes:
  *                       type: array
  *                       description: List of ID types supported by this link
@@ -1155,7 +1155,7 @@ router.get('/admin/admins', protect, adminProtect, userController.getAllAdmins);
  *                             example: "NG"
  *                           id_type:
  *                             type: string
- *                             example: "BVN"
+ *                             example: "NIN"
  *                           verification_method:
  *                             type: string
  *                             example: "enhanced_kyc"
@@ -1203,7 +1203,7 @@ router.post('/kyc/create-link', protect, userController.createKYCLink);
  *   post:
  *     tags: [KYC]
  *     summary: Create multiple KYC verification links
- *     description: Create multiple SmileID KYC verification links in bulk. Maximum 50 links per request.
+ *     description: Create multiple SmileID KYC verification links in bulk. Maximum 50 links per request. Each link automatically expires exactly 60 days from creation time.
  *     security:
  *       - bearerAuth: []
  *     requestBody:
@@ -1252,7 +1252,7 @@ router.post('/kyc/create-link', protect, userController.createKYCLink);
  *                             example: "NG"
  *                           id_type:
  *                             type: string
- *                             example: "BVN"
+ *                             example: "NIN"
  *                           verification_method:
  *                             type: string
  *                             example: "enhanced_kyc"
@@ -1274,7 +1274,7 @@ router.post('/kyc/create-link', protect, userController.createKYCLink);
  *                 example: "https://yourapp.com/webhook/kyc"
  *               defaultIdTypes:
  *                 type: array
- *                 description: Default ID types for all links (uses Nigeria defaults if not provided)
+ *                 description: Default ID types for all links (uses Nigeria-NIN defaults if not provided)
  *                 items:
  *                   type: object
  *                   properties:
@@ -1283,7 +1283,7 @@ router.post('/kyc/create-link', protect, userController.createKYCLink);
  *                       example: "NG"
  *                     id_type:
  *                       type: string
- *                       example: "BVN"
+ *                       example: "NIN"
  *                     verification_method:
  *                       type: string
  *                       example: "enhanced_kyc"
@@ -1328,7 +1328,7 @@ router.post('/kyc/create-link', protect, userController.createKYCLink);
  *                           expiresAt:
  *                             type: string
  *                             format: date-time
- *                             example: "2023-01-22T10:30:00.000Z"
+ *                             example: "2023-04-14T10:30:00.000Z"
  *                     failed:
  *                       type: array
  *                       description: Failed link creation attempts
@@ -1515,7 +1515,7 @@ router.get('/kyc/link-status/:linkId', userController.getKYCLinkStatus);
  *               id_type:
  *                 type: string
  *                 description: Type of ID document that was verified
- *                 example: "BVN"
+ *                 example: "NIN"
  *               country:
  *                 type: string
  *                 description: Country code where verification was performed

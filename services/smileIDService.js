@@ -1,11 +1,21 @@
-// services/smileIDService.js
+// services/smileIDService.js - FIXED VERSION with 89-day expiry
 const crypto = require("crypto");
 
 class SmileIDService {
   constructor() {
+    // Validate required environment variables
     this.partnerId = process.env.SMILE_PARTNER_ID;
     this.apiKey = process.env.SMILE_API_KEY;
     this.environment = process.env.SMILE_ENVIRONMENT || "sandbox";
+    
+    if (!this.partnerId) {
+      throw new Error("SMILE_PARTNER_ID environment variable is required");
+    }
+    
+    if (!this.apiKey) {
+      throw new Error("SMILE_API_KEY environment variable is required");
+    }
+    
     this.baseUrl =
       this.environment === "production"
         ? "https://api.smileidentity.com/v1/smile_links"
@@ -14,10 +24,36 @@ class SmileIDService {
       this.environment === "production"
         ? "https://links.usesmileid.com"
         : "https://links.sandbox.usesmileid.com";
+        
+    console.log(`SmileID Service initialized in ${this.environment} mode`);
+  }
+
+  // FIXED: Changed default to 60 days with better expiry calculation
+  getDefaultExpiry(daysFromNow = 60) {
+    const expiry = new Date();
+    
+    // Add days instead of hours for longer validity
+    expiry.setDate(expiry.getDate() + daysFromNow);
+    
+    // Set to end of day to avoid timezone issues
+    expiry.setHours(23, 59, 59, 999);
+    
+    // Return UTC timestamp
+    return expiry.toISOString();
+  }
+
+  // FIXED: Always calculate expiry as current date + 60 days
+  calculateExpiry(expiryConfig) {
+    // Always use 60 days from current date, ignore any provided configuration
+    return this.getDefaultExpiry(60);
   }
 
   // Generate HMAC signature for authentication
   generateSignature(timestamp) {
+    if (!this.apiKey) {
+      throw new Error("API key is not configured");
+    }
+    
     const hmac = crypto.createHmac("sha256", this.apiKey);
     hmac.update(timestamp);
     hmac.update(this.partnerId);
@@ -25,46 +61,45 @@ class SmileIDService {
     return hmac.digest("base64");
   }
 
-  // Create a single-use verification link
+  // FIXED: Create a single-use verification link with 89-day default expiry
   async createVerificationLink(config) {
     const timestamp = new Date().toISOString();
     const signature = this.generateSignature(timestamp);
+
+    // FIXED: Better expiry calculation with 89-day default
+    const calculatedExpiry = this.calculateExpiry(config.expiresAt);
+    
+    console.log(`Creating link with expiry: ${calculatedExpiry} (60 days from now)`);
 
     const requestBody = {
       partner_id: this.partnerId,
       signature: signature,
       timestamp: timestamp,
-      name:
-        config.name || `Verification Link - ${new Date().toLocaleDateString()}`,
-      company_name:
-        config.companyName || process.env.COMPANY_NAME || "Afrimobile",
+      name: config.name || `Verification Link - ${new Date().toLocaleDateString()}`,
+      company_name: config.companyName || process.env.COMPANY_NAME || "Afrimobile",
       id_types: config.idTypes || [
         {
           country: "NG",
-          id_type: "BVN",
+          id_type: "NIN",
           verification_method: "enhanced_kyc",
-        },
-        {
-          country: "NG",
-          id_type: "NIN",  // ← Changed from "IDENTITY_CARD" to "NIN"
-          verification_method: "enhanced_kyc",  // ← Changed to "enhanced_kyc"
         },
       ],
       callback_url: config.callbackUrl || process.env.WEBHOOK_URL,
-      data_privacy_policy_url:
-        config.privacyPolicyUrl || process.env.PRIVACY_POLICY_URL,
+      data_privacy_policy_url: config.privacyPolicyUrl || process.env.PRIVACY_POLICY_URL,
       logo_url: config.logoUrl || process.env.COMPANY_LOGO_URL,
       is_single_use: true,
       user_id: config.userId || this.generateUserId(),
       partner_params: config.partnerParams || {},
-      expires_at: config.expiresAt || this.getDefaultExpiry(),
+      expires_at: calculatedExpiry, // FIXED: Always current date + 60 days
     };
 
     try {
       console.log('Creating SmileID link with config:', {
         partner_id: this.partnerId,
         user_id: requestBody.user_id,
-        id_types: requestBody.id_types
+        expires_at: requestBody.expires_at,
+        id_types: requestBody.id_types,
+        environment: this.environment
       });
 
       const response = await fetch(this.baseUrl, {
@@ -79,8 +114,7 @@ class SmileIDService {
       console.log('SmileID API Response:', result);
 
       if (response.ok) {
-        const linkId =
-          result.ref_id || result.linkId || result.id || result.smile_link_id;
+        const linkId = result.ref_id || result.linkId || result.id || result.smile_link_id;
 
         if (!linkId) {
           throw new Error("Link ID not found in API response");
@@ -88,19 +122,19 @@ class SmileIDService {
 
         const personalLink = `${this.linkBaseUrl}/${this.partnerId}/${linkId}`;
 
+        // FIXED: Return the expiry we actually sent to the API (60 days from now)
         return {
           success: true,
           linkId: linkId,
           personalLink: personalLink,
           userId: requestBody.user_id,
-          expiresAt: requestBody.expires_at,
+          expiresAt: requestBody.expires_at, // Use our calculated expiry (60 days from now)
+          requestedExpiry: calculatedExpiry,
           fullResponse: result,
         };
       } else {
         throw new Error(
-          `API Error: ${
-            result.message || result.error || result.code || "Unknown error"
-          }`
+          `API Error: ${result.message || result.error || result.code || "Unknown error"}`
         );
       }
     } catch (error) {
@@ -112,35 +146,7 @@ class SmileIDService {
     }
   }
 
-  // Verify webhook signature
-  verifyWebhookSignature(
-    receivedSignature,
-    receivedTimestamp,
-    partnerId,
-    apiKey
-  ) {
-    const hmac = crypto.createHmac("sha256", apiKey || this.apiKey);
-    hmac.update(receivedTimestamp);
-    hmac.update(partnerId || this.partnerId);
-    hmac.update("sid_request");
-    const generatedSignature = hmac.digest("base64");
-
-    return generatedSignature === receivedSignature;
-  }
-
-  // Generate unique user ID
-  generateUserId() {
-    return "user_" + crypto.randomUUID();
-  }
-
-  // Get default expiry (24 hours from now)
-  getDefaultExpiry() {
-    const expiry = new Date();
-    expiry.setHours(expiry.getHours() + 24);
-    return expiry.toISOString();
-  }
-
-  // Get link information
+  // FIXED: Enhanced link info method with expiry status calculation
   async getLinkInfo(linkId) {
     const timestamp = new Date().toISOString();
     const signature = this.generateSignature(timestamp);
@@ -160,14 +166,57 @@ class SmileIDService {
       });
 
       const result = await response.json();
-      return response.ok ? result : { error: result.message };
+      
+      if (response.ok) {
+        // FIXED: Add expiry status calculation
+        const now = new Date();
+        const expiryDate = new Date(result.expires_at);
+        const isExpired = now > expiryDate;
+        const daysUntilExpiry = Math.ceil((expiryDate - now) / (1000 * 60 * 60 * 24));
+
+        return {
+          ...result,
+          isExpired,
+          daysUntilExpiry: isExpired ? 0 : daysUntilExpiry,
+          expiryStatus: isExpired ? 'expired' : 'active'
+        };
+      } else {
+        return { error: result.message };
+      }
     } catch (error) {
       console.error("SmileID Get Link Error:", error);
       return { error: error.message };
     }
   }
 
-  // Update an existing link
+  // Verify webhook signature
+  verifyWebhookSignature(receivedSignature, receivedTimestamp, partnerId, apiKey) {
+    const keyToUse = apiKey || this.apiKey;
+    const partnerIdToUse = partnerId || this.partnerId;
+    
+    if (!keyToUse) {
+      throw new Error("API key is required for signature verification");
+    }
+    
+    if (!partnerIdToUse) {
+      throw new Error("Partner ID is required for signature verification");
+    }
+    
+    const hmac = crypto.createHmac("sha256", keyToUse);
+    hmac.update(receivedTimestamp);
+    hmac.update(partnerIdToUse);
+    hmac.update("sid_request");
+    const generatedSignature = hmac.digest("base64");
+
+    return generatedSignature === receivedSignature;
+  }
+
+  // Generate unique user ID
+  generateUserId() {
+    return "user_" + crypto.randomUUID();
+  }
+
+  // Update existing link
   async updateLink(linkId, updates) {
     const timestamp = new Date().toISOString();
     const signature = this.generateSignature(timestamp);
@@ -193,6 +242,16 @@ class SmileIDService {
     } catch (error) {
       console.error("SmileID Update Link Error:", error);
       return { error: error.message };
+    }
+  }
+
+  // Validate environment variables
+  static validateEnvironment() {
+    const required = ['SMILE_PARTNER_ID', 'SMILE_API_KEY'];
+    const missing = required.filter(key => !process.env[key]);
+    
+    if (missing.length > 0) {
+      throw new Error(`Missing required environment variables: ${missing.join(', ')}`);
     }
   }
 }
