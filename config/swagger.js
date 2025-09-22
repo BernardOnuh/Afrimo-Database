@@ -29,7 +29,7 @@ const swaggerOptions = {
         description: 'Production server'
       },
       {
-        url: 'http://localhost:5000/api',
+        url: 'http://localhost:5001/api',
         description: 'Development server'
       }
     ],
@@ -513,7 +513,7 @@ const getSwaggerSpec = () => {
       description: 'Production server (Live)'
     },
     {
-      url: 'http://localhost:5000/api',
+      url: 'http://localhost:5001/api',
       description: 'Development server (Local)'
     }
   ];

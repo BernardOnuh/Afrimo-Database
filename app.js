@@ -87,12 +87,51 @@ console.log('======================================');
 
 // Enhanced CORS configuration
 const corsOptions = {
-  origin: true, // Allow all origins temporarily for debugging
+  origin: function (origin, callback) {
+    // Allow requests with no origin (like mobile apps or curl requests)
+    if (!origin) return callback(null, true);
+    
+    const allowedOrigins = [
+      'http://localhost:3000',
+      'http://localhost:3001', 
+      'http://localhost:5000',
+      'http://localhost:5001',
+      'http://localhost:8080',
+      'https://afrimobile-d240af77c383.herokuapp.com',
+      'https://www.afrimobil.com',
+      'https://afrimobil.com',
+      'https://www.afrimobiletech.com',
+      'https://afrimobiletech.com',
+      'https://your-frontend-domain.netlify.app',
+      // Add from environment variable
+      ...(process.env.ALLOWED_ORIGINS ? process.env.ALLOWED_ORIGINS.split(',') : [])
+    ];
+    
+    // In development, allow all localhost origins
+    if (AppConfig.IS_DEVELOPMENT) {
+      const localhostRegex = /^https?:\/\/localhost(:\d+)?$/;
+      if (localhostRegex.test(origin)) {
+        return callback(null, true);
+      }
+    }
+    
+    if (allowedOrigins.includes(origin)) {
+      callback(null, true);
+    } else {
+      console.log(`CORS blocked origin: ${origin}`);
+      // In development, allow it anyway
+      if (AppConfig.IS_DEVELOPMENT) {
+        callback(null, true);
+      } else {
+        callback(new Error('Not allowed by CORS'));
+      }
+    }
+  },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
   allowedHeaders: [
     'Origin',
-    'X-Requested-With', 
+    'X-Requested-With',
     'Content-Type',
     'Accept',
     'Authorization',
@@ -101,7 +140,9 @@ const corsOptions = {
     'X-API-Key',
     'X-Client-Version'
   ],
-  optionsSuccessStatus: 200
+  exposedHeaders: ['X-Total-Count', 'X-RateLimit-Remaining'],
+  optionsSuccessStatus: 200,
+  maxAge: 86400 // 24 hours
 };
 
 // Apply CORS middleware early - FIXED: Removed duplicate
