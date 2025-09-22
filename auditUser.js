@@ -9,6 +9,7 @@
  * node auditUser.js --name "Iprete Johnson O."
  * node auditUser.js --username "Ipresino"
  * node auditUser.js --id userId
+ * node auditUser.js --name "John Doe" --expected-pending 25000
  */
 
 const mongoose = require('mongoose');
@@ -109,7 +110,7 @@ function getStatusColor(status) {
 }
 
 // Main audit function
-async function auditUser(searchCriteria) {
+async function auditUser(searchCriteria, expectedPendingAmount = null) {
   try {
     console.log(`${colors.cyan}${colors.bright}🔍 USER BALANCE & WITHDRAWAL AUDIT${colors.reset}\n`);
 
@@ -123,6 +124,11 @@ async function auditUser(searchCriteria) {
     console.log(`${colors.yellow}⏳ Connecting to database...${colors.reset}`);
     await mongoose.connect(mongoUri, { useNewUrlParser: true, useUnifiedTopology: true });
     console.log(`${colors.green}✅ Connected to MongoDB${colors.reset}\n`);
+
+    // Show expected amount if provided
+    if (expectedPendingAmount !== null) {
+      console.log(`${colors.cyan}🎯 Expected pending amount: ${formatCurrency(expectedPendingAmount)}${colors.reset}\n`);
+    }
 
     // Find user with flexible search
     console.log(`${colors.blue}🔍 Searching for user...${colors.reset}`);
@@ -216,11 +222,15 @@ async function auditUser(searchCriteria) {
       console.log(`   Processing Withdrawals: ${formatCurrency(processingWithdrawals)}`);
       console.log(`   ${colors.bright}Available Balance: ${formatCurrency(calculatedBalance)}${colors.reset}`);
       
-      // Check for the reported ₦160,000 pending
-      if (pendingWithdrawals === 160000) {
-        console.log(`   ${colors.yellow}⚠️  CONFIRMED: ₦160,000 pending withdrawal matches database${colors.reset}`);
-      } else if (pendingWithdrawals > 0) {
-        console.log(`   ${colors.red}⚠️  DISCREPANCY: Database shows ${formatCurrency(pendingWithdrawals)} pending, not ₦160,000${colors.reset}`);
+      // Check for expected pending amount if provided
+      if (expectedPendingAmount !== null) {
+        if (pendingWithdrawals === expectedPendingAmount) {
+          console.log(`   ${colors.green}✅ CONFIRMED: ${formatCurrency(expectedPendingAmount)} pending withdrawal matches database${colors.reset}`);
+        } else if (pendingWithdrawals > 0) {
+          console.log(`   ${colors.red}⚠️  DISCREPANCY: Database shows ${formatCurrency(pendingWithdrawals)} pending, not ${formatCurrency(expectedPendingAmount)}${colors.reset}`);
+        } else {
+          console.log(`   ${colors.yellow}⚠️  Database shows no pending withdrawals, expected ${formatCurrency(expectedPendingAmount)}${colors.reset}`);
+        }
       }
     } else {
       console.log(`   ${colors.red}❌ No referral data found for this user${colors.reset}`);
@@ -316,14 +326,17 @@ async function auditUser(searchCriteria) {
         console.log(`   ${colors.green}✅ All balances reconcile correctly${colors.reset}`);
       }
 
-      // Special check for the reported ₦160,000
-      if (actualPendingTotal === 160000) {
-        console.log(`\n   ${colors.yellow}${colors.bright}🎯 REPORT VERIFICATION:${colors.reset}`);
-        console.log(`   ${colors.green}✅ CONFIRMED: ₦160,000 pending withdrawal found in database${colors.reset}`);
-        console.log(`   ${colors.blue}📋 This amount matches the reported issue${colors.reset}`);
-      } else if (actualPendingTotal > 0) {
-        console.log(`\n   ${colors.yellow}${colors.bright}🎯 REPORT VERIFICATION:${colors.reset}`);
-        console.log(`   ${colors.yellow}⚠️  Actual pending total is ${formatCurrency(actualPendingTotal)}, not ₦160,000${colors.reset}`);
+      // Special check for expected amount if provided
+      if (expectedPendingAmount !== null) {
+        console.log(`\n   ${colors.yellow}${colors.bright}🎯 EXPECTED AMOUNT VERIFICATION:${colors.reset}`);
+        if (actualPendingTotal === expectedPendingAmount) {
+          console.log(`   ${colors.green}✅ CONFIRMED: ${formatCurrency(expectedPendingAmount)} pending withdrawal found in database${colors.reset}`);
+          console.log(`   ${colors.blue}📋 This amount matches the expected value${colors.reset}`);
+        } else if (actualPendingTotal > 0) {
+          console.log(`   ${colors.yellow}⚠️  Actual pending total is ${formatCurrency(actualPendingTotal)}, not ${formatCurrency(expectedPendingAmount)}${colors.reset}`);
+        } else {
+          console.log(`   ${colors.red}❌ No pending withdrawals found, expected ${formatCurrency(expectedPendingAmount)}${colors.reset}`);
+        }
       }
     }
 
@@ -371,6 +384,16 @@ async function auditUser(searchCriteria) {
     console.log(`   Last Activity: ${allWithdrawals.length > 0 ? formatDate(allWithdrawals[0].createdAt) : 'No withdrawals'}`);
     console.log(`   Audit Status: ${oldPendingWithdrawals.length > 0 ? `${colors.red}REQUIRES ATTENTION${colors.reset}` : `${colors.green}OK${colors.reset}`}`);
 
+    // Show expected vs actual if provided
+    if (expectedPendingAmount !== null) {
+      const actualPending = allWithdrawals
+        .filter(w => w.status === 'pending')
+        .reduce((sum, w) => sum + w.amount, 0);
+      const matchStatus = actualPending === expectedPendingAmount ? 
+        `${colors.green}MATCH${colors.reset}` : `${colors.red}MISMATCH${colors.reset}`;
+      console.log(`   Expected vs Actual: ${formatCurrency(expectedPendingAmount)} vs ${formatCurrency(actualPending)} (${matchStatus})`);
+    }
+
   } catch (error) {
     console.error(`${colors.red}❌ Audit failed:${colors.reset}`, error.message);
   } finally {
@@ -395,6 +418,7 @@ function parseArgs() {
       case '--name': options.name = value; break;
       case '--username': options.username = value; break;
       case '--id': options.id = value; break;
+      case '--expected-pending': options.expectedPending = parseFloat(value); break;
       default: console.log(`${colors.yellow}Unknown parameter: ${key}${colors.reset}`); break;
     }
   }
@@ -407,12 +431,15 @@ function showUsage() {
   console.log(`${colors.cyan}${colors.bright}User Balance & Withdrawal Audit Tool${colors.reset}`);
   console.log(`${colors.cyan}Usage:${colors.reset}`);
   console.log('  node auditUser.js --email user@example.com');
-  console.log('  node auditUser.js --name "Iprete Johnson O."');
-  console.log('  node auditUser.js --username "Ipresino"');
+  console.log('  node auditUser.js --name "John Doe"');
+  console.log('  node auditUser.js --username "johndoe"');
   console.log('  node auditUser.js --id 65a5b8c9d1e2f3g4h5i6j7k8');
-  console.log(`\n${colors.yellow}For the reported case:${colors.reset}`);
-  console.log('  node auditUser.js --name "Iprete Johnson O."');
-  console.log('  node auditUser.js --username "Ipresino"');
+  console.log(`\n${colors.yellow}With expected pending amount:${colors.reset}`);
+  console.log('  node auditUser.js --name "John Doe" --expected-pending 25000');
+  console.log('  node auditUser.js --email user@example.com --expected-pending 50000');
+  console.log(`\n${colors.cyan}Examples:${colors.reset}`);
+  console.log('  node auditUser.js --name "Iprete Johnson O." --expected-pending 160000');
+  console.log('  node auditUser.js --username "Ipresino" --expected-pending 75000');
 }
 
 // Main execution
@@ -423,13 +450,7 @@ if (!options.email && !options.name && !options.username && !options.id) {
   process.exit(1);
 }
 
-// Special handling for the reported case
-if (!options.email && !options.name && !options.username && !options.id) {
-  console.log(`${colors.cyan}Running audit for reported case: Iprete Johnson O. (@Ipresino)${colors.reset}\n`);
-  options.name = "Iprete Johnson O.";
-}
-
-auditUser(options).then(() => {
+auditUser(options, options.expectedPending).then(() => {
   console.log(`\n${colors.green}✅ Audit completed successfully${colors.reset}`);
   process.exit(0);
 }).catch((error) => {
