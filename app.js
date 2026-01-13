@@ -81,6 +81,7 @@ console.log('======================================');
 console.log(`NODE_ENV: ${AppConfig.NODE_ENV}`);
 console.log(`LENCO_API_KEY configured: ${process.env.LENCO_API_KEY ? 'Yes' : 'No'}`);
 console.log(`MONGODB_URI configured: ${process.env.MONGODB_URI ? 'Yes' : 'No'}`);
+console.log(`BNB_RPC_URL configured: ${process.env.BNB_RPC_URL ? 'Yes' : 'No'}`);
 console.log(`Storage Method: MongoDB + Legacy File System`);
 console.log(`Enhanced Features: Logging, Compression, Security`);
 console.log('======================================');
@@ -624,7 +625,9 @@ app.get('/api/system/info', (req, res) => {
       'Enhanced Security Headers',
       'Compression Support',
       'Health Monitoring',
-      'Auto-Reconnection'
+      'Auto-Reconnection',
+      'Crypto Withdrawal System',
+      'Automated USDT Processing'
     ],
     database: {
       connected: mongoose.connection.readyState === 1,
@@ -649,7 +652,8 @@ app.get('/', (req, res) => {
       compression: true,
       healthMonitoring: !!global.healthMonitor,
       requestTracing: true,
-      enhancedSecurity: true
+      enhancedSecurity: true,
+      cryptoWithdrawals: true
     },
     endpoints: {
       health: '/api/system/health-status',
@@ -871,6 +875,236 @@ async function startApp() {
           logger.error('Admin setup failed', { error: error.message });
         }
         
+        // ========== START CRYPTO WITHDRAWAL CRON JOBS (NEW) ==========
+        try {
+          const User = require('./models/User');
+          const Withdrawal = require('./models/Withdrawal');
+          const Referral = require('./models/Referral');
+          const ReferralTransaction = require('./models/ReferralTransaction');
+          const Payment = require('./models/Payment');
+          const { sendEmail } = require('./utils/emailService');
+          const ethers = require('ethers');
+          const mongoose = require('mongoose');
+
+          const BNB_CONFIG = {
+            rpcUrl: process.env.BNB_RPC_URL || 'https://bsc-dataseed.binance.org/',
+            chainId: 56,
+            USDT_CONTRACT: '0x55d398326f99059fF775485246999027B3197955',
+            USDT_DECIMALS: 18
+          };
+
+          // ========== PROCESS CRYPTO WITHDRAWALS CRON JOB (Every 5 minutes) ==========
+          const processCryptoCron = {
+            job: cron.schedule('*/5 * * * *', async () => {
+              try {
+                console.log('[CRYPTO-CRON] Starting crypto withdrawal processing...');
+                logger.info('[CRYPTO-CRON] Processing pending crypto withdrawals');
+
+                if (!global.adminCryptoWallet) {
+                  console.log('[CRYPTO-CRON] Admin wallet not configured, skipping processing');
+                  return;
+                }
+
+                const pending = await Withdrawal.find({
+                  withdrawalType: 'crypto',
+                  status: 'pending'
+                }).limit(10);
+
+                if (pending.length === 0) {
+                  console.log('[CRYPTO-CRON] No pending crypto withdrawals');
+                  return;
+                }
+
+                console.log(`[CRYPTO-CRON] Found ${pending.length} pending withdrawals`);
+
+                const provider = new ethers.providers.JsonRpcProvider(BNB_CONFIG.rpcUrl);
+                const privateKey = Buffer.from(global.adminCryptoWallet.encryptedPrivateKey, 'base64').toString();
+                const signer = new ethers.Wallet(privateKey, provider);
+
+                let processed = 0;
+                let failed = 0;
+
+                for (const withdrawal of pending) {
+                  try {
+                    console.log(`[CRYPTO-CRON] Processing withdrawal ${withdrawal._id}...`);
+                    withdrawal.status = 'processing';
+                    await withdrawal.save();
+
+                    const usdtContract = new ethers.Contract(
+                      BNB_CONFIG.USDT_CONTRACT,
+                      [
+                        'function transfer(address to, uint256 amount) public returns (bool)',
+                        'function balanceOf(address) view returns (uint256)'
+                      ],
+                      signer
+                    );
+
+                    const amountWei = ethers.utils.parseUnits(
+                      withdrawal.cryptoDetails.amountUSDT.toString(),
+                      BNB_CONFIG.USDT_DECIMALS
+                    );
+
+                    const balance = await usdtContract.balanceOf(signer.address);
+                    if (balance.lt(amountWei)) {
+                      throw new Error('Insufficient USDT balance in admin wallet');
+                    }
+
+                    const tx = await usdtContract.transfer(withdrawal.cryptoDetails.walletAddress, amountWei);
+                    const receipt = await tx.wait();
+
+                    withdrawal.status = 'paid';
+                    withdrawal.cryptoDetails.transactionHash = receipt.transactionHash;
+                    withdrawal.cryptoDetails.blockNumber = receipt.blockNumber;
+                    withdrawal.processedAt = new Date();
+                    await withdrawal.save();
+
+                    await Referral.findOneAndUpdate(
+                      { user: withdrawal.user },
+                      {
+                        $inc: {
+                          pendingWithdrawals: -withdrawal.amount,
+                          totalWithdrawn: withdrawal.amount
+                        }
+                      }
+                    );
+
+                    const transaction = new ReferralTransaction({
+                      user: withdrawal.user,
+                      type: 'crypto_withdrawal',
+                      amount: -withdrawal.amount,
+                      description: `USDT withdrawal: ${withdrawal.cryptoDetails.amountUSDT} USDT to ${withdrawal.cryptoDetails.walletAddress}`,
+                      status: 'completed',
+                      reference: receipt.transactionHash
+                    });
+                    await transaction.save();
+
+                    const user = await User.findById(withdrawal.user);
+                    try {
+                      await sendEmail({
+                        email: user.email,
+                        subject: '✅ Crypto Withdrawal Completed!',
+                        html: `
+                          <h2>Your Withdrawal Has Been Sent!</h2>
+                          <p>Hello ${user.name},</p>
+                          <p>Your ${withdrawal.cryptoDetails.amountUSDT} USDT withdrawal has been successfully transferred.</p>
+                          <p><strong>Transaction Hash:</strong> <code>${receipt.transactionHash}</code></p>
+                          <p><strong>Recipient Wallet:</strong> <code>${withdrawal.cryptoDetails.walletAddress}</code></p>
+                          <p><strong>Amount in NGN:</strong> ₦${withdrawal.amount.toLocaleString()}</p>
+                          <p>You can view the transaction on <a href="https://bscscan.com/tx/${receipt.transactionHash}">BscScan</a></p>
+                          <p>Thank you for using AfriMobile!</p>
+                        `
+                      });
+                    } catch (emailError) {
+                      console.error('[CRYPTO-CRON] Failed to send email:', emailError.message);
+                      logger.warn('[CRYPTO-CRON] Email notification failed', { error: emailError.message });
+                    }
+
+                    console.log(`[CRYPTO-CRON] ✅ Processed withdrawal ${withdrawal._id}`);
+                    processed++;
+                  } catch (error) {
+                    console.error(`[CRYPTO-CRON] ❌ Failed to process ${withdrawal._id}:`, error.message);
+                    logger.error('[CRYPTO-CRON] Failed to process withdrawal', {
+                      withdrawalId: withdrawal._id,
+                      error: error.message
+                    });
+
+                    withdrawal.status = 'failed';
+                    withdrawal.failureReason = error.message;
+                    await withdrawal.save();
+
+                    await Referral.findOneAndUpdate(
+                      { user: withdrawal.user },
+                      { $inc: { pendingWithdrawals: -withdrawal.amount } }
+                    );
+
+                    failed++;
+                  }
+                }
+
+                console.log(`[CRYPTO-CRON] Completed: ${processed} success, ${failed} failed`);
+                logger.info('[CRYPTO-CRON] Processing cycle completed', { processed, failed });
+              } catch (error) {
+                console.error('[CRYPTO-CRON] Error in crypto processing cron:', error.message);
+                logger.error('[CRYPTO-CRON] Cron job error', { error: error.message, stack: error.stack });
+              }
+            }),
+            start: function() {
+              console.log('[CRYPTO-CRON] Crypto processing job started (every 5 minutes)');
+            },
+            stop: function() {
+              this.job.stop();
+              console.log('[CRYPTO-CRON] Crypto processing job stopped');
+            }
+          };
+
+          // ========== VERIFY CRYPTO TRANSACTIONS CRON JOB (Every hour) ==========
+          const verifyCryptoCron = {
+            job: cron.schedule('0 * * * *', async () => {
+              try {
+                console.log('[CRYPTO-CRON] Starting transaction verification...');
+                logger.info('[CRYPTO-CRON] Verifying paid crypto withdrawals');
+
+                const provider = new ethers.providers.JsonRpcProvider(BNB_CONFIG.rpcUrl);
+
+                const paidWithdrawals = await Withdrawal.find({
+                  withdrawalType: 'crypto',
+                  status: 'paid',
+                  'cryptoDetails.transactionHash': { $exists: true }
+                }).limit(20);
+
+                console.log(`[CRYPTO-CRON] Verifying ${paidWithdrawals.length} transactions`);
+
+                for (const withdrawal of paidWithdrawals) {
+                  try {
+                    const receipt = await provider.getTransactionReceipt(withdrawal.cryptoDetails.transactionHash);
+
+                    if (receipt) {
+                      if (receipt.status === 1) {
+                        withdrawal.cryptoDetails.blockNumber = receipt.blockNumber;
+                        await withdrawal.save();
+                        console.log(`[CRYPTO-CRON] ✅ Verified transaction ${withdrawal._id}`);
+                      } else if (receipt.status === 0) {
+                        console.log(`[CRYPTO-CRON] ⚠️ Transaction failed for ${withdrawal._id}`);
+                        withdrawal.status = 'failed';
+                        withdrawal.failureReason = 'Transaction failed on blockchain';
+                        await withdrawal.save();
+                      }
+                    }
+                  } catch (error) {
+                    console.error(`[CRYPTO-CRON] Error verifying ${withdrawal._id}:`, error.message);
+                  }
+                }
+
+                console.log('[CRYPTO-CRON] Verification cycle completed');
+                logger.info('[CRYPTO-CRON] Transaction verification completed', { 
+                  count: paidWithdrawals.length 
+                });
+              } catch (error) {
+                console.error('[CRYPTO-CRON] Error in verification cron:', error.message);
+                logger.error('[CRYPTO-CRON] Verification cron error', { error: error.message });
+              }
+            }),
+            start: function() {
+              console.log('[CRYPTO-CRON] Verification job started (every 1 hour)');
+            },
+            stop: function() {
+              this.job.stop();
+              console.log('[CRYPTO-CRON] Verification job stopped');
+            }
+          };
+
+          // Add crypto jobs to manager
+          jobsManager.addJob('processCryptoWithdrawals', processCryptoCron);
+          jobsManager.addJob('verifyCryptoTransactions', verifyCryptoCron);
+
+          console.log('✅ Crypto withdrawal cron jobs initialized');
+          logger.info('Crypto withdrawal cron jobs initialized successfully');
+        } catch (error) {
+          console.error('❌ Error initializing crypto cron jobs:', error.message);
+          logger.error('Failed to initialize crypto cron jobs', { error: error.message });
+        }
+        // ========== END CRYPTO WITHDRAWAL CRON JOBS ==========
+
         // Start withdrawal verification cron jobs
         try {
           const withdrawalCronJobs = require('./withdrawalCronJobs');
@@ -879,11 +1113,11 @@ async function startApp() {
           
           withdrawalCronJobs.verifyProcessingWithdrawals.start();
           withdrawalCronJobs.verifyPendingWithdrawals.start();
-          console.log('✅ Withdrawal cron jobs started');
-          logger.info('Withdrawal verification jobs started');
+          console.log('✅ Bank withdrawal cron jobs started');
+          logger.info('Bank withdrawal verification jobs started');
         } catch (error) {
-          console.error('❌ Error starting withdrawal cron jobs:', error.message);
-          logger.error('Failed to start withdrawal cron jobs', { error: error.message });
+          console.error('❌ Error starting bank withdrawal cron jobs:', error.message);
+          logger.error('Failed to start bank withdrawal cron jobs', { error: error.message });
         }
         
         // Start installment and referral jobs if in production
@@ -1039,7 +1273,7 @@ function displayEnhancedStartupInfo() {
     : `http://localhost:${AppConfig.PORT}`;
 
   console.log('\n' + '='.repeat(80));
-  console.log('🚀 AFRIMOBILE API - ENHANCED VERSION 2.0');
+  console.log('🚀 AFRIMOBILE API - ENHANCED VERSION 2.0 (with Crypto Withdrawals)');
   console.log('='.repeat(80));
   console.log(`Environment: ${AppConfig.NODE_ENV}`);
   console.log(`Process ID: ${process.pid}`);
@@ -1056,6 +1290,13 @@ function displayEnhancedStartupInfo() {
   console.log(`   API Documentation: ${baseUrl}/api-docs`);
   console.log(`   CORS Test: ${baseUrl}/api/cors-test`);
   console.log(`   Simple Test: ${baseUrl}/api/simple-test`);
+  console.log('='.repeat(80));
+  console.log('💰 CRYPTO WITHDRAWAL ENDPOINTS:');
+  console.log(`   Exchange Rates: ${baseUrl}/api/withdrawal/crypto/rates`);
+  console.log(`   Setup Wallet: POST ${baseUrl}/api/withdrawal/crypto/wallet/setup`);
+  console.log(`   Request Withdrawal: POST ${baseUrl}/api/withdrawal/crypto/request`);
+  console.log(`   Withdrawal History: ${baseUrl}/api/withdrawal/crypto/history`);
+  console.log(`   Admin Panel: POST ${baseUrl}/api/withdrawal/admin/crypto/wallet/setup`);
   console.log('='.repeat(80));
   console.log('📁 FILE SERVING:');
   console.log(`   General Uploads: ${baseUrl}/uploads/`);
@@ -1076,15 +1317,20 @@ function displayEnhancedStartupInfo() {
   console.log('   ✅ Fixed CORS Configuration');
   console.log('   ✅ Increased Rate Limits');
   console.log('   ✅ Database-Independent Test Endpoints');
+  console.log('   ✅ Crypto Withdrawal System (NEW)');
+  console.log('   ✅ Automated USDT Processing (NEW)');
+  console.log('   ✅ BNB Smart Chain Integration (NEW)');
   console.log('='.repeat(80));
   
   const dbStatus = mongoose.connection.readyState === 1 ? 'Connected' : 'Disconnected';
   const healthStatus = global.healthMonitor ? 'Active' : 'Inactive';
   const jobsStatus = jobsManager.isRunning ? 'Running' : 'Stopped';
+  const adminWallet = global.adminCryptoWallet ? 'Configured' : 'Not Configured';
   
   console.log(`🎯 DATABASE: ${dbStatus}`);
   console.log(`🏥 HEALTH MONITOR: ${healthStatus}`);
   console.log(`🔄 BACKGROUND JOBS: ${jobsStatus}`);
+  console.log(`💼 ADMIN CRYPTO WALLET: ${adminWallet}`);
   console.log(`📊 MEMORY USAGE: ${Math.round(process.memoryUsage().heapUsed / 1024 / 1024)}MB`);
   console.log('='.repeat(80));
   
@@ -1101,6 +1347,7 @@ function displayEnhancedStartupInfo() {
     console.log('   📊 Performance monitoring active');
     console.log('   🗜️ Response compression enabled');
     console.log('   🛡️ Rate limiting enforced');
+    console.log('   🤖 Automated crypto withdrawal processing');
   }
   
   console.log('='.repeat(80) + '\n');
@@ -1165,6 +1412,10 @@ const EnhancedUtils = {
       health: {
         monitor: !!global.healthMonitor,
         status: global.healthMonitor ? 'active' : 'inactive'
+      },
+      crypto: {
+        adminWalletConfigured: !!global.adminCryptoWallet,
+        processingEnabled: !!global.adminCryptoWallet
       }
     };
   }
