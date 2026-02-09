@@ -557,6 +557,7 @@ app.use('/api/withdrawal', require('./routes/withdrawalRoutes'));
 app.use('/api/exchange-rates', require('./routes/exchangeRateRoutes'));
 app.use('/api/shares/installment', require('./routes/installmentRoutes'));
 app.use('/api/shares/cofounder/installment', require('./routes/coFounderInstallmentRoutes'));
+app.use('/api/share-packages', require('./routes/sharePackageRoutes'));
 
 // Enhanced Health Monitor System Endpoints
 app.get('/api/system/health-status', async (req, res) => {
