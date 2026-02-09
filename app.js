@@ -555,8 +555,9 @@ app.use('/api/admin/referrals', require('./routes/adminReferralRoutes'));
 app.use('/api/payment', require('./routes/paymentRoutes'));
 app.use('/api/withdrawal', require('./routes/withdrawalRoutes'));
 app.use('/api/exchange-rates', require('./routes/exchangeRateRoutes'));
-app.use('/api/shares/installment', require('./routes/installmentRoutes'));
-app.use('/api/shares/cofounder/installment', require('./routes/coFounderInstallmentRoutes'));
+// DISABLED: Installment payment functionality removed (Feb 2026)
+// app.use('/api/shares/installment', require('./routes/installmentRoutes'));
+// app.use('/api/shares/cofounder/installment', require('./routes/coFounderInstallmentRoutes'));
 app.use('/api/share-packages', require('./routes/sharePackageRoutes'));
 
 // Enhanced Health Monitor System Endpoints
@@ -1124,15 +1125,12 @@ async function startApp() {
         // Start installment and referral jobs if in production
         if (AppConfig.IS_PRODUCTION) {
           try {
-            // Installment scheduler
-            const installmentScheduler = require('./utils/installmentScheduler');
-            installmentScheduler.scheduleInstallmentPenalties();
-            console.log('✅ Installment penalty scheduler initialized');
-            
-            // Co-founder installment scheduler
-            const coFounderInstallmentScheduler = require('./utils/coFounderInstallmentScheduler');
-            coFounderInstallmentScheduler.scheduleCoFounderInstallmentPenalties();
-            console.log('✅ Co-founder installment penalty scheduler initialized');
+            // DISABLED: Installment schedulers removed (Feb 2026)
+            // const installmentScheduler = require('./utils/installmentScheduler');
+            // installmentScheduler.scheduleInstallmentPenalties();
+            // const coFounderInstallmentScheduler = require('./utils/coFounderInstallmentScheduler');
+            // coFounderInstallmentScheduler.scheduleCoFounderInstallmentPenalties();
+            console.log('ℹ️ Installment schedulers disabled');
             
             // Referral sync jobs
             const referralCronJobs = require('./referralCronJobs');

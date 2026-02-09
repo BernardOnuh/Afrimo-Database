@@ -108,41 +108,30 @@ exports.getProjectStats = async (req, res) => {
     const cofounderValueNaira = cofounderShareConfig ? cofounderShareConfig.pricing.priceNaira * actualCoFounderSharesSold : 0;
     const cofounderValueUSDT = cofounderShareConfig ? cofounderShareConfig.pricing.priceUSDT * actualCoFounderSharesSold : 0;
 
+    // Get new tier config for percentage display
+    const tierConfig = Share.getTierConfig();
+
     res.status(200).json({
       success: true,
       stats: {
         users: {
           total: totalUsers,
           totalShareHolders: usAgg.totalShareholders,
-          regularShareHolders: usAgg.usersWithRegular,
-          cofounderShareHolders: usAgg.usersWithCofounder
+          regularShareHolders: usAgg.usersWithRegular
         },
-        regularShares: {
-          directSold: totalDirectSharesSold,
-          actualSoldToUsers: usAgg.totalRegularShares,
-          available: tierAvailability.tier1 + tierAvailability.tier2 + tierAvailability.tier3,
-          total: shareConfig.totalShares,
+        shares: {
+          totalPercentageSold: shareConfig.totalPercentageSold || 0,
           tierSales: shareConfig.tierSales,
-          tierAvailability
-        },
-        cofounderShares: {
-          configSold: cofounderShareConfig?.sharesSold || 0,
-          actualSold: actualCoFounderSharesSold,
-          actualOwnedByUsers: usAgg.totalCofounderShares,
-          available: cofounderShareConfig ? cofounderShareConfig.totalShares - actualCoFounderSharesSold : 0,
-          total: cofounderShareConfig ? cofounderShareConfig.totalShares : 0,
-          equivalentRegularShares: equivalentRegularSharesFromCoFounder,
-          shareToRegularRatio
+          tiers: tierConfig
         },
         combinedAnalysis: {
           totalEffectiveSharesSold,
           totalEffectiveSharesAvailable,
-          percentageSold: ((totalEffectiveSharesSold / shareConfig.totalShares) * 100).toFixed(2),
-          cofounderAllocation: cfAlloc
+          percentageSold: ((totalEffectiveSharesSold / shareConfig.totalShares) * 100).toFixed(2)
         },
         totalValues: {
-          naira: { regularShares: regularShareValueNaira, cofounderShares: cofounderValueNaira, total: regularShareValueNaira + cofounderValueNaira },
-          usdt: { regularShares: regularShareValueUSDT, cofounderShares: cofounderValueUSDT, total: regularShareValueUSDT + cofounderValueUSDT }
+          naira: { total: regularShareValueNaira + cofounderValueNaira },
+          usdt: { total: regularShareValueUSDT + cofounderValueUSDT }
         }
       }
     });

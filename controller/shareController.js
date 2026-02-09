@@ -19,155 +19,42 @@ const generateTransactionId = () => {
   return `TXN-${crypto.randomBytes(4).toString('hex').toUpperCase()}-${Date.now().toString().slice(-6)}`;
 };
 
-// Get current share pricing and availability
+// Get current share pricing and availability (NEW TIER SYSTEM)
 exports.getShareInfo = async (req, res) => {
   try {
+    const tiers = Share.getTierConfig();
     const shareConfig = await Share.getCurrentConfig();
     
-    // Get co-founder share configuration
-    const coFounderConfig = await CoFounderShare.findOne();
-    const shareToRegularRatio = coFounderConfig?.shareToRegularRatio || 29;
-    const coFounderSharesSold = coFounderConfig?.sharesSold || 0;
+    // Build tier info with sales data and percentage format
+    const regularTiers = {};
+    const cofounderTiers = {};
     
-    // CRITICAL FIX: Calculate equivalent regular shares from co-founder purchases
-    const equivalentRegularSharesFromCoFounder = coFounderSharesSold * shareToRegularRatio;
-    
-    console.log('Share calculation debug:', {
-      coFounderSharesSold,
-      shareToRegularRatio,
-      equivalentRegularSharesFromCoFounder,
-      directRegularSharesSold: shareConfig.sharesSold,
-      tier1DirectSold: shareConfig.tierSales.tier1Sold,
-      tier2DirectSold: shareConfig.tierSales.tier2Sold,
-      tier3DirectSold: shareConfig.tierSales.tier3Sold
-    });
-    
-    // FIXED: Allocate co-founder equivalent shares across tiers (starting from tier1)
-    let remainingCoFounderShares = equivalentRegularSharesFromCoFounder;
-    
-    // Calculate tier-specific allocations of co-founder equivalent shares
-    let coFounderAllocatedToTier1 = 0;
-    let coFounderAllocatedToTier2 = 0;
-    let coFounderAllocatedToTier3 = 0;
-    
-    // Allocate co-founder equivalent shares starting from tier1
-    if (remainingCoFounderShares > 0) {
-      const tier1Capacity = shareConfig.currentPrices.tier1.shares;
-      const tier1DirectUsed = shareConfig.tierSales.tier1Sold;
-      const tier1Available = tier1Capacity - tier1DirectUsed;
+    Object.entries(tiers).forEach(([key, tier]) => {
+      const sold = shareConfig.tierSales[`${key}Sold`] || 0;
+      const tierInfo = {
+        ...tier,
+        sold,
+        percentSold: (sold * tier.percentPerShare).toFixed(6) + '%'
+      };
       
-      coFounderAllocatedToTier1 = Math.min(remainingCoFounderShares, tier1Available);
-      remainingCoFounderShares -= coFounderAllocatedToTier1;
-    }
-    
-    if (remainingCoFounderShares > 0) {
-      const tier2Capacity = shareConfig.currentPrices.tier2.shares;
-      const tier2DirectUsed = shareConfig.tierSales.tier2Sold;
-      const tier2Available = tier2Capacity - tier2DirectUsed;
-      
-      coFounderAllocatedToTier2 = Math.min(remainingCoFounderShares, tier2Available);
-      remainingCoFounderShares -= coFounderAllocatedToTier2;
-    }
-    
-    if (remainingCoFounderShares > 0) {
-      const tier3Capacity = shareConfig.currentPrices.tier3.shares;
-      const tier3DirectUsed = shareConfig.tierSales.tier3Sold;
-      const tier3Available = tier3Capacity - tier3DirectUsed;
-      
-      coFounderAllocatedToTier3 = Math.min(remainingCoFounderShares, tier3Available);
-      remainingCoFounderShares -= coFounderAllocatedToTier3;
-    }
-    
-    // FIXED: Calculate actual availability after deducting co-founder equivalent shares
-    const tier1ActualAvailable = Math.max(0, 
-      shareConfig.currentPrices.tier1.shares - 
-      shareConfig.tierSales.tier1Sold - 
-      coFounderAllocatedToTier1
-    );
-    
-    const tier2ActualAvailable = Math.max(0, 
-      shareConfig.currentPrices.tier2.shares - 
-      shareConfig.tierSales.tier2Sold - 
-      coFounderAllocatedToTier2
-    );
-    
-    const tier3ActualAvailable = Math.max(0, 
-      shareConfig.currentPrices.tier3.shares - 
-      shareConfig.tierSales.tier3Sold - 
-      coFounderAllocatedToTier3
-    );
-    
-    // Calculate totals
-    const totalDirectSharesSold = shareConfig.sharesSold;
-    const totalEffectiveSharesSold = totalDirectSharesSold + equivalentRegularSharesFromCoFounder;
-    const totalActualAvailable = tier1ActualAvailable + tier2ActualAvailable + tier3ActualAvailable;
-    
-    console.log('Availability calculation:', {
-      tier1ActualAvailable,
-      tier2ActualAvailable, 
-      tier3ActualAvailable,
-      totalActualAvailable,
-      coFounderAllocations: {
-        tier1: coFounderAllocatedToTier1,
-        tier2: coFounderAllocatedToTier2,
-        tier3: coFounderAllocatedToTier3
+      if (tier.type === 'regular') {
+        regularTiers[key] = tierInfo;
+      } else {
+        cofounderTiers[key] = tierInfo;
       }
     });
-    
+
     const response = {
       success: true,
+      tiers,
+      regularTiers,
+      cofounderTiers,
+      totalPercentageSold: shareConfig.totalPercentageSold || 0,
+      tierSales: shareConfig.tierSales,
+      // Legacy compatibility
       pricing: shareConfig.currentPrices,
-      availability: {
-        tier1: tier1ActualAvailable,
-        tier2: tier2ActualAvailable,
-        tier3: tier3ActualAvailable,
-      },
-      totalAvailable: totalActualAvailable,
-      
-      // ENHANCED: Detailed breakdown for debugging
-      shareBreakdown: {
-        totalRegularShares: shareConfig.totalShares,
-        directRegularSharesSold: totalDirectSharesSold,
-        coFounderSharesSold: coFounderSharesSold,
-        equivalentRegularFromCoFounder: equivalentRegularSharesFromCoFounder,
-        totalEffectiveSharesSold: totalEffectiveSharesSold,
-        actualRemaining: totalActualAvailable,
-        
-        // Tier-specific breakdown
-        tierBreakdown: {
-          tier1: {
-            capacity: shareConfig.currentPrices.tier1.shares,
-            directSold: shareConfig.tierSales.tier1Sold,
-            coFounderAllocated: coFounderAllocatedToTier1,
-            totalUsed: shareConfig.tierSales.tier1Sold + coFounderAllocatedToTier1,
-            available: tier1ActualAvailable
-          },
-          tier2: {
-            capacity: shareConfig.currentPrices.tier2.shares,
-            directSold: shareConfig.tierSales.tier2Sold,
-            coFounderAllocated: coFounderAllocatedToTier2,
-            totalUsed: shareConfig.tierSales.tier2Sold + coFounderAllocatedToTier2,
-            available: tier2ActualAvailable
-          },
-          tier3: {
-            capacity: shareConfig.currentPrices.tier3.shares,
-            directSold: shareConfig.tierSales.tier3Sold,
-            coFounderAllocated: coFounderAllocatedToTier3,
-            totalUsed: shareConfig.tierSales.tier3Sold + coFounderAllocatedToTier3,
-            available: tier3ActualAvailable
-          }
-        }
-      },
-      
-      coFounderComparison: {
-        shareToRegularRatio: shareToRegularRatio,
-        explanation: `${shareToRegularRatio} Regular Shares = 1 Co-Founder Share`,
-        coFounderPricing: coFounderConfig ? {
-          priceNaira: coFounderConfig.pricing.priceNaira,
-          priceUSDT: coFounderConfig.pricing.priceUSDT
-        } : null,
-        coFounderSharesSold: coFounderSharesSold,
-        equivalentRegularShares: equivalentRegularSharesFromCoFounder
+      centiivConfig: {
+        enabled: shareConfig.centiivConfig.enabled
       }
     };
     
@@ -183,10 +70,10 @@ exports.getShareInfo = async (req, res) => {
 };
 
 
-// Calculate purchase details before payment
+// Calculate purchase details before payment (NEW TIER SYSTEM)
 exports.calculatePurchase = async (req, res) => {
   try {
-    const { quantity, currency } = req.body;
+    const { quantity, currency, tier } = req.body;
     
     if (!quantity || !currency || !['naira', 'usdt'].includes(currency)) {
       return res.status(400).json({
@@ -194,43 +81,21 @@ exports.calculatePurchase = async (req, res) => {
         message: 'Invalid request. Please provide valid quantity and currency (naira or usdt).'
       });
     }
-    
-    const purchaseDetails = await Share.calculatePurchase(parseInt(quantity), currency);
+
+    const selectedTier = tier || 'standard';
+    const purchaseDetails = await Share.calculatePurchase(parseInt(quantity), currency, selectedTier);
     
     if (!purchaseDetails.success) {
       return res.status(400).json({
         success: false,
-        message: 'Unable to process this purchase amount.',
+        message: purchaseDetails.message || 'Unable to process this purchase amount.',
         details: purchaseDetails
       });
     }
     
-    // Get co-founder share ratio for comparison
-    const coFounderConfig = await CoFounderShare.findOne();
-    const shareToRegularRatio = coFounderConfig?.shareToRegularRatio || 29;
-    
-    // FIXED: Calculate co-founder share equivalence more clearly
-    const totalRegularShares = purchaseDetails.totalShares;
-    const equivalentCoFounderShares = Math.floor(totalRegularShares / shareToRegularRatio);
-    const remainingRegularShares = totalRegularShares % shareToRegularRatio;
-    
-    // Enhanced purchase details with co-founder comparison
-    const enhancedPurchaseDetails = {
-      ...purchaseDetails,
-      coFounderEquivalence: {
-        equivalentCoFounderShares: equivalentCoFounderShares,
-        remainingRegularShares: remainingRegularShares,
-        shareToRegularRatio: shareToRegularRatio,
-        explanation: equivalentCoFounderShares > 0 ? 
-          `${totalRegularShares} regular shares = ${equivalentCoFounderShares} co-founder share${equivalentCoFounderShares !== 1 ? 's' : ''}${remainingRegularShares > 0 ? ` + ${remainingRegularShares} regular share${remainingRegularShares !== 1 ? 's' : ''}` : ''}` :
-          `${totalRegularShares} regular share${totalRegularShares !== 1 ? 's' : ''} (need ${shareToRegularRatio - totalRegularShares} more for 1 co-founder share equivalent)`,
-        comparisonNote: `Note: ${shareToRegularRatio} regular shares = 1 co-founder share in terms of value and voting power`
-      }
-    };
-    
     res.status(200).json({
       success: true,
-      purchaseDetails: enhancedPurchaseDetails
+      purchaseDetails
     });
   } catch (error) {
     console.error('Error calculating purchase:', error);
