@@ -9,11 +9,15 @@ class SmileIDService {
     this.environment = process.env.SMILE_ENVIRONMENT || "sandbox";
     
     if (!this.partnerId) {
-      throw new Error("SMILE_PARTNER_ID environment variable is required");
+      console.warn("⚠️ SMILE_PARTNER_ID not set - KYC features will be disabled");
+      this.disabled = true;
+      return;
     }
     
     if (!this.apiKey) {
-      throw new Error("SMILE_API_KEY environment variable is required");
+      console.warn("⚠️ SMILE_API_KEY not set - KYC features will be disabled");
+      this.disabled = true;
+      return;
     }
     
     this.baseUrl =
