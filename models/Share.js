@@ -180,7 +180,15 @@ shareSchema.statics.getCurrentConfig = async function() {
 // Calculate purchase for a specific tier
 shareSchema.statics.calculatePurchase = async function(quantity, currency, tier = 'standard') {
   try {
-    const tierConfig = SHARE_TIERS[tier];
+    // Try to load dynamic tier config from DB, fall back to SHARE_TIERS
+    let tierConfig;
+    try {
+      const TierConfig = require('./TierConfig');
+      const dbTiers = await TierConfig.getTiersObject();
+      tierConfig = dbTiers[tier] || SHARE_TIERS[tier];
+    } catch (e) {
+      tierConfig = SHARE_TIERS[tier];
+    }
     if (!tierConfig) {
       return {
         success: false,
