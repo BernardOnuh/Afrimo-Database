@@ -129,11 +129,11 @@ exports.calculatePurchase = async (req, res) => {
 
 exports.initiateCentiivPayment = async (req, res) => {
   try {
-    const { quantity, email, customerName } = req.body;
+    const { quantity, email, customerName, tier } = req.body;
     const userId = req.user.id;
     
     console.log('🚀 [Centiiv] Payment initiation started:', {
-      userId, quantity, email, customerName
+      userId, quantity, email, customerName, tier
     });
     
     if (!quantity || !email || !customerName) {
@@ -152,7 +152,7 @@ exports.initiateCentiivPayment = async (req, res) => {
     console.log('🔧 [Centiiv] Base URL:', baseUrl);
     
     // Calculate purchase
-    const purchaseDetails = await Share.calculatePurchase(parseInt(quantity), 'naira');
+    const purchaseDetails = await Share.calculatePurchase(parseInt(quantity), 'naira', tier || 'standard');
     
     console.log('💰 [Centiiv] Purchase details:', {
       success: purchaseDetails.success,
@@ -649,7 +649,7 @@ exports.updateCompanyWallet = async (req, res) => {
  */
 exports.verifyWeb3Transaction = async (req, res) => {
   try {
-    const { quantity, txHash, walletAddress } = req.body;
+    const { quantity, txHash, walletAddress, tier } = req.body;
     const userId = req.user.id;
     
     if (!quantity || !txHash || !walletAddress) {
@@ -660,7 +660,7 @@ exports.verifyWeb3Transaction = async (req, res) => {
     }
     
     // Calculate purchase details
-    const purchaseDetails = await Share.calculatePurchase(parseInt(quantity), 'usdt');
+    const purchaseDetails = await Share.calculatePurchase(parseInt(quantity), 'usdt', tier || 'standard');
     
     if (!purchaseDetails.success) {
       return res.status(400).json({
@@ -3398,11 +3398,11 @@ exports.handleCentiivCallback = async (req, res) => {
  */
 exports.initiateCentiivCryptoPay = async (req, res) => {
   try {
-    const { quantity, currency = 'usdt', walletAddress } = req.body;
+    const { quantity, currency = 'usdt', walletAddress, tier } = req.body;
     const userId = req.user.id;
     
     console.log('🚀 [Centiiv Crypto] Payment initiation started:', {
-      userId, quantity, currency, walletAddress
+      userId, quantity, currency, walletAddress, tier
     });
     
     if (!quantity || !walletAddress) {
@@ -3422,7 +3422,7 @@ exports.initiateCentiivCryptoPay = async (req, res) => {
     }
     
     // Calculate purchase details
-    const purchaseDetails = await Share.calculatePurchase(shareQuantity, currency);
+    const purchaseDetails = await Share.calculatePurchase(shareQuantity, currency, tier || 'standard');
     
     if (!purchaseDetails.success) {
       return res.status(400).json({
@@ -3500,11 +3500,11 @@ exports.initiateCentiivCryptoPay = async (req, res) => {
 
 exports.initiateCentiivPayment = async (req, res) => {
   try {
-    const { quantity, email, customerName } = req.body;
+    const { quantity, email, customerName, tier } = req.body;
     const userId = req.user.id;
     
     console.log('🚀 [Centiiv] Payment initiation started:', {
-      userId, quantity, email, customerName
+      userId, quantity, email, customerName, tier
     });
     
     if (!quantity || !email || !customerName) {
@@ -3523,7 +3523,7 @@ exports.initiateCentiivPayment = async (req, res) => {
     console.log('🔧 [Centiiv] Base URL:', baseUrl);
     
     // Calculate purchase
-    const purchaseDetails = await Share.calculatePurchase(parseInt(quantity), 'naira');
+    const purchaseDetails = await Share.calculatePurchase(parseInt(quantity), 'naira', tier || 'standard');
     
     console.log('💰 [Centiiv] Purchase details:', {
       success: purchaseDetails.success,

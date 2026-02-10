@@ -555,6 +555,7 @@ app.use('/api/admin/referrals', require('./routes/adminReferralRoutes'));
 app.use('/api/payment', require('./routes/paymentRoutes'));
 app.use('/api/withdrawal', require('./routes/withdrawalRoutes'));
 app.use('/api/exchange-rates', require('./routes/exchangeRateRoutes'));
+app.use('/api/management', require('./routes/managementRoutes'));
 // DISABLED: Installment payment functionality removed (Feb 2026)
 // app.use('/api/shares/installment', require('./routes/installmentRoutes'));
 // app.use('/api/shares/cofounder/installment', require('./routes/coFounderInstallmentRoutes'));

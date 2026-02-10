@@ -1,4 +1,5 @@
 const CoFounderShare = require('../models/CoFounderShare');
+const Share = require('../models/Share');
 const UserShare = require('../models/UserShare');
 const PaymentTransaction = require('../models/Transaction');
 const PaymentConfig = require('../models/PaymentConfig');
@@ -60,7 +61,7 @@ const getCoFounderShareInfo = async (req, res) => {
 // Calculate purchase details before payment
 const calculateCoFounderPurchase = async (req, res) => {
     try {
-        const { quantity, currency } = req.body;
+        const { quantity, currency, tier } = req.body;
         
         if (!quantity || !currency || !['naira', 'usdt'].includes(currency)) {
             return res.status(400).json({
@@ -69,8 +70,8 @@ const calculateCoFounderPurchase = async (req, res) => {
             });
         }
         
-        // Use the static method from the model
-        const purchaseDetails = await CoFounderShare.calculatePurchase(parseInt(quantity), currency);
+        // Use the main Share model's calculatePurchase which respects tier pricing
+        const purchaseDetails = await Share.calculatePurchase(parseInt(quantity), currency, tier || 'elite');
         
         if (!purchaseDetails.success) {
             return res.status(400).json(purchaseDetails);
