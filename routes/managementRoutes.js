@@ -1,6 +1,6 @@
 const express = require('express');
 const router = express.Router();
-const tierController = require('../controller/tierController');
+const tierController = require('../controller/tier-management-controller');
 const { protect, adminProtect } = require('../middleware/auth');
 
 /**
