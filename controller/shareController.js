@@ -70,38 +70,58 @@ exports.getShareInfo = async (req, res) => {
 };
 
 
-// Calculate purchase details before payment (NEW TIER SYSTEM)
 exports.calculatePurchase = async (req, res) => {
   try {
+    // ✅ FIX 1: Add 'tier' to destructuring
     const { quantity, currency, tier } = req.body;
     
-    if (!quantity || !currency || !['naira', 'usdt'].includes(currency)) {
+    console.log('📊 [calculatePurchase] Request received:', {
+      quantity,
+      currency,
+      tier
+    });
+
+    // Validate required fields
+    if (!quantity || !currency) {
       return res.status(400).json({
         success: false,
-        message: 'Invalid request. Please provide valid quantity and currency (naira or usdt).'
+        message: 'Please provide quantity and currency'
       });
     }
 
+    // ✅ FIX 2: Pass tier to Share.calculatePurchase()
+    // Use 'standard' as default if no tier provided
     const selectedTier = tier || 'standard';
-    const purchaseDetails = await Share.calculatePurchase(parseInt(quantity), currency, selectedTier);
     
+    const purchaseDetails = await Share.calculatePurchase(
+      parseInt(quantity), 
+      currency.toLowerCase(),
+      selectedTier  // ✅ THIS LINE WAS MISSING!
+    );
+
+    console.log('✅ [calculatePurchase] Calculation complete:', {
+      tier: selectedTier,
+      totalPrice: purchaseDetails.totalPrice,
+      currency: purchaseDetails.currency
+    });
+
     if (!purchaseDetails.success) {
       return res.status(400).json({
         success: false,
-        message: purchaseDetails.message || 'Unable to process this purchase amount.',
-        details: purchaseDetails
+        message: purchaseDetails.message || 'Unable to calculate purchase'
       });
     }
-    
+
     res.status(200).json({
       success: true,
       purchaseDetails
     });
+
   } catch (error) {
-    console.error('Error calculating purchase:', error);
+    console.error('❌ [calculatePurchase] Error:', error);
     res.status(500).json({
       success: false,
-      message: 'Failed to calculate purchase details',
+      message: 'Failed to calculate purchase',
       error: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
@@ -3011,82 +3031,80 @@ exports.getShareStatistics = async (req, res) => {
  */
 exports.initiateCentiivDirectPay = async (req, res) => {
   try {
-    const { quantity, note, overrideAmount } = req.body;
+    // ✅ FIX 1: Add 'tier' to destructuring
+    const { quantity, note, tier } = req.body;
     const userId = req.user.id;
-    
-    console.log('🚀 [Centiiv Direct Pay] Payment initiation started:', {
-      userId, quantity, note, overrideAmount
+
+    console.log('🚀 [Centiiv] Payment initiation started:', {
+      userId, 
+      quantity, 
+      note,
+      tier  // ✅ Log tier
     });
-    
+
     if (!quantity || quantity <= 0) {
       return res.status(400).json({
         success: false,
         message: 'Please provide a valid quantity of shares'
       });
     }
-    
+
     // Get API credentials
     const apiKey = process.env.CENTIIV_API_KEY;
     const baseUrl = process.env.CENTIIV_BASE_URL || 'https://api.centiiv.com/api/v1';
-    
+
     if (!apiKey) {
-      console.error('[Centiiv Direct Pay] API key not configured');
+      console.error('❌ [Centiiv] API key not configured');
       return res.status(500).json({
         success: false,
         message: 'Payment service not configured'
       });
     }
-    
+
     let shares, amount, purchaseDetails;
+
+    // ✅ FIX 2: Pass tier to Share.calculatePurchase()
+    const selectedTier = tier || 'standard';
     
-    // If overrideAmount is provided (e.g., from co-founder packages), use it directly
-    if (overrideAmount && overrideAmount > 0) {
-      shares = parseInt(quantity);
-      amount = parseFloat(overrideAmount);
-      purchaseDetails = {
-        success: true,
-        totalShares: shares,
-        totalPrice: amount,
-        tierBreakdown: { tier1: shares, tier2: 0, tier3: 0 }
-      };
-      console.log('🔧 Using override amount:', { shares, amount });
-    } else {
-      // Calculate shares from quantity using regular share pricing
-      const Share = require('../models/Share');
-      purchaseDetails = await Share.calculatePurchase(parseInt(quantity), 'naira');
-      if (!purchaseDetails.success) {
-        return res.status(400).json({
-          success: false,
-          message: purchaseDetails.message
-        });
-      }
-      shares = purchaseDetails.totalShares;
-      amount = purchaseDetails.totalPrice;
+    purchaseDetails = await Share.calculatePurchase(
+      parseInt(quantity), 
+      'naira',
+      selectedTier  // ✅ THIS LINE WAS MISSING!
+    );
+
+    console.log('✅ [Centiiv] Calculated amount:', {
+      tier: selectedTier,
+      amount: purchaseDetails.totalPrice
+    });
+
+    if (!purchaseDetails.success) {
+      return res.status(400).json({
+        success: false,
+        message: purchaseDetails.message
+      });
     }
-    
+
+    shares = purchaseDetails.totalShares;
+    amount = purchaseDetails.totalPrice;
+
     // Generate transaction ID
     const crypto = require('crypto');
-    const generateTransactionId = () => {
-      return `TXN-${crypto.randomBytes(4).toString('hex').toUpperCase()}-${Date.now().toString().slice(-6)}`;
-    };
-    const transactionId = generateTransactionId();
-    
-    // 🔥 FIX: Create proper callback URL that Centiiv will redirect to
+    const transactionId = `TXN-${crypto.randomBytes(4).toString('hex').toUpperCase()}-${Date.now().toString().slice(-6)}`;
+
+    // Create proper callback URL
     const frontendUrl = process.env.FRONTEND_URL || 'https://www.afrimobiletech.com';
     const backendUrl = process.env.BACKEND_URL || 'https://afrimobile-d240af77c383.herokuapp.com';
-    
-    // This is where Centiiv will redirect users after payment
+
     const callbackUrl = `${backendUrl}/api/shares/centiiv/callback?transaction=${transactionId}&method=centiiv-direct`;
-    
-    // Create Centiiv Direct Pay request with callback URL
+
+    // Create Centiiv Direct Pay request
     const centiivRequest = {
       amount: parseFloat(amount),
-      note: note || `AfriMobile Share Purchase - ${shares} shares`,
-      callback_url: callbackUrl  // 🔥 CRITICAL: This tells Centiiv where to redirect
+      note: note || `AfriMobile Share Purchase - ${shares} shares (${selectedTier.toUpperCase()})`
     };
-    
-    console.log('📦 [Centiiv Direct Pay] Request payload:', JSON.stringify(centiivRequest, null, 2));
-    
+
+    console.log('📦 [Centiiv] Request payload:', JSON.stringify(centiivRequest, null, 2));
+
     // Make API call
     let centiivResponse;
     try {
@@ -3102,60 +3120,30 @@ exports.initiateCentiivDirectPay = async (req, res) => {
           timeout: 30000
         }
       );
-      
-      console.log('✅ [Centiiv Direct Pay] API call successful');
-      console.log('📊 [Centiiv Direct Pay] Response:', JSON.stringify(centiivResponse.data, null, 2));
-      
+
+      console.log('✅ [Centiiv] API call successful');
+
     } catch (apiError) {
-      console.error('❌ [Centiiv Direct Pay] API call failed:', apiError.message);
+      console.error('❌ [Centiiv] API call failed:', apiError.message);
       return res.status(500).json({
         success: false,
         message: 'Payment service unavailable',
         error: apiError.response?.data || apiError.message
       });
     }
-    
+
     const paymentData = centiivResponse.data;
-    
-    // Extract payment details from Centiiv response
     const paymentId = paymentData.data?.id || paymentData.id;
     let paymentUrl = paymentData.data?.link || paymentData.data?.payment_url || paymentData.link || paymentData.payment_url;
-    
-    console.log('🔍 [Centiiv Direct Pay] Extracted data:', {
-      paymentId,
-      paymentUrl,
-      allResponseKeys: Object.keys(paymentData)
-    });
-    
+
     if (!paymentId || !paymentUrl) {
-      console.error('❌ [Centiiv Direct Pay] Invalid response structure');
+      console.error('❌ [Centiiv] Invalid response structure');
       return res.status(500).json({
         success: false,
-        message: 'Invalid payment response',
-        responseData: paymentData
+        message: 'Invalid payment response'
       });
     }
-    
-    // 🔥 FIX: Ensure the payment URL includes the callback parameter
-    // Centiiv should return a URL like: https://centiiv.com/pay?id=212332&type=payment_link
-    // We need to append our callback URL to it if it's not already there
-    try {
-      const url = new URL(paymentUrl);
-      
-      // If callback_url is not in the payment URL, add it
-      if (!url.searchParams.has('callback_url')) {
-        url.searchParams.set('callback_url', callbackUrl);
-        paymentUrl = url.toString();
-        console.log('🔧 [Centiiv Direct Pay] Added callback_url to payment URL:', paymentUrl);
-      }
-    } catch (urlError) {
-      console.warn('⚠️ [Centiiv Direct Pay] Could not parse payment URL:', urlError.message);
-      // If URL parsing fails, append callback manually
-      const separator = paymentUrl.includes('?') ? '&' : '?';
-      paymentUrl = `${paymentUrl}${separator}callback_url=${encodeURIComponent(callbackUrl)}`;
-      console.log('🔧 [Centiiv Direct Pay] Manually added callback_url:', paymentUrl);
-    }
-    
+
     // Save transaction to database
     const UserShare = require('../models/UserShare');
     const shareData = {
@@ -3167,19 +3155,15 @@ exports.initiateCentiivDirectPay = async (req, res) => {
       paymentMethod: 'centiiv',
       status: 'pending',
       tierBreakdown: purchaseDetails.tierBreakdown,
-      
-      // Store Centiiv payment details
       centiivOrderId: paymentId,
       centiivInvoiceUrl: paymentUrl,
       centiivPaymentId: paymentId,
       callbackUrl: callbackUrl
     };
-    
-    console.log('💾 [Centiiv Direct Pay] About to save shareData:', JSON.stringify(shareData, null, 2));
-    
+
     await UserShare.addShares(userId, shares, shareData);
-    console.log('✅ [Centiiv Direct Pay] Database save successful');
-    
+    console.log('✅ [Centiiv] Database save successful');
+
     // Success response
     res.status(200).json({
       success: true,
@@ -3187,29 +3171,25 @@ exports.initiateCentiivDirectPay = async (req, res) => {
       data: {
         transactionId,
         paymentId,
-        paymentUrl,                    // 🔥 This now includes callback_url
+        paymentUrl,
         amount: amount,
         shares: shares,
         quantity: quantity,
-        callbackUrl: callbackUrl,      // The backend callback URL
-        redirectTo: paymentUrl,        // Frontend should redirect user to this URL
-        instructions: [
-          "User will be redirected to Centiiv payment page",
-          "After payment, Centiiv will redirect to our callback URL",
-          "Our callback will then redirect to the frontend success page"
-        ]
+        tier: selectedTier,  // ✅ Include tier in response
+        redirectTo: paymentUrl
       }
     });
-    
+
   } catch (error) {
-    console.error('💥 [Centiiv Direct Pay] Unexpected error:', error.message);
+    console.error('❌ [Centiiv] Unexpected error:', error.message);
     res.status(500).json({
       success: false,
       message: 'Failed to initiate payment',
-      error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
 };
+
 
 /**
  * @desc    Handle Centiiv Callback (Success/Failure Redirect) - UPDATED
@@ -4617,62 +4597,62 @@ exports.adminGetWeb3Transactions = async (req, res) => {
 exports.submitManualPayment = async (req, res) => {
   try {
     console.log('[SHARES] Manual payment submission started');
-    console.log('[SHARES] req.body:', req.body);
-    console.log('[SHARES] req.file:', req.file);
-    console.log('[SHARES] req.files:', req.files);
-    
-    // ✅ FIX: Check if user is authenticated
+
+    // Check user authentication
     if (!req.user || !req.user.id) {
-      console.error('[SHARES] User not authenticated or missing user ID');
-      console.log('[SHARES] req.user:', req.user);
+      console.error('[SHARES] User not authenticated');
       return res.status(401).json({
         success: false,
-        message: 'Authentication required. Please log in.',
-        error: 'USER_NOT_AUTHENTICATED',
-        debug: {
-          hasUser: !!req.user,
-          userKeys: req.user ? Object.keys(req.user) : [],
-          authHeaders: req.headers.authorization ? 'present' : 'missing'
-        }
+        message: 'Authentication required. Please log in.'
       });
     }
-    
+
     const userId = req.user.id;
-    const { quantity, currency, paymentMethod, bankName, accountName, reference } = req.body;
-    
-    console.log('[SHARES] Authenticated user ID:', userId);
-    
+
+    // ✅ FIX 1: Add 'tier' to destructuring
+    const { quantity, currency, paymentMethod, bankName, accountName, reference, tier } = req.body;
+
+    console.log('[SHARES] Request details:', {
+      quantity,
+      currency,
+      paymentMethod,
+      tier  // ✅ Log tier
+    });
+
     // Validate required fields
     if (!quantity || !currency || !paymentMethod) {
       console.error('[SHARES] Missing required fields');
       return res.status(400).json({
         success: false,
-        message: 'Please provide quantity, currency, and payment method',
-        error: 'MISSING_FIELDS'
+        message: 'Please provide quantity, currency, and payment method'
       });
     }
-    
-    // ✅ CLOUDINARY: Check for Cloudinary file upload
-    if (!req.file && !req.files && !req.body.adminNote) {
+
+    // Check for payment proof file
+    if (!req.file && !req.body.adminNote) {
       console.error('[SHARES] No payment proof uploaded');
       return res.status(400).json({
         success: false,
-        message: 'Please upload payment proof or provide admin notes',
-        error: 'MISSING_FILE',
-        debug: {
-          hasFile: !!req.file,
-          hasFiles: !!req.files,
-          hasAdminNote: !!req.body.adminNote,
-          fileKeys: req.file ? Object.keys(req.file) : [],
-          bodyKeys: Object.keys(req.body)
-        }
+        message: 'Please upload payment proof'
       });
     }
-    
-    // Calculate purchase details
+
+    // ✅ FIX 2: Pass tier to Share.calculatePurchase()
     const Share = require('../models/Share');
-    const purchaseDetails = await Share.calculatePurchase(parseInt(quantity), currency);
-    
+    const selectedTier = tier || 'standard';
+
+    const purchaseDetails = await Share.calculatePurchase(
+      parseInt(quantity), 
+      currency.toLowerCase(),
+      selectedTier  // ✅ THIS LINE WAS MISSING!
+    );
+
+    console.log('✅ [SHARES] Purchase calculated with tier:', {
+      tier: selectedTier,
+      totalPrice: purchaseDetails.totalPrice,
+      shares: purchaseDetails.totalShares
+    });
+
     if (!purchaseDetails.success) {
       console.error('[SHARES] Share calculation failed:', purchaseDetails.message);
       return res.status(400).json({
@@ -4680,45 +4660,24 @@ exports.submitManualPayment = async (req, res) => {
         message: purchaseDetails.message
       });
     }
-    
+
     // Generate transaction ID
-    const crypto = require('crypto'); // Make sure crypto is imported
-    const generateTransactionId = () => {
-      return `TXN-${crypto.randomBytes(4).toString('hex').toUpperCase()}-${Date.now().toString().slice(-6)}`;
-    };
-    const transactionId = generateTransactionId();
-    
-    // ✅ CLOUDINARY: Extract file info (same pattern as co-founder)
+    const crypto = require('crypto');
+    const transactionId = `TXN-${crypto.randomBytes(4).toString('hex').toUpperCase()}-${Date.now().toString().slice(-6)}`;
+
+    // Extract file info from Cloudinary (if using Cloudinary)
     let fileInfo = {};
     if (req.file) {
-      // Cloudinary file structure
       fileInfo = {
         cloudinaryUrl: req.file.path,
         cloudinaryId: req.file.filename,
         originalname: req.file.originalname,
-        size: req.file.size,
-        mimetype: req.file.mimetype,
-        format: req.file.format
+        size: req.file.size
       };
-      console.log('[SHARES] Cloudinary file detected:', {
-        url: fileInfo.cloudinaryUrl,
-        publicId: fileInfo.cloudinaryId,
-        size: fileInfo.size
-      });
-    } else if (req.files && req.files.paymentProof) {
-      // Alternative file structure
-      const file = Array.isArray(req.files.paymentProof) ? req.files.paymentProof[0] : req.files.paymentProof;
-      fileInfo = {
-        cloudinaryUrl: file.path || file.location || file.url,
-        cloudinaryId: file.filename || file.key,
-        originalname: file.originalname || file.name,
-        size: file.size,
-        mimetype: file.mimetype || file.type,
-        format: file.format
-      };
+      console.log('[SHARES] File uploaded:', { url: fileInfo.cloudinaryUrl });
     }
-    
-    // Create PaymentTransaction record with Cloudinary data
+
+    // Create PaymentTransaction record
     const PaymentTransaction = require('../models/Transaction');
     const paymentTransactionData = {
       userId,
@@ -4735,27 +4694,21 @@ exports.submitManualPayment = async (req, res) => {
         accountName: accountName || null,
         reference: reference || null
       },
-      
-      // 🔥 CRITICAL ADDITION: These fields satisfy your model validation
-      paymentProofPath: fileInfo.cloudinaryUrl || null,  // This is what your validation checks for!
+      paymentProofPath: fileInfo.cloudinaryUrl || null,
       paymentProofOriginalName: fileInfo.originalname || null,
       paymentProofFilename: fileInfo.cloudinaryId || null
     };
-    
-    // ✅ CLOUDINARY: Add Cloudinary fields as well (for future use)
+
     if (fileInfo.cloudinaryUrl) {
       paymentTransactionData.paymentProofCloudinaryUrl = fileInfo.cloudinaryUrl;
       paymentTransactionData.paymentProofCloudinaryId = fileInfo.cloudinaryId;
-      paymentTransactionData.paymentProofOriginalName = fileInfo.originalname;
-      paymentTransactionData.paymentProofFileSize = fileInfo.size;
-      paymentTransactionData.paymentProofFormat = fileInfo.format;
     }
-    
+
     const paymentTransaction = new PaymentTransaction(paymentTransactionData);
     await paymentTransaction.save();
-    console.log('[SHARES] Payment transaction created with Cloudinary data:', transactionId);
-    
-    // Also create UserShare record for compatibility with Cloudinary data
+    console.log('[SHARES] Payment transaction created:', transactionId);
+
+    // Also create UserShare record
     const UserShare = require('../models/UserShare');
     const userShareData = {
       transactionId,
@@ -4767,44 +4720,36 @@ exports.submitManualPayment = async (req, res) => {
       status: 'pending',
       tierBreakdown: purchaseDetails.tierBreakdown
     };
-    
-    // ✅ CLOUDINARY: Add Cloudinary fields to UserShare as well
+
     if (fileInfo.cloudinaryUrl) {
       userShareData.paymentProofCloudinaryUrl = fileInfo.cloudinaryUrl;
       userShareData.paymentProofCloudinaryId = fileInfo.cloudinaryId;
-      userShareData.paymentProofOriginalName = fileInfo.originalname;
-      userShareData.paymentProofFileSize = fileInfo.size;
-      userShareData.paymentProofFormat = fileInfo.format;
     }
-    
+
     await UserShare.addShares(userId, parseInt(quantity), userShareData);
-    console.log('[SHARES] UserShare record created with Cloudinary data');
-    
+    console.log('[SHARES] UserShare record created');
+
     // Send success response
     res.status(200).json({
       success: true,
-      message: 'Payment proof submitted successfully and awaiting verification',
+      message: 'Payment proof submitted successfully',
       data: {
         transactionId,
         shares: parseInt(quantity),
         amount: purchaseDetails.totalPrice,
         currency,
         status: 'pending',
-        fileInfo: fileInfo,
-        paymentMethod: `manual_${paymentMethod}`,
-        fileUrl: `/api/shares/payment-proof/${transactionId}`,
-        cloudinaryUrl: fileInfo.cloudinaryUrl // Include direct Cloudinary URL
+        tier: selectedTier,  // ✅ Include tier in response
+        paymentMethod: `manual_${paymentMethod}`
       }
     });
-    
+
   } catch (error) {
-    console.error('[SHARES] Manual payment submission error:', error);
-    
+    console.error('[SHARES] Error:', error);
     res.status(500).json({
       success: false,
       message: 'Failed to submit manual payment',
-      error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error',
-      stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
 };
