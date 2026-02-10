@@ -879,15 +879,12 @@ exports.deletePackage = async (req, res) => {
 };
 
 module.exports = {
-  // Tier management
-  editShareTier,
-  bulkUpdateTiers,
-  getAllTiers,
-  getTierChangeHistory,
-  
-  // Package management
-  createPackage,
-  getAllPackages,
-  editPackage,
-  deletePackage
+  editShareTier: exports.editShareTier,
+  bulkUpdateTiers: exports.bulkUpdateTiers,
+  getAllTiers: exports.getAllTiers,
+  getTierChangeHistory: exports.getTierChangeHistory,
+  createPackage: exports.createPackage,
+  getAllPackages: exports.getAllPackages,
+  editPackage: exports.editPackage,
+  deletePackage: exports.deletePackage
 };
