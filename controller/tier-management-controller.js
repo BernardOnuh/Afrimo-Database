@@ -4,7 +4,7 @@
  */
 
 const Share = require('../models/Share');
-const Package = require('../models/Package');
+const Package = require('../models/SharePackage');
 const User = require('../models/User');
 const { sendEmail } = require('../utils/emailService');
 
