@@ -3011,11 +3011,11 @@ exports.getShareStatistics = async (req, res) => {
  */
 exports.initiateCentiivDirectPay = async (req, res) => {
   try {
-    const { quantity, note } = req.body;
+    const { quantity, note, overrideAmount } = req.body;
     const userId = req.user.id;
     
     console.log('🚀 [Centiiv Direct Pay] Payment initiation started:', {
-      userId, quantity, note
+      userId, quantity, note, overrideAmount
     });
     
     if (!quantity || quantity <= 0) {
@@ -3037,18 +3037,32 @@ exports.initiateCentiivDirectPay = async (req, res) => {
       });
     }
     
-    // Calculate shares from quantity
-    const Share = require('../models/Share');
-    const purchaseDetails = await Share.calculatePurchase(parseInt(quantity), 'naira');
-    if (!purchaseDetails.success) {
-      return res.status(400).json({
-        success: false,
-        message: purchaseDetails.message
-      });
-    }
+    let shares, amount, purchaseDetails;
     
-    const shares = purchaseDetails.totalShares;
-    const amount = purchaseDetails.totalPrice;
+    // If overrideAmount is provided (e.g., from co-founder packages), use it directly
+    if (overrideAmount && overrideAmount > 0) {
+      shares = parseInt(quantity);
+      amount = parseFloat(overrideAmount);
+      purchaseDetails = {
+        success: true,
+        totalShares: shares,
+        totalPrice: amount,
+        tierBreakdown: { tier1: shares, tier2: 0, tier3: 0 }
+      };
+      console.log('🔧 Using override amount:', { shares, amount });
+    } else {
+      // Calculate shares from quantity using regular share pricing
+      const Share = require('../models/Share');
+      purchaseDetails = await Share.calculatePurchase(parseInt(quantity), 'naira');
+      if (!purchaseDetails.success) {
+        return res.status(400).json({
+          success: false,
+          message: purchaseDetails.message
+        });
+      }
+      shares = purchaseDetails.totalShares;
+      amount = purchaseDetails.totalPrice;
+    }
     
     // Generate transaction ID
     const crypto = require('crypto');
