@@ -58,6 +58,108 @@ const calculateTotalShares = (regularShares, cofounderShares, ratio = 29) => {
   return regularShares + (cofounderShares * ratio);
 };
 
+// Import Share model for tier config (percentPerShare)
+const { SHARE_TIERS } = require('../models/Share');
+const UserShare = require('../models/UserShare');
+const PaymentTransaction = require('../models/Transaction');
+
+// Build a price-to-percentPerShare mapping from SHARE_TIERS
+const buildPriceToPercentMap = () => {
+  const map = {};
+  for (const [, tier] of Object.entries(SHARE_TIERS)) {
+    // Map both NGN and USD prices to percentPerShare
+    map[`${tier.priceNGN}_naira`] = tier.percentPerShare;
+    map[`${tier.priceUSD}_usdt`] = tier.percentPerShare;
+    map[`${tier.priceUSD}_usd`] = tier.percentPerShare;
+  }
+  return map;
+};
+
+// Calculate total percentage owned for a list of leaderboard users
+const calculatePercentagesForUsers = async (leaderboardUsers) => {
+  if (!leaderboardUsers || leaderboardUsers.length === 0) return leaderboardUsers;
+
+  const priceMap = buildPriceToPercentMap();
+  const userIds = leaderboardUsers.map(u => u._id);
+
+  // Fetch all UserShare docs for these users
+  const userShares = await UserShare.find({ user: { $in: userIds } }).lean();
+  const userShareMap = {};
+  userShares.forEach(us => {
+    userShareMap[us.user.toString()] = us;
+  });
+
+  // Fetch co-founder transactions for these users
+  const cofounderTxs = await PaymentTransaction.find({
+    userId: { $in: userIds },
+    type: 'co-founder',
+    status: 'completed'
+  }).lean();
+  const cofounderTxMap = {};
+  cofounderTxs.forEach(tx => {
+    const uid = tx.userId.toString();
+    if (!cofounderTxMap[uid]) cofounderTxMap[uid] = [];
+    cofounderTxMap[uid].push(tx);
+  });
+
+  // Default percentPerShare for shares where we can't determine tier
+  const defaultPercentPerShare = SHARE_TIERS.standard.percentPerShare; // 0.000021
+
+  return leaderboardUsers.map(user => {
+    const uid = user._id.toString();
+    let totalPercent = 0;
+
+    // Calculate % from regular share transactions
+    const userShare = userShareMap[uid];
+    if (userShare && userShare.transactions) {
+      for (const tx of userShare.transactions) {
+        if (tx.status !== 'completed') continue;
+        // Skip co-founder transactions stored in UserShare (they're handled separately)
+        if (tx.paymentMethod === 'co-founder') continue;
+
+        const shares = tx.shares || 0;
+        const price = tx.pricePerShare || 0;
+        const currency = tx.currency || 'naira';
+
+        // Try to find the matching tier by price
+        const key = `${price}_${currency}`;
+        const percentPerShare = priceMap[key] || defaultPercentPerShare;
+        totalPercent += shares * percentPerShare;
+      }
+    }
+
+    // Calculate % from co-founder transactions
+    const cfTxs = cofounderTxMap[uid] || [];
+    for (const tx of cfTxs) {
+      const shares = tx.shares || 0;
+      const amount = tx.amount || 0;
+      const currency = tx.currency || 'naira';
+
+      // Determine co-founder tier by amount
+      let percentPerShare = SHARE_TIERS.elite.percentPerShare; // default
+      if (currency === 'naira' || currency === 'NGN') {
+        if (amount >= 5000000) percentPerShare = SHARE_TIERS.supreme.percentPerShare;
+        else if (amount >= 2500000) percentPerShare = SHARE_TIERS.platinum.percentPerShare;
+        else percentPerShare = SHARE_TIERS.elite.percentPerShare;
+      } else {
+        if (amount >= 5000) percentPerShare = SHARE_TIERS.supreme.percentPerShare;
+        else if (amount >= 2500) percentPerShare = SHARE_TIERS.platinum.percentPerShare;
+        else percentPerShare = SHARE_TIERS.elite.percentPerShare;
+      }
+
+      // For co-founder tiers, each purchase includes sharesIncluded shares
+      // But the shares field in Transaction already reflects the actual shares
+      totalPercent += shares * percentPerShare;
+    }
+
+    return {
+      ...user,
+      totalPercentOwned: parseFloat(totalPercent.toFixed(10)),
+      totalPercentFormatted: `${totalPercent.toFixed(6)}%`
+    };
+  });
+};
+
 
 const { leaderboardQuerySchema, visibilityUpdateSchema, bulkUpdateSchema } = adminValidation;
 
@@ -480,7 +582,11 @@ const getTimeFilteredLeaderboard = async (timeFrame, categoryFilter = 'registrat
     }
   );
   
-  return await User.aggregate(aggregatePipeline.filter(Boolean));
+  const results = await User.aggregate(aggregatePipeline.filter(Boolean));
+  
+  // Post-process: calculate percentage owned for each user
+  const resultsWithPercent = await calculatePercentagesForUsers(results);
+  return resultsWithPercent;
 };
 
 // ====================
@@ -3799,14 +3905,19 @@ exports.getLeaderboardByLocationFixed = async (filters) => {
   const totalCount = result[0].totalCount[0]?.count || 0;
   const locationStats = result[0].locationStats[0] || {};
 
+  // Calculate percentages for location leaderboard users
+  const usersWithPercent = await calculatePercentagesForUsers(users);
+
   return {
-    users: users.map((user, index) => ({
+    users: usersWithPercent.map((user, index) => ({
       _id: user._id,
       name: user.name,
       userName: user.userName,
       totalEarnings: user.totalEarnings,
       availableBalance: user.availableBalance,
       totalShares: user.totalShares,
+      totalPercentOwned: user.totalPercentOwned || 0,
+      totalPercentFormatted: user.totalPercentFormatted || '0.000000%',
       // Create clean location object from resolved fields
       location: {
         country: user.resolvedCountry,

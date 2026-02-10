@@ -888,21 +888,21 @@ const getReferralTree = async (req, res) => {
     // Get direct referrals (gen 1)
     const gen1Users = await User.find(
       { 'referralInfo.code': user.userName },
-      'name userName email createdAt profileImage'
+      'name userName email phone createdAt profileImage'
     );
     
     // Get gen 2 (people referred by your referrals)
     const gen1UserNames = gen1Users.map(user => user.userName);
     const gen2Users = await User.find(
       { 'referralInfo.code': { $in: gen1UserNames } },
-      'name userName email referralInfo.code createdAt profileImage'
+      'name userName email phone referralInfo.code createdAt profileImage'
     );
     
     // Get gen 3 
     const gen2UserNames = gen2Users.map(user => user.userName);
     const gen3Users = await User.find(
       { 'referralInfo.code': { $in: gen2UserNames } },
-      'name userName email referralInfo.code createdAt profileImage'
+      'name userName email phone referralInfo.code createdAt profileImage'
     );
     
     // Track referring relationship more clearly
@@ -945,6 +945,7 @@ const getReferralTree = async (req, res) => {
         name: user.name,
         userName: user.userName,
         email: user.email,
+        phone: user.phone || null,
         joinedDate: user.createdAt,
         profileImage: user.profileImage
       })),
@@ -953,6 +954,7 @@ const getReferralTree = async (req, res) => {
         name: user.name,
         userName: user.userName,
         email: user.email,
+        phone: user.phone || null,
         referredBy: user.referralInfo.code,
         referredByName: user.referredByInfo?.name,
         joinedDate: user.createdAt,
@@ -963,6 +965,7 @@ const getReferralTree = async (req, res) => {
         name: user.name,
         userName: user.userName,
         email: user.email,
+        phone: user.phone || null,
         referredBy: user.referralInfo.code,
         referredByName: user.referredByInfo?.name,
         joinedDate: user.createdAt,

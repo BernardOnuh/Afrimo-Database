@@ -370,19 +370,19 @@ const getUserReferralDetails = async (req, res) => {
       // Get referral tree (simplified version)
       const gen1Users = await User.find(
         { 'referralInfo.code': user.userName },
-        'name userName email createdAt'
+        'name userName email phone createdAt'
       );
   
       const gen1UserNames = gen1Users.map(u => u.userName);
       const gen2Users = await User.find(
         { 'referralInfo.code': { $in: gen1UserNames } },
-        'name userName email referralInfo.code createdAt'
+        'name userName email phone referralInfo.code createdAt'
       );
   
       const gen2UserNames = gen2Users.map(u => u.userName);
       const gen3Users = await User.find(
         { 'referralInfo.code': { $in: gen2UserNames } },
-        'name userName email referralInfo.code createdAt'
+        'name userName email phone referralInfo.code createdAt'
       );
   
       // Calculate earnings summary
@@ -452,6 +452,7 @@ const getUserReferralDetails = async (req, res) => {
             name: u.name,
             userName: u.userName,
             email: u.email,
+            phone: u.phone || null,
             joinedDate: u.createdAt
           })),
           generation2: gen2Users.map(u => ({
@@ -459,6 +460,7 @@ const getUserReferralDetails = async (req, res) => {
             name: u.name,
             userName: u.userName,
             email: u.email,
+            phone: u.phone || null,
             referredBy: u.referralInfo?.code || 'Unknown',
             joinedDate: u.createdAt
           })),
@@ -467,6 +469,7 @@ const getUserReferralDetails = async (req, res) => {
             name: u.name,
             userName: u.userName,
             email: u.email,
+            phone: u.phone || null,
             referredBy: u.referralInfo?.code || 'Unknown',
             joinedDate: u.createdAt
           }))
