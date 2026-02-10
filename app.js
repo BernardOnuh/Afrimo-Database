@@ -83,7 +83,7 @@ console.log(`LENCO_API_KEY configured: ${process.env.LENCO_API_KEY ? 'Yes' : 'No
 console.log(`MONGODB_URI configured: ${process.env.MONGODB_URI ? 'Yes' : 'No'}`);
 console.log(`BNB_RPC_URL configured: ${process.env.BNB_RPC_URL ? 'Yes' : 'No'}`);
 console.log(`Storage Method: MongoDB + Legacy File System`);
-console.log(`Enhanced Features: Logging, Compression, Security`);
+console.log(`Enhanced Features: Logging, Compression, Security, Share Resale Marketplace`);
 console.log('======================================');
 
 // Enhanced CORS configuration
@@ -544,7 +544,11 @@ app.use('/api', (req, res, next) => {
   next();
 });
 
-// API Routes (keeping all your original routes)
+// ============================================================================
+// API ROUTES - All application endpoints
+// ============================================================================
+
+// Existing routes
 app.use('/api/users', require('./routes/userRoutes'));
 app.use('/api/shares', require('./routes/shareRoutes'));
 app.use('/api/cofounder', require('./routes/coFounderShareRoutes'));
@@ -561,6 +565,23 @@ app.use('/api/management', require('./routes/managementRoutes'));
 // app.use('/api/shares/cofounder/installment', require('./routes/coFounderInstallmentRoutes'));
 app.use('/api/share-packages', require('./routes/sharePackageRoutes'));
 app.use('/api/shares/tiers', require('./routes/tierRoutes'));
+
+// ============================================================================
+// NEW: Share Resale & OTC Marketplace Routes (Feb 2026)
+// ============================================================================
+// Enables peer-to-peer share trading with automatic transfers
+// Documentation: GET http://localhost:5000/api-docs#/Share%20Marketplace
+// Features:
+//   - Public marketplace browsing
+//   - Create share listings
+//   - Make/accept purchase offers  
+//   - Multiple payment methods (bank transfer, crypto)
+//   - Automatic share transfer on payment confirmation
+app.use('/api/shares/listing', require('./routes/shareListings'));
+
+// ============================================================================
+// END API ROUTES
+// ============================================================================
 
 // Enhanced Health Monitor System Endpoints
 app.get('/api/system/health-status', async (req, res) => {
@@ -631,7 +652,8 @@ app.get('/api/system/info', (req, res) => {
       'Health Monitoring',
       'Auto-Reconnection',
       'Crypto Withdrawal System',
-      'Automated USDT Processing'
+      'Automated USDT Processing',
+      'Share Resale & OTC Marketplace (NEW)'
     ],
     database: {
       connected: mongoose.connection.readyState === 1,
@@ -657,7 +679,8 @@ app.get('/', (req, res) => {
       healthMonitoring: !!global.healthMonitor,
       requestTracing: true,
       enhancedSecurity: true,
-      cryptoWithdrawals: true
+      cryptoWithdrawals: true,
+      shareResaleMarketplace: true
     },
     endpoints: {
       health: '/api/system/health-status',
@@ -1274,7 +1297,8 @@ function displayEnhancedStartupInfo() {
     : `http://localhost:${AppConfig.PORT}`;
 
   console.log('\n' + '='.repeat(80));
-  console.log('🚀 AFRIMOBILE API - ENHANCED VERSION 2.0 (with Crypto Withdrawals)');
+  console.log('🚀 AFRIMOBILE API - ENHANCED VERSION 2.0');
+  console.log('    with Crypto Withdrawals & Share Resale Marketplace');
   console.log('='.repeat(80));
   console.log(`Environment: ${AppConfig.NODE_ENV}`);
   console.log(`Process ID: ${process.pid}`);
@@ -1299,6 +1323,18 @@ function displayEnhancedStartupInfo() {
   console.log(`   Withdrawal History: ${baseUrl}/api/withdrawal/crypto/history`);
   console.log(`   Admin Panel: POST ${baseUrl}/api/withdrawal/admin/crypto/wallet/setup`);
   console.log('='.repeat(80));
+  console.log('📊 SHARE RESALE & OTC MARKETPLACE ENDPOINTS (NEW):');
+  console.log(`   Browse Listings: GET ${baseUrl}/api/shares/listings`);
+  console.log(`   View Listing: GET ${baseUrl}/api/shares/listings/{id}`);
+  console.log(`   Create Listing: POST ${baseUrl}/api/shares/listings`);
+  console.log(`   My Listings: GET ${baseUrl}/api/shares/my-listings`);
+  console.log(`   Make Offer: POST ${baseUrl}/api/shares/listings/{id}/offer`);
+  console.log(`   Accept Offer: POST ${baseUrl}/api/shares/offers/{id}/accept`);
+  console.log(`   Submit Payment: POST ${baseUrl}/api/shares/offers/{id}/payment`);
+  console.log(`   Confirm Transfer: POST ${baseUrl}/api/shares/offers/{id}/confirm-payment`);
+  console.log(`   Transfer History: GET ${baseUrl}/api/shares/transfer-history`);
+  console.log(`   View Offers: GET ${baseUrl}/api/shares/offers`);
+  console.log('='.repeat(80));
   console.log('📁 FILE SERVING:');
   console.log(`   General Uploads: ${baseUrl}/uploads/`);
   console.log(`   Payment Proofs: ${baseUrl}/uploads/payment-proofs/`);
@@ -1318,9 +1354,13 @@ function displayEnhancedStartupInfo() {
   console.log('   ✅ Fixed CORS Configuration');
   console.log('   ✅ Increased Rate Limits');
   console.log('   ✅ Database-Independent Test Endpoints');
-  console.log('   ✅ Crypto Withdrawal System (NEW)');
-  console.log('   ✅ Automated USDT Processing (NEW)');
-  console.log('   ✅ BNB Smart Chain Integration (NEW)');
+  console.log('   ✅ Crypto Withdrawal System');
+  console.log('   ✅ Automated USDT Processing');
+  console.log('   ✅ BNB Smart Chain Integration');
+  console.log('   ✅ Peer-to-Peer Share Trading (NEW)');
+  console.log('   ✅ OTC Marketplace (NEW)');
+  console.log('   ✅ Automatic Share Transfers (NEW)');
+  console.log('   ✅ Multiple Payment Methods (NEW)');
   console.log('='.repeat(80));
   
   const dbStatus = mongoose.connection.readyState === 1 ? 'Connected' : 'Disconnected';
