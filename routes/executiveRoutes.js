@@ -1,8 +1,26 @@
 // routes/executiveRoutes.js
 const express = require('express');
 const router = express.Router();
+const multer = require('multer');
 const executiveController = require('../controller/executiveController');
 const { protect, adminProtect } = require('../middleware/auth');
+
+// Configure multer for memory storage
+const storage = multer.memoryStorage();
+const upload = multer({
+  storage: storage,
+  limits: {
+    fileSize: 5 * 1024 * 1024 // 5MB max file size
+  },
+  fileFilter: (req, file, cb) => {
+    // Accept images only
+    if (file.mimetype.startsWith('image/')) {
+      cb(null, true);
+    } else {
+      cb(new Error('Only image files are allowed'), false);
+    }
+  }
+});
 
 /**
  * @swagger
@@ -14,6 +32,8 @@ const { protect, adminProtect } = require('../middleware/auth');
  *         _id:
  *           type: string
  *         userId:
+ *           type: string
+ *         profileImage:
  *           type: string
  *         status:
  *           type: string
@@ -91,11 +111,51 @@ router.get('/approved', executiveController.getApprovedExecutives);
 
 /**
  * @swagger
+ * /executives/upload-image:
+ *   post:
+ *     tags: [Executives - User]
+ *     summary: Upload executive profile image
+ *     description: Upload profile picture for executive application
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         multipart/form-data:
+ *           schema:
+ *             type: object
+ *             required: [image]
+ *             properties:
+ *               image:
+ *                 type: string
+ *                 format: binary
+ *                 description: Profile image file (max 5MB)
+ *     responses:
+ *       200:
+ *         description: Image uploaded successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 message:
+ *                   type: string
+ *                 imageUrl:
+ *                   type: string
+ *       400:
+ *         description: Invalid file or no file provided
+ */
+router.post('/upload-image', protect, upload.single('image'), executiveController.uploadExecutiveImage);
+
+/**
+ * @swagger
  * /executives/apply:
  *   post:
  *     tags: [Executives - User]
  *     summary: Apply to become an executive
- *     description: Submit application to become an executive (requires shares)
+ *     description: Submit application to become an executive (requires shares and profile image)
  *     security:
  *       - bearerAuth: []
  *     requestBody:
@@ -104,7 +164,7 @@ router.get('/approved', executiveController.getApprovedExecutives);
  *         application/json:
  *           schema:
  *             type: object
- *             required: [country, state, city, address, phone, email]
+ *             required: [country, state, city, address, phone, email, profileImage]
  *             properties:
  *               country:
  *                 type: string
@@ -128,6 +188,10 @@ router.get('/approved', executiveController.getApprovedExecutives);
  *                 example: "executive@example.com"
  *               alternativeEmail:
  *                 type: string
+ *               profileImage:
+ *                 type: string
+ *                 description: Cloudinary URL of uploaded profile image
+ *                 example: "https://res.cloudinary.com/..."
  *               bio:
  *                 type: string
  *               expertise:
@@ -187,6 +251,8 @@ router.get('/my-application', protect, executiveController.getMyExecutiveApplica
  *               address:
  *                 type: string
  *               bio:
+ *                 type: string
+ *               profileImage:
  *                 type: string
  *     responses:
  *       200:

@@ -4,6 +4,90 @@ const User = require('../models/User');
 const UserShare = require('../models/UserShare');
 const CoFounderShare = require('../models/CoFounderShare');
 const { sendEmail } = require('../utils/emailService');
+const { 
+  sharePaymentUpload, 
+  logCloudinaryUpload, 
+  handleCloudinaryError 
+} = require('../config/cloudinary');
+
+/**
+ * @desc    Upload executive profile image
+ * @route   POST /api/executives/upload-image
+ * @access  Private (User with shares)
+ */
+exports.uploadExecutiveImage = async (req, res) => {
+  try {
+    const userId = req.user.id;
+
+    if (!req.file) {
+      return res.status(400).json({
+        success: false,
+        message: 'No image file provided'
+      });
+    }
+
+    console.log('[EXECUTIVE IMAGE] Upload initiated for user:', userId);
+    console.log('[EXECUTIVE IMAGE] File details:', {
+      originalname: req.file.originalname,
+      mimetype: req.file.mimetype,
+      size: req.file.size
+    });
+
+    // Validate file type
+    if (!req.file.mimetype.startsWith('image/')) {
+      return res.status(400).json({
+        success: false,
+        message: 'File must be an image'
+      });
+    }
+
+    // Validate file size (max 5MB)
+    if (req.file.size > 5 * 1024 * 1024) {
+      return res.status(400).json({
+        success: false,
+        message: 'Image size must be less than 5MB'
+      });
+    }
+
+    // Get user details
+    const user = await User.findById(userId);
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
+    }
+
+    // Upload to Cloudinary
+    const result = await sharePaymentUpload(
+      req.file.buffer,
+      `executives/${userId}`,
+      req.file.originalname
+    );
+
+    // Log the upload
+    logCloudinaryUpload(userId, result.secure_url, 'executive_profile');
+
+    console.log('[EXECUTIVE IMAGE] Upload successful:', result.secure_url);
+
+    res.status(200).json({
+      success: true,
+      message: 'Image uploaded successfully',
+      imageUrl: result.secure_url,
+      publicId: result.public_id
+    });
+
+  } catch (error) {
+    console.error('[EXECUTIVE IMAGE] Upload error:', error);
+    handleCloudinaryError(error);
+    
+    res.status(500).json({
+      success: false,
+      message: 'Failed to upload image',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+};
 
 /**
  * @desc    Apply to become an executive
@@ -28,7 +112,8 @@ exports.applyAsExecutive = async (req, res) => {
       linkedin,
       twitter,
       latitude,
-      longitude
+      longitude,
+      profileImage
     } = req.body;
     
     console.log('[EXECUTIVE] Application received from user:', userId);
@@ -38,6 +123,14 @@ exports.applyAsExecutive = async (req, res) => {
       return res.status(400).json({
         success: false,
         message: 'Please provide all required fields: country, state, city, address, phone, and email'
+      });
+    }
+
+    // Validate profile image
+    if (!profileImage) {
+      return res.status(400).json({
+        success: false,
+        message: 'Profile image is required'
       });
     }
     
@@ -91,7 +184,7 @@ exports.applyAsExecutive = async (req, res) => {
     const totalEffectiveShares = regularShares + (coFounderShares * shareToRegularRatio);
     
     // Minimum share requirement (optional - adjust as needed)
-    const minimumSharesRequired = 1; // You can change this
+    const minimumSharesRequired = 1;
     if (totalEffectiveShares < minimumSharesRequired) {
       return res.status(403).json({
         success: false,
@@ -99,12 +192,13 @@ exports.applyAsExecutive = async (req, res) => {
       });
     }
     
-    // Calculate estimated share value (you can add pricing logic)
-    const estimatedShareValue = totalEffectiveShares * 100000; // Example: 100k per share
+    // Calculate estimated share value
+    const estimatedShareValue = totalEffectiveShares * 100000;
     
     // Create executive application
     const executiveApplication = new Executive({
       userId,
+      profileImage,
       location: {
         country,
         state,
@@ -130,8 +224,10 @@ exports.applyAsExecutive = async (req, res) => {
       },
       bio: bio || null,
       expertise: expertise || [],
-      linkedin: linkedin || null,
-      twitter: twitter || null,
+      socialMedia: {
+        linkedin: linkedin || null,
+        twitter: twitter || null
+      },
       status: 'pending'
     });
     
@@ -167,7 +263,7 @@ exports.applyAsExecutive = async (req, res) => {
       }
     }
     
-    // Notify admin (optional)
+    // Notify admin
     const adminEmail = process.env.ADMIN_EMAIL;
     if (adminEmail) {
       try {
@@ -194,13 +290,7 @@ exports.applyAsExecutive = async (req, res) => {
     res.status(201).json({
       success: true,
       message: 'Executive application submitted successfully',
-      data: {
-        applicationId: executiveApplication._id,
-        status: executiveApplication.status,
-        shares: totalEffectiveShares,
-        location: `${city}, ${state}, ${country}`,
-        applicationDate: executiveApplication.applicationDate
-      }
+      application: executiveApplication
     });
     
   } catch (error) {
@@ -235,7 +325,7 @@ exports.getMyExecutiveApplication = async (req, res) => {
     
     res.status(200).json({
       success: true,
-      data: application
+      application: application
     });
     
   } catch (error) {
@@ -302,7 +392,7 @@ exports.getAllExecutiveApplications = async (req, res) => {
     
     res.status(200).json({
       success: true,
-      data: applications,
+      applications: applications,
       pagination: {
         currentPage: parseInt(page),
         totalPages: Math.ceil(totalCount / parseInt(limit)),
@@ -399,7 +489,7 @@ exports.approveExecutiveApplication = async (req, res) => {
     res.status(200).json({
       success: true,
       message: 'Executive application approved successfully',
-      data: application
+      application: application
     });
     
   } catch (error) {
@@ -487,7 +577,7 @@ exports.rejectExecutiveApplication = async (req, res) => {
     res.status(200).json({
       success: true,
       message: 'Executive application rejected',
-      data: application
+      application: application
     });
     
   } catch (error) {
@@ -529,7 +619,7 @@ exports.getApprovedExecutives = async (req, res) => {
     
     res.status(200).json({
       success: true,
-      data: executives,
+      executives: executives,
       pagination: {
         currentPage: parseInt(page),
         totalPages: Math.ceil(totalCount / parseInt(limit)),
@@ -566,7 +656,8 @@ exports.updateExecutiveInfo = async (req, res) => {
       bio,
       expertise,
       linkedin,
-      twitter
+      twitter,
+      profileImage
     } = req.body;
     
     // Find executive
@@ -590,15 +681,16 @@ exports.updateExecutiveInfo = async (req, res) => {
     if (address) executive.location.address = address;
     if (bio !== undefined) executive.bio = bio;
     if (expertise) executive.expertise = expertise;
-    if (linkedin !== undefined) executive.linkedin = linkedin;
-    if (twitter !== undefined) executive.twitter = twitter;
+    if (linkedin !== undefined) executive.socialMedia.linkedin = linkedin;
+    if (twitter !== undefined) executive.socialMedia.twitter = twitter;
+    if (profileImage) executive.profileImage = profileImage;
     
     await executive.save();
     
     res.status(200).json({
       success: true,
       message: 'Executive information updated successfully',
-      data: executive
+      application: executive
     });
     
   } catch (error) {
@@ -684,7 +776,7 @@ exports.suspendExecutive = async (req, res) => {
     res.status(200).json({
       success: true,
       message: 'Executive suspended successfully',
-      data: executive
+      application: executive
     });
     
   } catch (error) {
