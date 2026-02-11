@@ -1,3 +1,4 @@
+// routes/adminCompleteOverviewRoutes.js
 const express = require('express');
 const router = express.Router();
 const { protect, adminProtect } = require('../middleware/auth');
@@ -18,6 +19,19 @@ const {
  *     responses:
  *       200:
  *         description: Complete project overview with all models
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 timestamp:
+ *                   type: string
+ *                 overview:
+ *                   type: object
+ *                 summary:
+ *                   type: object
  */
 router.get('/complete-overview', protect, adminProtect, getCompleteProjectOverview);
 
@@ -36,9 +50,14 @@ router.get('/complete-overview', protect, adminProtect, getCompleteProjectOvervi
  *         required: true
  *         schema:
  *           type: string
+ *         description: User ID to get overview for
  *     responses:
  *       200:
  *         description: Complete user overview
+ *       404:
+ *         description: User not found
+ *       500:
+ *         description: Server error
  */
 router.get('/user/:userId/complete-overview', protect, adminProtect, getCompleteUserOverview);
 
