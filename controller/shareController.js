@@ -6529,3 +6529,236 @@ exports.adminGetCentiivTransactions = async (req, res) => {
     });
   }
 };
+// Helper function to resolve user by ID or username
+const resolveUserIdentifier = async (identifier) => {
+  try {
+    // Check if it's a valid MongoDB ObjectId
+    const isValidObjectId = /^[0-9a-fA-F]{24}$/.test(identifier);
+    
+    let user;
+    if (isValidObjectId) {
+      // Try finding by ID first
+      user = await User.findById(identifier);
+    }
+    
+    // If not found by ID or not a valid ObjectId, try username
+    if (!user) {
+      user = await User.findOne({ 
+        $or: [
+          { username: identifier },
+          { username: new RegExp(`^${identifier}$`, 'i') } // Case-insensitive
+        ]
+      });
+    }
+    
+    // If still not found, try email
+    if (!user) {
+      user = await User.findOne({ 
+        email: new RegExp(`^${identifier}$`, 'i') 
+      });
+    }
+    
+    return user;
+  } catch (error) {
+    console.error('Error resolving user identifier:', error);
+    return null;
+  }
+};
+/**
+ * @desc    Get user share overview by ID or username
+ * @route   GET /api/shares/admin/user-overview/:identifier
+ * @access  Private (Admin)
+ */
+exports.adminGetUserOverview = async (req, res) => {
+  try {
+    const { identifier } = req.params;
+    const adminId = req.user.id;
+    
+    // Check if admin
+    const admin = await User.findById(adminId);
+    if (!admin || !admin.isAdmin) {
+      return res.status(403).json({
+        success: false,
+        message: 'Unauthorized: Admin access required'
+      });
+    }
+    
+    console.log(`[Admin] Looking up user: ${identifier}`);
+    
+    // Resolve user by ID or username
+    const user = await resolveUserIdentifier(identifier);
+    
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found',
+        searchedFor: identifier
+      });
+    }
+    
+    console.log(`[Admin] Found user: ${user._id} (${user.username})`);
+    
+    // Get user shares
+    const userShares = await UserShare.findOne({ user: user._id });
+    
+    // Get co-founder transactions
+    const coFounderTransactions = await PaymentTransaction.find({
+      userId: user._id,
+      type: 'co-founder'
+    });
+    
+    // Get all payment transactions
+    const allPaymentTransactions = await PaymentTransaction.find({
+      userId: user._id
+    }).sort({ createdAt: -1 });
+    
+    // Calculate share breakdown
+    let directRegularShares = 0;
+    let coFounderShares = 0;
+    let pendingRegularShares = 0;
+    let pendingCoFounderShares = 0;
+    
+    const transactions = {
+      regular: [],
+      coFounder: [],
+      manual: [],
+      centiiv: [],
+      web3: [],
+      all: []
+    };
+    
+    // Process UserShare transactions
+    if (userShares) {
+      userShares.transactions.forEach(transaction => {
+        const txData = {
+          transactionId: transaction.transactionId,
+          shares: transaction.shares,
+          coFounderShares: transaction.coFounderShares,
+          amount: transaction.totalAmount,
+          currency: transaction.currency,
+          paymentMethod: transaction.paymentMethod,
+          status: transaction.status,
+          date: transaction.createdAt,
+          source: 'UserShare'
+        };
+        
+        transactions.all.push(txData);
+        
+        if (transaction.status === 'completed') {
+          if (transaction.paymentMethod === 'co-founder') {
+            coFounderShares += transaction.coFounderShares || transaction.shares || 0;
+            transactions.coFounder.push(txData);
+          } else {
+            directRegularShares += transaction.shares || 0;
+            
+            if (transaction.paymentMethod.startsWith('manual_')) {
+              transactions.manual.push(txData);
+            } else if (transaction.paymentMethod.includes('centiiv')) {
+              transactions.centiiv.push(txData);
+            } else if (transaction.paymentMethod === 'web3' || transaction.paymentMethod === 'crypto') {
+              transactions.web3.push(txData);
+            } else {
+              transactions.regular.push(txData);
+            }
+          }
+        } else if (transaction.status === 'pending') {
+          if (transaction.paymentMethod === 'co-founder') {
+            pendingCoFounderShares += transaction.coFounderShares || transaction.shares || 0;
+          } else {
+            pendingRegularShares += transaction.shares || 0;
+          }
+        }
+      });
+    }
+    
+    // Get co-founder ratio
+    const coFounderConfig = await CoFounderShare.findOne();
+    const shareToRegularRatio = coFounderConfig?.shareToRegularRatio || 29;
+    
+    const equivalentRegularFromCoFounder = coFounderShares * shareToRegularRatio;
+    const totalEffectiveShares = directRegularShares + equivalentRegularFromCoFounder;
+    
+    // User activity summary
+    const activitySummary = {
+      lastTransaction: userShares?.transactions?.length > 0 ? 
+        userShares.transactions[userShares.transactions.length - 1].createdAt : null,
+      totalTransactions: userShares?.transactions?.length || 0,
+      completedTransactions: userShares?.transactions?.filter(t => t.status === 'completed').length || 0,
+      pendingTransactions: userShares?.transactions?.filter(t => t.status === 'pending').length || 0,
+      failedTransactions: userShares?.transactions?.filter(t => t.status === 'failed').length || 0
+    };
+    
+    // Referral information
+    const referralInfo = {
+      hasReferralCode: !!user.referralInfo?.code,
+      referralCode: user.referralInfo?.code || null,
+      wasReferred: !!user.referralInfo?.referredBy,
+      referredBy: user.referralInfo?.referredBy || null,
+      totalReferrals: user.referralInfo?.totalReferrals || 0,
+      activeReferrals: user.referralInfo?.activeReferrals || 0
+    };
+    
+    res.status(200).json({
+      success: true,
+      user: {
+        id: user._id,
+        name: user.name,
+        username: user.username,
+        email: user.email,
+        phone: user.phone,
+        walletAddress: user.walletAddress,
+        isAdmin: user.isAdmin || false,
+        isEmailVerified: user.isEmailVerified || false,
+        registrationDate: user.createdAt,
+        lastLogin: user.lastLogin
+      },
+      sharesSummary: {
+        totalEffectiveShares,
+        directRegularShares,
+        coFounderShares,
+        equivalentRegularFromCoFounder,
+        pending: {
+          pendingRegularShares,
+          pendingCoFounderShares,
+          totalPendingEffective: pendingRegularShares + (pendingCoFounderShares * shareToRegularRatio)
+        },
+        coFounderEquivalence: {
+          ratio: shareToRegularRatio,
+          equivalentCoFounderShares: Math.floor(totalEffectiveShares / shareToRegularRatio),
+          remainingRegularShares: totalEffectiveShares % shareToRegularRatio
+        }
+      },
+      transactions: {
+        byType: {
+          regular: transactions.regular.length,
+          coFounder: transactions.coFounder.length,
+          manual: transactions.manual.length,
+          centiiv: transactions.centiiv.length,
+          web3: transactions.web3.length
+        },
+        recent: transactions.all.slice(0, 10), // Last 10 transactions
+        summary: activitySummary
+      },
+      referralInfo,
+      paymentMethods: {
+        hasUsedRegular: transactions.regular.length > 0,
+        hasUsedCoFounder: transactions.coFounder.length > 0,
+        hasUsedManual: transactions.manual.length > 0,
+        hasUsedCentiiv: transactions.centiiv.length > 0,
+        hasUsedWeb3: transactions.web3.length > 0
+      },
+      searchInfo: {
+        searchedBy: identifier,
+        resolvedBy: /^[0-9a-fA-F]{24}$/.test(identifier) ? 'id' : 'username/email'
+      }
+    });
+    
+  } catch (error) {
+    console.error('Error getting user overview:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to get user overview',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+};

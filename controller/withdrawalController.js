@@ -2646,6 +2646,357 @@ async function generateCryptoWithdrawalReceipt(withdrawal, user) {
     console.error('Error generating receipt:', error);
     throw error;
   }
+
+  
 }
+
+/**
+ * Find user by either ID, username, or email
+ * @param {string} identifier - User ID, username, or email
+ * @returns {Promise<Object>} User document
+ */
+async function findUserByIdentifier(identifier) {
+  let user;
+
+  // Check if identifier is a valid MongoDB ObjectId
+  if (mongoose.Types.ObjectId.isValid(identifier)) {
+    user = await User.findById(identifier);
+  }
+
+  // If not found by ID, search by username
+  if (!user) {
+    user = await User.findOne({ username: identifier });
+  }
+
+  // If still not found, try email
+  if (!user) {
+    user = await User.findOne({ email: identifier });
+  }
+
+  return user;
+}
+
+// ========== NEW ADMIN USER LOOKUP ENDPOINTS ==========
+
+/**
+ * Admin: Get any user's withdrawal balance
+ * @route GET /api/withdrawal/admin/user/:identifier/balance
+ * @access Admin
+ */
+exports.adminGetUserBalance = async (req, res) => {
+  try {
+    const { identifier } = req.params;
+
+    const user = await findUserByIdentifier(identifier);
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: `User not found: ${identifier}`
+      });
+    }
+
+    const referralData = await Referral.findOne({ user: user._id });
+
+    if (!referralData) {
+      return res.status(200).json({
+        success: true,
+        data: {
+          userId: user._id,
+          username: user.username,
+          email: user.email,
+          name: user.name,
+          totalEarnings: 0,
+          totalWithdrawn: 0,
+          pendingWithdrawals: 0,
+          processingWithdrawals: 0,
+          availableBalance: 0,
+          minimumWithdrawalAmount: 20000
+        }
+      });
+    }
+
+    const totalEarnings = referralData.totalEarnings || 0;
+    const totalWithdrawn = referralData.totalWithdrawn || 0;
+    const pendingWithdrawals = referralData.pendingWithdrawals || 0;
+    const processingWithdrawals = referralData.processingWithdrawals || 0;
+
+    const availableBalance = totalEarnings - totalWithdrawn - pendingWithdrawals - processingWithdrawals;
+
+    res.status(200).json({
+      success: true,
+      data: {
+        userId: user._id,
+        username: user.username,
+        email: user.email,
+        name: user.name,
+        accountStatus: user.accountStatus,
+        totalEarnings,
+        totalWithdrawn,
+        pendingWithdrawals,
+        processingWithdrawals,
+        availableBalance,
+        minimumWithdrawalAmount: 20000,
+        canWithdraw: availableBalance >= 20000 && pendingWithdrawals === 0 && processingWithdrawals === 0,
+        lastEarningDate: referralData.lastEarningDate,
+        updatedAt: referralData.updatedAt
+      }
+    });
+  } catch (error) {
+    console.error('Error fetching user balance (admin):', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch user balance',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+};
+
+/**
+ * Admin: Get any user's withdrawal history with filters
+ * @route GET /api/withdrawal/admin/user/:identifier/withdrawals
+ * @access Admin
+ */
+exports.adminGetUserWithdrawals = async (req, res) => {
+  try {
+    const { identifier } = req.params;
+    const { status, type, limit = 20, page = 1 } = req.query;
+
+    const user = await findUserByIdentifier(identifier);
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: `User not found: ${identifier}`
+      });
+    }
+
+    const query = { user: user._id };
+
+    if (status) {
+      query.status = status;
+    }
+
+    if (type) {
+      query.withdrawalType = type;
+    }
+
+    const withdrawals = await Withdrawal.find(query)
+      .sort({ createdAt: -1 })
+      .limit(parseInt(limit))
+      .skip((parseInt(page) - 1) * parseInt(limit));
+
+    const count = await Withdrawal.countDocuments(query);
+
+    res.status(200).json({
+      success: true,
+      userId: user._id,
+      username: user.username,
+      email: user.email,
+      count,
+      totalPages: Math.ceil(count / parseInt(limit)),
+      currentPage: parseInt(page),
+      data: withdrawals.map(w => ({
+        id: w._id,
+        amount: w.amount,
+        type: w.withdrawalType,
+        status: w.status,
+        transactionReference: w.transactionReference,
+        clientReference: w.clientReference,
+        paymentMethod: w.paymentMethod,
+        createdAt: w.createdAt,
+        processedAt: w.processedAt
+      }))
+    });
+  } catch (error) {
+    console.error('Error fetching user withdrawals (admin):', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch user withdrawals',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+};
+
+/**
+ * Admin: Get any user's pending withdrawals only
+ * @route GET /api/withdrawal/admin/user/:identifier/pending
+ * @access Admin
+ */
+exports.adminGetUserPendingWithdrawals = async (req, res) => {
+  try {
+    const { identifier } = req.params;
+
+    const user = await findUserByIdentifier(identifier);
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: `User not found: ${identifier}`
+      });
+    }
+
+    const pendingWithdrawals = await Withdrawal.find({
+      user: user._id,
+      status: { $in: ['pending', 'processing'] }
+    }).sort({ createdAt: -1 });
+
+    const breakdown = {
+      pending: pendingWithdrawals.filter(w => w.status === 'pending').length,
+      processing: pendingWithdrawals.filter(w => w.status === 'processing').length,
+      totalPendingAmount: pendingWithdrawals.reduce((sum, w) => sum + (w.amount || 0), 0)
+    };
+
+    res.status(200).json({
+      success: true,
+      userId: user._id,
+      username: user.username,
+      email: user.email,
+      breakdown,
+      count: pendingWithdrawals.length,
+      data: pendingWithdrawals.map(w => ({
+        id: w._id,
+        amount: w.amount,
+        type: w.withdrawalType,
+        status: w.status,
+        clientReference: w.clientReference,
+        createdAt: w.createdAt,
+        daysOld: Math.floor((Date.now() - w.createdAt) / (1000 * 60 * 60 * 24))
+      }))
+    });
+  } catch (error) {
+    console.error('Error fetching user pending withdrawals (admin):', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch user pending withdrawals',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+};
+
+/**
+ * Admin: Get comprehensive withdrawal summary for any user
+ * @route GET /api/withdrawal/admin/user/:identifier/summary
+ * @access Admin
+ */
+exports.adminGetUserWithdrawalSummary = async (req, res) => {
+  try {
+    const { identifier } = req.params;
+
+    const user = await findUserByIdentifier(identifier);
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: `User not found: ${identifier}`
+      });
+    }
+
+    // Fetch all relevant data in parallel
+    const [referralData, paymentData, allWithdrawals, pendingWithdrawals] = await Promise.all([
+      Referral.findOne({ user: user._id }),
+      Payment.findOne({ user: user._id }),
+      Withdrawal.find({ user: user._id }),
+      Withdrawal.find({ user: user._id, status: { $in: ['pending', 'processing'] } })
+    ]);
+
+    // Calculate statistics
+    const totalEarnings = referralData?.totalEarnings || 0;
+    const totalWithdrawn = referralData?.totalWithdrawn || 0;
+    const pendingTotal = referralData?.pendingWithdrawals || 0;
+    const processingTotal = referralData?.processingWithdrawals || 0;
+    const availableBalance = totalEarnings - totalWithdrawn - pendingTotal - processingTotal;
+
+    const withdrawalStats = {
+      total: allWithdrawals.length,
+      paid: allWithdrawals.filter(w => w.status === 'paid').length,
+      pending: allWithdrawals.filter(w => w.status === 'pending').length,
+      processing: allWithdrawals.filter(w => w.status === 'processing').length,
+      failed: allWithdrawals.filter(w => w.status === 'failed').length,
+      rejected: allWithdrawals.filter(w => w.status === 'rejected').length
+    };
+
+    const bankWithdrawals = allWithdrawals.filter(w => w.withdrawalType === 'bank');
+    const cryptoWithdrawals = allWithdrawals.filter(w => w.withdrawalType === 'crypto');
+
+    const paymentMethods = {
+      hasBankAccount: !!paymentData?.bankAccount?.verified,
+      bankDetails: paymentData?.bankAccount ? {
+        bankName: paymentData.bankAccount.bankName,
+        accountName: paymentData.bankAccount.accountName,
+        accountNumber: '****' + paymentData.bankAccount.accountNumber.slice(-4),
+        verified: paymentData.bankAccount.verified
+      } : null,
+      hasCryptoWallet: !!paymentData?.cryptoWallet?.verified,
+      cryptoDetails: paymentData?.cryptoWallet ? {
+        walletAddress: paymentData.cryptoWallet.walletAddress.substring(0, 10) + '...' + paymentData.cryptoWallet.walletAddress.substring(-8),
+        chainName: paymentData.cryptoWallet.chainName,
+        cryptoType: paymentData.cryptoWallet.cryptoType,
+        verified: paymentData.cryptoWallet.verified
+      } : null
+    };
+
+    const recentWithdrawals = allWithdrawals.slice(0, 5).map(w => ({
+      id: w._id,
+      amount: w.amount,
+      type: w.withdrawalType,
+      status: w.status,
+      createdAt: w.createdAt,
+      processedAt: w.processedAt
+    }));
+
+    res.status(200).json({
+      success: true,
+      data: {
+        user: {
+          id: user._id,
+          username: user.username,
+          email: user.email,
+          name: user.name,
+          accountStatus: user.accountStatus,
+          createdAt: user.createdAt
+        },
+        balance: {
+          totalEarnings,
+          totalWithdrawn,
+          pendingWithdrawals: pendingTotal,
+          processingWithdrawals: processingTotal,
+          availableBalance,
+          minimumWithdrawalAmount: 20000,
+          canWithdraw: availableBalance >= 20000 && pendingTotal === 0 && processingTotal === 0
+        },
+        withdrawals: {
+          overview: withdrawalStats,
+          bankTotal: bankWithdrawals.length,
+          cryptoTotal: cryptoWithdrawals.length,
+          pendingCount: pendingWithdrawals.length,
+          pendingAmount: pendingWithdrawals.reduce((sum, w) => sum + (w.amount || 0), 0),
+          oldestPending: pendingWithdrawals.length > 0 ? {
+            id: pendingWithdrawals[pendingWithdrawals.length - 1]._id,
+            daysOld: Math.floor((Date.now() - pendingWithdrawals[pendingWithdrawals.length - 1].createdAt) / (1000 * 60 * 60 * 24))
+          } : null
+        },
+        paymentMethods,
+        recentWithdrawals,
+        metadata: {
+          averageWithdrawalAmount: allWithdrawals.length > 0 
+            ? Math.round(allWithdrawals.reduce((sum, w) => sum + w.amount, 0) / allWithdrawals.length)
+            : 0,
+          lastWithdrawalDate: allWithdrawals[0]?.createdAt || null,
+          withdrawalFrequency: allWithdrawals.length > 1 
+            ? Math.round((Date.now() - allWithdrawals[allWithdrawals.length - 1].createdAt) / allWithdrawals.length / (1000 * 60 * 60 * 24))
+            : 0
+        }
+      }
+    });
+  } catch (error) {
+    console.error('Error fetching user withdrawal summary (admin):', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch user withdrawal summary',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+};
 
 module.exports = exports;

@@ -2380,6 +2380,366 @@ router.post('/manual/initiate', protect, coFounderController.initiateCoFounderMa
 router.post('/manual/upload', protect, coFounderController.uploadCoFounderPaymentProof);
 
 // ===================================================================
+// ADDITIONS TO coFounderRoutes.js
+// Add these routes in the ADMIN ROUTES section
+// ===================================================================
+
+/**
+ * @swagger
+ * /cofounder/admin/user-overview/{identifier}:
+ *   get:
+ *     tags: [Co-Founder - Admin Flexible Lookup]
+ *     summary: Get user's co-founder overview (flexible identifier)
+ *     description: |
+ *       Get comprehensive co-founder share data for a specific user using flexible identifier.
+ *       
+ *       **Identifier Types Supported:**
+ *       - MongoDB ObjectId (24-character hex string)
+ *       - Username (case-insensitive)
+ *       - Email address (case-insensitive)
+ *       
+ *       **Lookup Priority:**
+ *       1. Try as MongoDB ID if valid format
+ *       2. Try as username (case-insensitive)
+ *       3. Try as email (case-insensitive)
+ *     security:
+ *       - adminAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: identifier
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: User ID, username, or email
+ *         examples:
+ *           byId:
+ *             value: "60f7c6b4c8f1a2b3c4d5e6f7"
+ *             summary: Search by MongoDB ObjectId
+ *           byUsername:
+ *             value: "johndoe"
+ *             summary: Search by username
+ *           byEmail:
+ *             value: "john@example.com"
+ *             summary: Search by email
+ *     responses:
+ *       200:
+ *         description: User co-founder overview retrieved successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 searchInfo:
+ *                   type: object
+ *                   properties:
+ *                     searchedBy:
+ *                       type: string
+ *                       example: "johndoe"
+ *                     resolvedBy:
+ *                       type: string
+ *                       enum: [id, username, email]
+ *                       example: "username"
+ *                     resolvedUser:
+ *                       type: object
+ *                       properties:
+ *                         id:
+ *                           type: string
+ *                           example: "60f7c6b4c8f1a2b3c4d5e6f7"
+ *                         username:
+ *                           type: string
+ *                           example: "johndoe"
+ *                         name:
+ *                           type: string
+ *                           example: "John Doe"
+ *                         email:
+ *                           type: string
+ *                           example: "john@example.com"
+ *                 user:
+ *                   type: object
+ *                   properties:
+ *                     id:
+ *                       type: string
+ *                     name:
+ *                       type: string
+ *                     username:
+ *                       type: string
+ *                     email:
+ *                       type: string
+ *                     phone:
+ *                       type: string
+ *                     isAdmin:
+ *                       type: boolean
+ *                     isVerified:
+ *                       type: boolean
+ *                     createdAt:
+ *                       type: string
+ *                       format: date-time
+ *                     wallet:
+ *                       type: string
+ *                 coFounderSharesSummary:
+ *                   type: object
+ *                   properties:
+ *                     totalCoFounderShares:
+ *                       type: integer
+ *                       example: 10
+ *                     equivalentRegularShares:
+ *                       type: integer
+ *                       example: 290
+ *                     shareToRegularRatio:
+ *                       type: integer
+ *                       example: 29
+ *                     totalSpent:
+ *                       type: number
+ *                       example: 1000000
+ *                     averagePricePerShare:
+ *                       type: number
+ *                       example: 100000
+ *                 overallShareBreakdown:
+ *                   type: object
+ *                   description: Overall share breakdown from UserShare model
+ *                 transactionSummary:
+ *                   type: object
+ *                   properties:
+ *                     total:
+ *                       type: integer
+ *                       example: 15
+ *                     pending:
+ *                       type: integer
+ *                       example: 2
+ *                     completed:
+ *                       type: integer
+ *                       example: 10
+ *                     failed:
+ *                       type: integer
+ *                       example: 3
+ *                     byPaymentMethod:
+ *                       type: object
+ *                       additionalProperties:
+ *                         type: object
+ *                         properties:
+ *                           count:
+ *                             type: integer
+ *                           totalShares:
+ *                             type: integer
+ *                           totalAmount:
+ *                             type: number
+ *                           pending:
+ *                             type: integer
+ *                           completed:
+ *                             type: integer
+ *                           failed:
+ *                             type: integer
+ *                 activitySummary:
+ *                   type: object
+ *                   properties:
+ *                     lastTransactionDate:
+ *                       type: string
+ *                       format: date-time
+ *                     lastTransactionStatus:
+ *                       type: string
+ *                     totalTransactions:
+ *                       type: integer
+ *                     pendingCount:
+ *                       type: integer
+ *                     completedCount:
+ *                       type: integer
+ *                     failedCount:
+ *                       type: integer
+ *                 recentTransactions:
+ *                   type: array
+ *                   items:
+ *                     type: object
+ *                     properties:
+ *                       transactionId:
+ *                         type: string
+ *                       shares:
+ *                         type: integer
+ *                       equivalentRegularShares:
+ *                         type: integer
+ *                       amount:
+ *                         type: number
+ *                       currency:
+ *                         type: string
+ *                       paymentMethod:
+ *                         type: string
+ *                       status:
+ *                         type: string
+ *                       date:
+ *                         type: string
+ *                         format: date-time
+ *                       hasPaymentProof:
+ *                         type: boolean
+ *                       adminNotes:
+ *                         type: string
+ *                 ratioExplanation:
+ *                   type: string
+ *                   example: "1 Co-Founder Share = 29 Regular Shares"
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Admin access required
+ *       404:
+ *         description: User not found
+ *       500:
+ *         description: Server error
+ *     x-codeSamples:
+ *       - lang: 'curl'
+ *         source: |
+ *           # Search by username
+ *           curl -X GET "https://api.afrimobile.com/cofounder/admin/user-overview/johndoe" \
+ *             -H "Authorization: Bearer ADMIN_JWT_TOKEN"
+ *           
+ *           # Search by user ID
+ *           curl -X GET "https://api.afrimobile.com/cofounder/admin/user-overview/60f7c6b4c8f1a2b3c4d5e6f7" \
+ *             -H "Authorization: Bearer ADMIN_JWT_TOKEN"
+ *           
+ *           # Search by email
+ *           curl -X GET "https://api.afrimobile.com/cofounder/admin/user-overview/john@example.com" \
+ *             -H "Authorization: Bearer ADMIN_JWT_TOKEN"
+ */
+router.get('/admin/user-overview/:identifier', protect, adminProtect, coFounderController.adminGetUserCoFounderOverview);
+
+/**
+ * @swagger
+ * /cofounder/admin/add-shares-flexible:
+ *   post:
+ *     tags: [Co-Founder - Admin Flexible Lookup]
+ *     summary: Add co-founder shares to user (flexible identifier)
+ *     description: |
+ *       Add co-founder shares directly to user account using flexible identifier (admin only).
+ *       
+ *       **Identifier Types Supported:**
+ *       - MongoDB ObjectId (24-character hex string)
+ *       - Username (case-insensitive)
+ *       - Email address (case-insensitive)
+ *       
+ *       This endpoint uses `userIdentifier` instead of `userId` for flexibility.
+ *     security:
+ *       - adminAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [userIdentifier, shares]
+ *             properties:
+ *               userIdentifier:
+ *                 type: string
+ *                 description: User ID, username, or email
+ *                 examples:
+ *                   - "60f7c6b4c8f1a2b3c4d5e6f7"
+ *                   - "johndoe"
+ *                   - "john@example.com"
+ *               shares:
+ *                 type: integer
+ *                 minimum: 1
+ *                 example: 10
+ *               note:
+ *                 type: string
+ *                 example: "Bonus shares for early investor"
+ *     responses:
+ *       200:
+ *         description: Shares added successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *                   example: "Successfully added 10 co-founder shares to user"
+ *                 searchInfo:
+ *                   type: object
+ *                   properties:
+ *                     searchedBy:
+ *                       type: string
+ *                       example: "johndoe"
+ *                     resolvedBy:
+ *                       type: string
+ *                       enum: [id, username, email]
+ *                       example: "username"
+ *                     resolvedUser:
+ *                       type: object
+ *                       properties:
+ *                         id:
+ *                           type: string
+ *                         username:
+ *                           type: string
+ *                         name:
+ *                           type: string
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     coFounderShares:
+ *                       type: integer
+ *                       example: 10
+ *                     equivalentRegularShares:
+ *                       type: integer
+ *                       example: 290
+ *                     transaction:
+ *                       type: string
+ *                       example: "60f7c6b4c8f1a2b3c4d5e6f8"
+ *                     user:
+ *                       type: object
+ *                       properties:
+ *                         id:
+ *                           type: string
+ *                         name:
+ *                           type: string
+ *                         username:
+ *                           type: string
+ *                         email:
+ *                           type: string
+ *       400:
+ *         description: Bad request
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Admin access required
+ *       404:
+ *         description: User not found
+ *       500:
+ *         description: Server error
+ *     x-codeSamples:
+ *       - lang: 'curl'
+ *         source: |
+ *           # Add shares by username
+ *           curl -X POST "https://api.afrimobile.com/cofounder/admin/add-shares-flexible" \
+ *             -H "Authorization: Bearer ADMIN_JWT_TOKEN" \
+ *             -H "Content-Type: application/json" \
+ *             -d '{
+ *               "userIdentifier": "johndoe",
+ *               "shares": 10,
+ *               "note": "Bonus shares for early contribution"
+ *             }'
+ *           
+ *           # Add shares by email
+ *           curl -X POST "https://api.afrimobile.com/cofounder/admin/add-shares-flexible" \
+ *             -H "Authorization: Bearer ADMIN_JWT_TOKEN" \
+ *             -H "Content-Type: application/json" \
+ *             -d '{
+ *               "userIdentifier": "john@example.com",
+ *               "shares": 5,
+ *               "note": "Referral bonus"
+ *             }'
+ */
+router.post('/admin/add-shares-flexible', protect, adminProtect, coFounderController.adminAddCoFounderSharesFlexible);
+
+// ===================================================================
+// ROUTE PLACEMENT NOTES:
+// - Add these routes in the "ADMIN ROUTES" section of coFounderRoutes.js
+// - Place them after existing admin routes but before debug routes
+// - Ensure they're above any catch-all routes
+// ===================================================================
+
+// ===================================================================
 // EXPORT ROUTER
 // ===================================================================
 

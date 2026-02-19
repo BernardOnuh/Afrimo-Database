@@ -565,7 +565,7 @@ app.use('/api/management', require('./routes/managementRoutes'));
 // app.use('/api/shares/cofounder/installment', require('./routes/coFounderInstallmentRoutes'));
 app.use('/api/share-packages', require('./routes/sharePackageRoutes'));
 app.use('/api/shares/tiers', require('./routes/tierRoutes'));
-app.use('/api/admin', require('./routes/adminCompleteOverviewRoutes'));
+
 // ============================================================================
 // NEW: Share Resale & OTC Marketplace Routes (Feb 2026)
 // ============================================================================

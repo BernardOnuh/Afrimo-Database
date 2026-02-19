@@ -1,6 +1,6 @@
 // routes/withdrawalRoutes.js
 /**
- * COMPLETE WITHDRAWAL ROUTES - CORRECTED VERSION
+ * COMPLETE WITHDRAWAL ROUTES - ENHANCED VERSION WITH ADMIN USER LOOKUP
  * 
  * MOUNTING IN app.js:
  * app.use('/api/withdrawal', require('./routes/withdrawalRoutes'));
@@ -203,6 +203,103 @@ router.put('/admin/:id/pay', protect, adminProtect, withdrawalController.markWit
  *     summary: Get all withdrawals (Admin)
  */
 router.get('/admin/all', protect, adminProtect, withdrawalController.getAllWithdrawals);
+
+// ========== NEW: ADMIN USER LOOKUP ROUTES ==========
+
+/**
+ * @swagger
+ * /withdrawal/admin/user/{identifier}/balance:
+ *   get:
+ *     summary: Get user's withdrawal balance (Admin lookup by ID/username)
+ *     description: Admin can check any user's balance using ID, username, or email
+ *     tags:
+ *       - Admin User Lookup
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: identifier
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: User ID, username, or email
+ *     responses:
+ *       200:
+ *         description: User balance retrieved
+ *       404:
+ *         description: User not found
+ */
+router.get('/admin/user/:identifier/balance', protect, adminProtect, withdrawalController.adminGetUserBalance);
+
+/**
+ * @swagger
+ * /withdrawal/admin/user/{identifier}/withdrawals:
+ *   get:
+ *     summary: Get user's withdrawal history (Admin lookup)
+ *     description: Admin can view any user's withdrawal history
+ *     tags:
+ *       - Admin User Lookup
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: identifier
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: User ID, username, or email
+ *       - in: query
+ *         name: status
+ *         schema:
+ *           type: string
+ *         description: Filter by status (pending, paid, failed, etc)
+ *       - in: query
+ *         name: type
+ *         schema:
+ *           type: string
+ *         description: Filter by type (bank, crypto)
+ */
+router.get('/admin/user/:identifier/withdrawals', protect, adminProtect, withdrawalController.adminGetUserWithdrawals);
+
+/**
+ * @swagger
+ * /withdrawal/admin/user/{identifier}/pending:
+ *   get:
+ *     summary: Get user's pending withdrawals (Admin lookup)
+ *     description: Admin can view pending/processing withdrawals for any user
+ *     tags:
+ *       - Admin User Lookup
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: identifier
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: User ID, username, or email
+ */
+router.get('/admin/user/:identifier/pending', protect, adminProtect, withdrawalController.adminGetUserPendingWithdrawals);
+
+/**
+ * @swagger
+ * /withdrawal/admin/user/{identifier}/summary:
+ *   get:
+ *     summary: Get user's withdrawal summary (Admin lookup)
+ *     description: Get complete withdrawal info for a user
+ *     tags:
+ *       - Admin User Lookup
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: identifier
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: User ID, username, or email
+ */
+router.get('/admin/user/:identifier/summary', protect, adminProtect, withdrawalController.adminGetUserWithdrawalSummary);
 
 // ========== CRYPTO WITHDRAWAL ROUTES ==========
 

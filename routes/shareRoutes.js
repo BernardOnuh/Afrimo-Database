@@ -4336,4 +4336,387 @@ router.post('/admin/fix-transaction-statuses/:userId', protect, adminProtect, sh
  */
 router.get('/admin/transaction-comparison/:userId', protect, adminProtect, shareController.getTransactionComparison);
 
+/**
+ * @swagger
+ * /shares/admin/user-overview/{identifier}:
+ *   get:
+ *     tags: [Shares - Admin User Management]
+ *     summary: Get comprehensive user share overview
+ *     description: |
+ *       **FLEXIBLE USER LOOKUP** - Get complete user share information using ID, username, or email.
+ *       
+ *       **Lookup Methods:**
+ *       - ✅ MongoDB User ID (24-character hex)
+ *       - ✅ Username (case-insensitive)
+ *       - ✅ Email address (case-insensitive)
+ *       
+ *       **Information Provided:**
+ *       - Complete user profile
+ *       - Share holdings breakdown
+ *       - Transaction history by type
+ *       - Payment method usage
+ *       - Referral information
+ *       - Activity summary
+ *       
+ *       **Perfect for:**
+ *       - Customer support
+ *       - Account verification
+ *       - Transaction troubleshooting
+ *       - User activity monitoring
+ *     security:
+ *       - adminAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: identifier
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: User ID, username, or email
+ *         examples:
+ *           userId:
+ *             value: "60f7c6b4c8f1a2b3c4d5e6f7"
+ *             summary: MongoDB User ID
+ *           username:
+ *             value: "johndoe"
+ *             summary: Username
+ *           email:
+ *             value: "john@example.com"
+ *             summary: Email address
+ *     responses:
+ *       200:
+ *         description: User overview retrieved successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 user:
+ *                   type: object
+ *                   properties:
+ *                     id:
+ *                       type: string
+ *                       example: "60f7c6b4c8f1a2b3c4d5e6f7"
+ *                     name:
+ *                       type: string
+ *                       example: "John Doe"
+ *                     username:
+ *                       type: string
+ *                       example: "johndoe"
+ *                     email:
+ *                       type: string
+ *                       example: "john@example.com"
+ *                     phone:
+ *                       type: string
+ *                       example: "+1234567890"
+ *                     walletAddress:
+ *                       type: string
+ *                       example: "0x742d35Cc6643C673532925e2aC5c48C0F30A37a0"
+ *                     isAdmin:
+ *                       type: boolean
+ *                       example: false
+ *                     isEmailVerified:
+ *                       type: boolean
+ *                       example: true
+ *                     registrationDate:
+ *                       type: string
+ *                       format: date-time
+ *                     lastLogin:
+ *                       type: string
+ *                       format: date-time
+ *                 sharesSummary:
+ *                   type: object
+ *                   properties:
+ *                     totalEffectiveShares:
+ *                       type: integer
+ *                       example: 145
+ *                       description: Total effective shares (regular + co-founder equivalent)
+ *                     directRegularShares:
+ *                       type: integer
+ *                       example: 100
+ *                     coFounderShares:
+ *                       type: integer
+ *                       example: 5
+ *                     equivalentRegularFromCoFounder:
+ *                       type: integer
+ *                       example: 145
+ *                       description: Co-founder shares converted to regular (5 × 29)
+ *                     pending:
+ *                       type: object
+ *                       properties:
+ *                         pendingRegularShares:
+ *                           type: integer
+ *                           example: 0
+ *                         pendingCoFounderShares:
+ *                           type: integer
+ *                           example: 0
+ *                         totalPendingEffective:
+ *                           type: integer
+ *                           example: 0
+ *                     coFounderEquivalence:
+ *                       type: object
+ *                       properties:
+ *                         ratio:
+ *                           type: integer
+ *                           example: 29
+ *                         equivalentCoFounderShares:
+ *                           type: integer
+ *                           example: 5
+ *                         remainingRegularShares:
+ *                           type: integer
+ *                           example: 0
+ *                 transactions:
+ *                   type: object
+ *                   properties:
+ *                     byType:
+ *                       type: object
+ *                       properties:
+ *                         regular:
+ *                           type: integer
+ *                           example: 3
+ *                         coFounder:
+ *                           type: integer
+ *                           example: 1
+ *                         manual:
+ *                           type: integer
+ *                           example: 1
+ *                         centiiv:
+ *                           type: integer
+ *                           example: 2
+ *                         web3:
+ *                           type: integer
+ *                           example: 0
+ *                     recent:
+ *                       type: array
+ *                       items:
+ *                         type: object
+ *                         properties:
+ *                           transactionId:
+ *                             type: string
+ *                           shares:
+ *                             type: integer
+ *                           amount:
+ *                             type: number
+ *                           currency:
+ *                             type: string
+ *                           paymentMethod:
+ *                             type: string
+ *                           status:
+ *                             type: string
+ *                           date:
+ *                             type: string
+ *                             format: date-time
+ *                           source:
+ *                             type: string
+ *                             enum: [UserShare, PaymentTransaction]
+ *                       description: Last 10 transactions
+ *                     summary:
+ *                       type: object
+ *                       properties:
+ *                         lastTransaction:
+ *                           type: string
+ *                           format: date-time
+ *                         totalTransactions:
+ *                           type: integer
+ *                           example: 7
+ *                         completedTransactions:
+ *                           type: integer
+ *                           example: 6
+ *                         pendingTransactions:
+ *                           type: integer
+ *                           example: 0
+ *                         failedTransactions:
+ *                           type: integer
+ *                           example: 1
+ *                 referralInfo:
+ *                   type: object
+ *                   properties:
+ *                     hasReferralCode:
+ *                       type: boolean
+ *                       example: true
+ *                     referralCode:
+ *                       type: string
+ *                       example: "JOHN123"
+ *                     wasReferred:
+ *                       type: boolean
+ *                       example: true
+ *                     referredBy:
+ *                       type: string
+ *                       example: "60f7c6b4c8f1a2b3c4d5e6f8"
+ *                     totalReferrals:
+ *                       type: integer
+ *                       example: 5
+ *                     activeReferrals:
+ *                       type: integer
+ *                       example: 3
+ *                 paymentMethods:
+ *                   type: object
+ *                   properties:
+ *                     hasUsedRegular:
+ *                       type: boolean
+ *                       example: true
+ *                     hasUsedCoFounder:
+ *                       type: boolean
+ *                       example: true
+ *                     hasUsedManual:
+ *                       type: boolean
+ *                       example: true
+ *                     hasUsedCentiiv:
+ *                       type: boolean
+ *                       example: true
+ *                     hasUsedWeb3:
+ *                       type: boolean
+ *                       example: false
+ *                 searchInfo:
+ *                   type: object
+ *                   properties:
+ *                     searchedBy:
+ *                       type: string
+ *                       example: "johndoe"
+ *                       description: The identifier used in the search
+ *                     resolvedBy:
+ *                       type: string
+ *                       enum: [id, username/email]
+ *                       example: "username/email"
+ *                       description: How the user was found
+ *       404:
+ *         description: User not found
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: false
+ *                 message:
+ *                   type: string
+ *                   example: "User not found"
+ *                 searchedFor:
+ *                   type: string
+ *                   example: "johndoe"
+ *       401:
+ *         $ref: '#/components/responses/UnauthorizedError'
+ *       403:
+ *         $ref: '#/components/responses/ForbiddenError'
+ *       500:
+ *         $ref: '#/components/responses/ServerError'
+ */
+router.get('/admin/user-overview/:identifier', protect, adminProtect, shareController.adminGetUserOverview);
+
+/**
+ * @swagger
+ * /shares/admin/debug-transactions/{identifier}:
+ *   get:
+ *     tags: [Shares - Admin Debug]
+ *     summary: Debug user transaction statuses (flexible lookup)
+ *     description: |
+ *       Analyze user transactions for status mismatches and issues using ID, username, or email.
+ *       
+ *       **Accepts:** User ID, username, or email address
+ *     security:
+ *       - adminAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: identifier
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: User ID, username, or email
+ *         example: "johndoe"
+ *     responses:
+ *       200:
+ *         description: Debug analysis completed successfully
+ *       404:
+ *         description: User not found
+ *       401:
+ *         $ref: '#/components/responses/UnauthorizedError'
+ *       403:
+ *         $ref: '#/components/responses/ForbiddenError'
+ *       500:
+ *         $ref: '#/components/responses/ServerError'
+ */
+router.get('/admin/debug-transactions/:identifier', protect, adminProtect, shareController.debugUserTransactions);
+
+/**
+ * @swagger
+ * /shares/admin/fix-transaction-statuses/{identifier}:
+ *   post:
+ *     tags: [Shares - Admin Debug]
+ *     summary: Fix user transaction status mismatches (flexible lookup)
+ *     description: |
+ *       Synchronize transaction statuses using ID, username, or email.
+ *       
+ *       **Accepts:** User ID, username, or email address
+ *     security:
+ *       - adminAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: identifier
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: User ID, username, or email
+ *         example: "john@example.com"
+ *     requestBody:
+ *       required: false
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               dryRun:
+ *                 type: boolean
+ *                 default: true
+ *     responses:
+ *       200:
+ *         description: Transaction status fix completed
+ *       404:
+ *         description: User not found
+ *       401:
+ *         $ref: '#/components/responses/UnauthorizedError'
+ *       403:
+ *         $ref: '#/components/responses/ForbiddenError'
+ *       500:
+ *         $ref: '#/components/responses/ServerError'
+ */
+router.post('/admin/fix-transaction-statuses/:identifier', protect, adminProtect, shareController.fixUserTransactionStatuses);
+
+/**
+ * @swagger
+ * /shares/admin/transaction-comparison/{identifier}:
+ *   get:
+ *     tags: [Shares - Admin Debug]
+ *     summary: Compare transaction data sources (flexible lookup)
+ *     description: |
+ *       Compare transaction data using ID, username, or email.
+ *       
+ *       **Accepts:** User ID, username, or email address
+ *     security:
+ *       - adminAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: identifier
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: User ID, username, or email
+ *         example: "60f7c6b4c8f1a2b3c4d5e6f7"
+ *     responses:
+ *       200:
+ *         description: Transaction comparison completed successfully
+ *       404:
+ *         description: User not found
+ *       401:
+ *         $ref: '#/components/responses/UnauthorizedError'
+ *       403:
+ *         $ref: '#/components/responses/ForbiddenError'
+ *       500:
+ *         $ref: '#/components/responses/ServerError'
+ */
+router.get('/admin/transaction-comparison/:identifier', protect, adminProtect, shareController.getTransactionComparison);
+
+
 module.exports = router;

@@ -1935,4 +1935,197 @@ async function handlePendingVerification(data) {
   } catch (error) {
     console.error("Error handling pending verification:", error);
   }
+/**
+ * COPY THIS ENTIRE METHOD into your controller/userController.js file
+ * Add it at the END of the exports list, before module.exports (if you have one)
+ * 
+ * Make sure you have: const mongoose = require('mongoose');
+ * at the top of your controller file
+ */
 }
+// Get comprehensive user details by ID or username (admin only)
+exports.getUserDetails = async (req, res) => {
+  try {
+    // Verify the current user is an admin
+    if (!req.user.isAdmin) {
+      return res.status(403).json({
+        success: false,
+        message: "Permission denied: Admin access required",
+      });
+    }
+
+    const { identifier } = req.params;
+
+    if (!identifier || identifier.trim() === "") {
+      return res.status(400).json({
+        success: false,
+        message: "User ID or username is required",
+      });
+    }
+
+    let user;
+
+    // Try to find by ID first (if it looks like a MongoDB ObjectId)
+    if (mongoose.Types.ObjectId.isValid(identifier)) {
+      user = await User.findById(identifier)
+        .select("-password -resetPasswordToken -resetPasswordExpire")
+        .populate("bannedBy", "name email _id")
+        .populate("unbannedBy", "name email _id")
+        .populate("adminGrantedBy", "name email _id")
+        .populate("adminRevokedBy", "name email _id");
+    }
+
+    // If not found by ID, try searching by username
+    if (!user) {
+      user = await User.findOne({ userName: identifier })
+        .select("-password -resetPasswordToken -resetPasswordExpire")
+        .populate("bannedBy", "name email _id")
+        .populate("unbannedBy", "name email _id")
+        .populate("adminGrantedBy", "name email _id")
+        .populate("adminRevokedBy", "name email _id");
+    }
+
+    // If still not found, try by email
+    if (!user) {
+      user = await User.findOne({ email: identifier })
+        .select("-password -resetPasswordToken -resetPasswordExpire")
+        .populate("bannedBy", "name email _id")
+        .populate("unbannedBy", "name email _id")
+        .populate("adminGrantedBy", "name email _id")
+        .populate("adminRevokedBy", "name email _id");
+    }
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: "User not found",
+      });
+    }
+
+    // Build comprehensive response
+    const response = {
+      success: true,
+      data: {
+        // Basic user information
+        user: {
+          _id: user._id,
+          name: user.name,
+          email: user.email,
+          userName: user.userName,
+          phoneNumber: user.phoneNumber || user.phone,
+          walletAddress: user.walletAddress,
+          country: user.country,
+          state: user.state,
+          city: user.city,
+          interest: user.interest,
+          isAdmin: user.isAdmin,
+          isBanned: user.isBanned,
+          isVerified: user.isVerified,
+          kycStatus: user.kycStatus || "not_started",
+        },
+
+        // Account status summary
+        accountStatus: {
+          isActive: !user.isBanned,
+          isBanned: user.isBanned,
+          isAdmin: user.isAdmin,
+          isVerified: user.isVerified,
+          kycStatus: user.kycStatus || "not_started",
+        },
+
+        // Ban details (if banned)
+        banDetails: user.isBanned
+          ? {
+              isBanned: true,
+              banReason: user.banReason || "Not specified",
+              bannedAt: user.bannedAt,
+              bannedBy: user.bannedBy || null,
+              unbannedAt: user.unbannedAt || null,
+              unbannedBy: user.unbannedBy || null,
+            }
+          : null,
+
+        // Admin details
+        adminDetails: {
+          isAdmin: user.isAdmin,
+          adminGrantedAt: user.adminGrantedAt || null,
+          adminGrantedBy: user.adminGrantedBy || null,
+          adminRevokedAt: user.adminRevokedAt || null,
+          adminRevokedBy: user.adminRevokedBy || null,
+        },
+
+        // KYC details
+        kycDetails: {
+          kycStatus: user.kycStatus || "not_started",
+          verifiedAt:
+            user.kycData && user.kycData.verifiedAt
+              ? user.kycData.verifiedAt
+              : null,
+          verificationMethod:
+            user.kycData && user.kycData.verificationMethod
+              ? user.kycData.verificationMethod
+              : null,
+          confidence:
+            user.kycData && user.kycData.confidence
+              ? user.kycData.confidence
+              : null,
+          failureReason:
+            user.kycData && user.kycData.failureReason
+              ? user.kycData.failureReason
+              : null,
+          smileJobId:
+            user.kycData && user.kycData.smileJobId
+              ? user.kycData.smileJobId
+              : null,
+          fullKycData: user.kycData || null,
+        },
+
+        // Referral information
+        referralInfo: user.referralInfo || null,
+
+        // Contact information
+        contactInformation: {
+          email: user.email,
+          phoneNumber: user.phoneNumber || user.phone || null,
+          walletAddress: user.walletAddress || null,
+          country: user.country || null,
+          state: user.state || null,
+          city: user.city || null,
+        },
+
+        // Timestamps
+        timestamps: {
+          createdAt: user.createdAt,
+          updatedAt: user.updatedAt,
+          lastLoginAt: user.lastLoginAt || null,
+        },
+
+        // Additional metadata
+        metadata: {
+          referralCode: user.referralCode || null,
+          countryCode: user.countryCode || null,
+          stateCode: user.stateCode || null,
+        },
+      },
+    };
+
+    res.status(200).json(response);
+  } catch (error) {
+    console.error("Error fetching user details:", error);
+
+    // Handle invalid ObjectId format
+    if (error.name === "CastError") {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid user ID format",
+      });
+    }
+
+    res.status(500).json({
+      success: false,
+      message: "Internal server error",
+      error:
+        process.env.NODE_ENV === "development" ? error.message : "An error occurred",
+    });
+  }
+};

@@ -1570,5 +1570,39 @@ router.get('/kyc/link-status/:linkId', userController.getKYCLinkStatus);
  *               message: "Webhook processing failed"
  */
 router.post('/kyc/webhook/smileid', express.raw({ type: 'application/json' }), userController.handleSmileIDWebhook);
+/**
+ * @swagger
+ * /users/admin/user-details/{identifier}:
+ *   get:
+ *     tags: [Admin]
+ *     summary: Get comprehensive user details by ID or username
+ *     description: Get all detailed information about a specific user (admin only)
+ *     security:
+ *       - adminAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: identifier
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: User ID or username
+ *         example: "johndoe"
+ *     responses:
+ *       200:
+ *         description: User details retrieved successfully
+ *       401:
+ *         $ref: '#/components/responses/UnauthorizedError'
+ *       403:
+ *         $ref: '#/components/responses/ForbiddenError'
+ *       404:
+ *         $ref: '#/components/responses/NotFoundError'
+ *       500:
+ *         $ref: '#/components/responses/ServerError'
+ */
+router.get('/admin/user-details/:identifier', protect, adminProtect, userController.getUserDetails);
 
 module.exports = router;
+// Admin: Complete user overview
+const adminCompleteOverviewController = require('../controller/adminCompleteOverviewController');
+router.get('/admin/user/:userId/complete-overview', protect, adminProtect, adminCompleteOverviewController.getCompleteUserOverview);
+router.get('/admin/complete-overview', protect, adminProtect, adminCompleteOverviewController.getCompleteProjectOverview);

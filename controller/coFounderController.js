@@ -2495,6 +2495,385 @@ const getAllCoFounderManualPayments = async (req, res) => {
     }
 };
 
+// ===================================================================
+// HELPER: FLEXIBLE USER IDENTIFIER RESOLUTION
+// ===================================================================
+/**
+ * Resolve user by ID, username, or email
+ * @param {string} identifier - MongoDB ObjectId, username, or email
+ * @returns {Object|null} - User object or null if not found
+ */
+const resolveUserIdentifier = async (identifier) => {
+    try {
+        // Check if it's a valid MongoDB ObjectId (24 character hex string)
+        const isValidObjectId = /^[0-9a-fA-F]{24}$/.test(identifier);
+        
+        let user = null;
+        
+        // Try finding by ID first if it looks like an ObjectId
+        if (isValidObjectId) {
+            user = await User.findById(identifier);
+            if (user) return user;
+        }
+        
+        // Try finding by username (case-insensitive)
+        user = await User.findOne({ 
+            username: { $regex: new RegExp(`^${identifier}$`, 'i') } 
+        });
+        if (user) return user;
+        
+        // Try finding by email (case-insensitive)
+        user = await User.findOne({ 
+            email: { $regex: new RegExp(`^${identifier}$`, 'i') } 
+        });
+        if (user) return user;
+        
+        return null;
+    } catch (error) {
+        console.error('Error resolving user identifier:', error);
+        return null;
+    }
+};
+
+// ===================================================================
+// NEW ADMIN ENDPOINT: GET USER CO-FOUNDER OVERVIEW
+// ===================================================================
+/**
+ * @desc    Get comprehensive co-founder overview for a specific user (Admin only)
+ * @route   GET /api/cofounder/admin/user-overview/:identifier
+ * @access  Private (Admin)
+ */
+const adminGetUserCoFounderOverview = async (req, res) => {
+    try {
+        const { identifier } = req.params;
+        const adminId = req.user.id;
+        
+        // Verify admin
+        const admin = await User.findById(adminId);
+        if (!admin || !admin.isAdmin) {
+            return res.status(403).json({
+                success: false,
+                message: 'Unauthorized: Admin access required'
+            });
+        }
+        
+        // Resolve user identifier
+        const user = await resolveUserIdentifier(identifier);
+        
+        if (!user) {
+            return res.status(404).json({
+                success: false,
+                message: 'User not found',
+                searchedFor: identifier
+            });
+        }
+        
+        // Determine how user was found
+        let resolvedBy = 'id';
+        if (user._id.toString() !== identifier) {
+            if (user.username && user.username.toLowerCase() === identifier.toLowerCase()) {
+                resolvedBy = 'username';
+            } else if (user.email && user.email.toLowerCase() === identifier.toLowerCase()) {
+                resolvedBy = 'email';
+            }
+        }
+        
+        // Get co-founder configuration
+        const coFounderConfig = await CoFounderShare.findOne();
+        const shareToRegularRatio = coFounderConfig?.shareToRegularRatio || 29;
+        
+        // Get user's co-founder transactions
+        const cofounderTransactions = await PaymentTransaction.find({
+            userId: user._id,
+            type: 'co-founder'
+        }).sort({ createdAt: -1 });
+        
+        // Calculate totals by status
+        const pendingTransactions = cofounderTransactions.filter(t => t.status === 'pending');
+        const completedTransactions = cofounderTransactions.filter(t => t.status === 'completed');
+        const failedTransactions = cofounderTransactions.filter(t => t.status === 'failed');
+        
+        const totalCoFounderShares = completedTransactions.reduce((sum, t) => sum + (t.shares || 0), 0);
+        const totalEquivalentRegularShares = totalCoFounderShares * shareToRegularRatio;
+        const totalSpent = completedTransactions.reduce((sum, t) => sum + (t.amount || 0), 0);
+        
+        // Get breakdown by payment method
+        const paymentMethodBreakdown = {};
+        cofounderTransactions.forEach(t => {
+            const method = t.paymentMethod || 'unknown';
+            if (!paymentMethodBreakdown[method]) {
+                paymentMethodBreakdown[method] = {
+                    count: 0,
+                    totalShares: 0,
+                    totalAmount: 0,
+                    pending: 0,
+                    completed: 0,
+                    failed: 0
+                };
+            }
+            paymentMethodBreakdown[method].count++;
+            paymentMethodBreakdown[method].totalShares += t.shares || 0;
+            paymentMethodBreakdown[method].totalAmount += t.amount || 0;
+            paymentMethodBreakdown[method][t.status]++;
+        });
+        
+        // Get recent transactions (last 10)
+        const recentTransactions = cofounderTransactions.slice(0, 10).map(t => ({
+            transactionId: t.transactionId,
+            shares: t.shares,
+            equivalentRegularShares: (t.shares || 0) * shareToRegularRatio,
+            amount: t.amount,
+            currency: t.currency,
+            paymentMethod: t.paymentMethod,
+            status: t.status,
+            date: t.createdAt,
+            hasPaymentProof: !!t.paymentProofPath || !!t.paymentProofCloudinaryUrl,
+            adminNotes: t.adminNotes
+        }));
+        
+        // Get user's UserShare record
+        const userShare = await UserShare.findOne({ user: user._id });
+        const shareBreakdown = userShare ? userShare.getShareBreakdown() : null;
+        
+        // Get activity summary
+        const lastTransaction = cofounderTransactions[0];
+        const activitySummary = {
+            lastTransactionDate: lastTransaction ? lastTransaction.createdAt : null,
+            lastTransactionStatus: lastTransaction ? lastTransaction.status : null,
+            totalTransactions: cofounderTransactions.length,
+            pendingCount: pendingTransactions.length,
+            completedCount: completedTransactions.length,
+            failedCount: failedTransactions.length
+        };
+        
+        // Response
+        res.status(200).json({
+            success: true,
+            searchInfo: {
+                searchedBy: identifier,
+                resolvedBy: resolvedBy,
+                resolvedUser: {
+                    id: user._id,
+                    username: user.username,
+                    name: user.name,
+                    email: user.email
+                }
+            },
+            user: {
+                id: user._id,
+                name: user.name,
+                username: user.username,
+                email: user.email,
+                phone: user.phone,
+                isAdmin: user.isAdmin,
+                isVerified: user.isVerified,
+                createdAt: user.createdAt,
+                wallet: user.wallet
+            },
+            coFounderSharesSummary: {
+                totalCoFounderShares: totalCoFounderShares,
+                equivalentRegularShares: totalEquivalentRegularShares,
+                shareToRegularRatio: shareToRegularRatio,
+                totalSpent: totalSpent,
+                averagePricePerShare: completedTransactions.length > 0 ? 
+                    totalSpent / totalCoFounderShares : 0
+            },
+            overallShareBreakdown: shareBreakdown,
+            transactionSummary: {
+                total: cofounderTransactions.length,
+                pending: pendingTransactions.length,
+                completed: completedTransactions.length,
+                failed: failedTransactions.length,
+                byPaymentMethod: paymentMethodBreakdown
+            },
+            activitySummary: activitySummary,
+            recentTransactions: recentTransactions,
+            ratioExplanation: `1 Co-Founder Share = ${shareToRegularRatio} Regular Shares`
+        });
+        
+    } catch (error) {
+        console.error('Error fetching user co-founder overview:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to fetch user co-founder overview',
+            error: process.env.NODE_ENV === 'development' ? error.message : undefined
+        });
+    }
+};
+
+// ===================================================================
+// UPDATED: Admin Add Co-Founder Shares (with flexible identifier)
+// ===================================================================
+/**
+ * @desc    Admin manually add co-founder shares to a user (UPDATED with flexible identifier)
+ * @route   POST /api/cofounder/admin/add-shares
+ * @access  Private (Admin)
+ */
+const adminAddCoFounderSharesFlexible = async (req, res) => {
+    try {
+        const { userIdentifier, shares, note } = req.body;
+        const adminId = req.user.id;
+        
+        // Verify admin
+        const admin = await User.findById(adminId);
+        if (!admin || !admin.isAdmin) {
+            return res.status(403).json({
+                success: false,
+                message: 'Unauthorized: Admin access required'
+            });
+        }
+        
+        // Resolve user identifier
+        const user = await resolveUserIdentifier(userIdentifier);
+        
+        if (!user) {
+            return res.status(404).json({
+                success: false,
+                message: 'User not found',
+                searchedFor: userIdentifier
+            });
+        }
+        
+        // Determine how user was found
+        let resolvedBy = 'id';
+        if (user._id.toString() !== userIdentifier) {
+            if (user.username && user.username.toLowerCase() === userIdentifier.toLowerCase()) {
+                resolvedBy = 'username';
+            } else if (user.email && user.email.toLowerCase() === userIdentifier.toLowerCase()) {
+                resolvedBy = 'email';
+            }
+        }
+        
+        // Find or create co-founder share configuration
+        let coFounderShare = await CoFounderShare.findOne();
+        if (!coFounderShare) {
+            coFounderShare = new CoFounderShare();
+            await coFounderShare.save();
+        }
+        
+        const shareToRegularRatio = coFounderShare.shareToRegularRatio || 29;
+        
+        // Check available shares
+        if (coFounderShare.sharesSold + parseInt(shares) > coFounderShare.totalShares) {
+            return res.status(400).json({
+                success: false,
+                message: 'Insufficient co-founder shares available'
+            });
+        }
+        
+        // Create transaction with completed status immediately
+        const transactionId = generateTransactionId();
+        const transaction = await PaymentTransaction.create({
+            userId: user._id,
+            type: 'co-founder',
+            transactionId,
+            shares: parseInt(shares),
+            status: 'completed',
+            adminNotes: note || 'Admin share allocation',
+            paymentMethod: 'co-founder',
+            amount: coFounderShare.pricing.priceNaira * parseInt(shares),
+            currency: 'naira',
+            shareToRegularRatio: shareToRegularRatio,
+            coFounderShares: parseInt(shares),
+            equivalentRegularShares: parseInt(shares) * shareToRegularRatio
+        });
+        
+        // Add co-founder shares to user using the new method
+        await UserShare.addCoFounderShares(user._id, parseInt(shares), {
+            transactionId: transaction._id,
+            shares: parseInt(shares),
+            coFounderShares: parseInt(shares),
+            equivalentRegularShares: parseInt(shares) * shareToRegularRatio,
+            shareToRegularRatio: shareToRegularRatio,
+            pricePerShare: coFounderShare.pricing.priceNaira,
+            currency: 'naira',
+            totalAmount: coFounderShare.pricing.priceNaira * parseInt(shares),
+            paymentMethod: 'co-founder',
+            status: 'completed',
+            tierBreakdown: {
+                tier1: 0,
+                tier2: 0,
+                tier3: 0
+            },
+            adminAction: true,
+            adminNote: note || 'Admin share allocation'
+        });
+        
+        // Update co-founder shares sold
+        coFounderShare.sharesSold += parseInt(shares);
+        await coFounderShare.save();
+        
+        try {
+            // Process referral commissions for admin-added co-founder shares
+            const referralResult = await handleCofounderPurchase(
+                user._id,
+                coFounderShare.pricing.priceNaira * parseInt(shares),
+                parseInt(shares),
+                transaction._id
+            );
+            
+            console.log('Co-founder referral commission process result for admin-added shares:', referralResult);
+            if (referralResult.success) {
+                console.log('Admin-added shares commissions distributed:', referralResult.commissions);
+            }
+        } catch (referralError) {
+            console.error('Error processing co-founder referral commissions for admin-added shares:', referralError);
+        }
+
+        // Notify user
+        if (user.email) {
+            try {
+                await sendEmail({
+                    email: user.email,
+                    subject: 'Co-Founder Shares Allocated',
+                    html: `
+                        <h2>Co-Founder Shares Allocation</h2>
+                        <p>Dear ${user.name},</p>
+                        <p>You have been allocated ${shares} co-founder share(s).</p>
+                        <p>This is equivalent to ${parseInt(shares) * shareToRegularRatio} regular shares.</p>
+                        ${note ? `<p>Note: ${note}</p>` : ''}
+                        <p>Thank you for your contribution!</p>
+                    `
+                });
+            } catch (emailError) {
+                console.error('Failed to send shares allocation email:', emailError);
+            }
+        }
+        
+        res.status(200).json({
+            success: true,
+            message: `Successfully added ${shares} co-founder shares to user`,
+            searchInfo: {
+                searchedBy: userIdentifier,
+                resolvedBy: resolvedBy,
+                resolvedUser: {
+                    id: user._id,
+                    username: user.username,
+                    name: user.name
+                }
+            },
+            data: {
+                coFounderShares: parseInt(shares),
+                equivalentRegularShares: parseInt(shares) * shareToRegularRatio,
+                transaction: transaction._id,
+                user: {
+                    id: user._id,
+                    name: user.name,
+                    username: user.username,
+                    email: user.email
+                }
+            }
+        });
+    } catch (error) {
+        console.error('Error adding co-founder shares:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to add co-founder shares',
+            error: process.env.NODE_ENV === 'development' ? error.message : undefined
+        });
+    }
+};
+
 // Export all functions
 module.exports = {
     // Existing exports
@@ -2528,5 +2907,8 @@ module.exports = {
     getCoFounderPendingManualPayments,
     approveCoFounderManualPayment,
     rejectCoFounderManualPayment,
-    getAllCoFounderManualPayments
+    getAllCoFounderManualPayments,
+    adminAddCoFounderSharesFlexible,
+    adminGetUserCoFounderOverview,
+    resolveUserIdentifier
 };
