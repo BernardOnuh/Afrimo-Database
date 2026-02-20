@@ -1601,8 +1601,9 @@ router.post('/kyc/webhook/smileid', express.raw({ type: 'application/json' }), u
  */
 router.get('/admin/user-details/:identifier', protect, adminProtect, userController.getUserDetails);
 
-module.exports = router;
 // Admin: Complete user overview
 const adminCompleteOverviewController = require('../controller/adminCompleteOverviewController');
 router.get('/admin/user/:userId/complete-overview', protect, adminProtect, adminCompleteOverviewController.getCompleteUserOverview);
 router.get('/admin/complete-overview', protect, adminProtect, adminCompleteOverviewController.getCompleteProjectOverview);
+
+module.exports = router;
