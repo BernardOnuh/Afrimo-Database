@@ -564,6 +564,7 @@ app.use('/api/management', require('./routes/managementRoutes'));
 // app.use('/api/shares/installment', require('./routes/installmentRoutes'));
 // app.use('/api/shares/cofounder/installment', require('./routes/coFounderInstallmentRoutes'));
 app.use('/api/share-packages', require('./routes/sharePackageRoutes'));
+app.use('/api/admin/analytics', require('./routes/adminAnalyticsRoutes'));
 app.use('/api/shares/tiers', require('./routes/tierRoutes'));
 
 // ============================================================================
