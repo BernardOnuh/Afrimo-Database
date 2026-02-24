@@ -4719,4 +4719,7 @@ router.post('/admin/fix-transaction-statuses/:identifier', protect, adminProtect
 router.get('/admin/transaction-comparison/:identifier', protect, adminProtect, shareController.getTransactionComparison);
 
 
+// Send certificate to user email
+router.post('/certificate/email', protect, shareController.sendCertificateEmail);
+
 module.exports = router;

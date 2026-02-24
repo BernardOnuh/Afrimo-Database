@@ -4688,6 +4688,7 @@ exports.submitManualPayment = async (req, res) => {
       currency,
       paymentMethod: `manual_${paymentMethod}`,
       status: 'pending',
+      tier: selectedTier,
       tierBreakdown: purchaseDetails.tierBreakdown,
       manualPaymentDetails: {
         bankName: bankName || null,
@@ -6760,5 +6761,69 @@ exports.adminGetUserOverview = async (req, res) => {
       message: 'Failed to get user overview',
       error: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
+  }
+};
+/**
+ * Send certificate to user's email as attachment
+ * @route   POST /api/shares/certificate/email
+ */
+exports.sendCertificateEmail = async (req, res) => {
+  try {
+    if (!req.user || !req.user.id) {
+      return res.status(401).json({ success: false, message: 'Authentication required' });
+    }
+
+    const { imageBase64, transactionId, fileName } = req.body;
+
+    if (!imageBase64 || !transactionId) {
+      return res.status(400).json({ success: false, message: 'Image data and transaction ID are required' });
+    }
+
+    // Get user info
+    const User = require('../models/User');
+    const user = await User.findById(req.user.id);
+    if (!user || !user.email) {
+      return res.status(400).json({ success: false, message: 'User email not found' });
+    }
+
+    const { sendEmail } = require('../utils/emailService');
+
+    // Remove data URL prefix if present
+    const base64Data = imageBase64.replace(/^data:image\/\w+;base64,/, '');
+    const certFileName = fileName || `AfriMobile-Certificate-${transactionId}.png`;
+
+    const emailSent = await sendEmail({
+      email: user.email,
+      subject: `Your AfriMobile Share Certificate - ${transactionId}`,
+      html: `
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
+          <div style="text-align: center; margin-bottom: 20px;">
+            <h1 style="color: #7c3aed;">AfriMobile</h1>
+          </div>
+          <h2 style="color: #333;">Your Share Certificate</h2>
+          <p>Dear ${user.name || 'Valued Shareholder'},</p>
+          <p>Please find your share certificate attached to this email.</p>
+          <p><strong>Transaction ID:</strong> ${transactionId}</p>
+          <p>Thank you for investing in AfriMobile Technology Limited.</p>
+          <br/>
+          <p>Best regards,<br/>AfriMobile Team</p>
+        </div>
+      `,
+      attachments: [{
+        filename: certFileName,
+        content: base64Data,
+        encoding: 'base64',
+        contentType: 'image/png'
+      }]
+    });
+
+    if (emailSent) {
+      return res.json({ success: true, message: `Certificate sent to ${user.email}` });
+    } else {
+      return res.status(500).json({ success: false, message: 'Failed to send email' });
+    }
+  } catch (error) {
+    console.error('[SHARES] Certificate email error:', error);
+    return res.status(500).json({ success: false, message: 'Failed to send certificate email' });
   }
 };

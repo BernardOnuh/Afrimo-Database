@@ -116,6 +116,13 @@ const TransactionSchema = new mongoose.Schema({
     }
   },
   
+  // ✅ ADDED: Share tier name (basic/standard/premium/elite/platinum/supreme)
+  tier: {
+    type: String,
+    required: false,
+    trim: true
+  },
+
   // ✅ ADDED: Tier breakdown for share purchases
   tierBreakdown: {
     tier1: { type: Number, default: 0 },

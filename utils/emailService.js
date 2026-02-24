@@ -46,6 +46,11 @@ const sendEmail = async (options) => {
       // Add priority headers to reduce spam likelihood
       priority: 'high'
     };
+
+    // Support attachments (e.g., certificate images)
+    if (options.attachments) {
+      mailOptions.attachments = options.attachments;
+    }
     
     console.log(`Attempting to send email to: ${options.email}`);
     const info = await transporter.sendMail(mailOptions);
