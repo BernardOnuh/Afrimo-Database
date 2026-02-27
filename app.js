@@ -560,9 +560,11 @@ app.use('/api/payment', require('./routes/paymentRoutes'));
 app.use('/api/withdrawal', require('./routes/withdrawalRoutes'));
 app.use('/api/exchange-rates', require('./routes/exchangeRateRoutes'));
 app.use('/api/management', require('./routes/managementRoutes'));
-// DISABLED: Installment payment functionality removed (Feb 2026)
+// DISABLED: Old installment routes (Feb 2026)
 // app.use('/api/shares/installment', require('./routes/installmentRoutes'));
 // app.use('/api/shares/cofounder/installment', require('./routes/coFounderInstallmentRoutes'));
+// NEW: Unified Installment Plan System
+app.use('/api/installments', require('./routes/installmentPlanRoutes'));
 app.use('/api/share-packages', require('./routes/sharePackageRoutes'));
 app.use('/api/admin/analytics', require('./routes/adminAnalyticsRoutes'));
 app.use('/api/shares/tiers', require('./routes/tierRoutes'));
@@ -1151,12 +1153,14 @@ async function startApp() {
         // Start installment and referral jobs if in production
         if (AppConfig.IS_PRODUCTION) {
           try {
-            // DISABLED: Installment schedulers removed (Feb 2026)
-            // const installmentScheduler = require('./utils/installmentScheduler');
-            // installmentScheduler.scheduleInstallmentPenalties();
-            // const coFounderInstallmentScheduler = require('./utils/coFounderInstallmentScheduler');
-            // coFounderInstallmentScheduler.scheduleCoFounderInstallmentPenalties();
-            console.log('ℹ️ Installment schedulers disabled');
+            // NEW: Unified installment reminder scheduler
+            try {
+              const { startInstallmentReminderScheduler } = require('./utils/installmentReminder');
+              startInstallmentReminderScheduler();
+              console.log('✅ Installment reminder scheduler started');
+            } catch (err) {
+              console.error('⚠️ Installment reminder scheduler failed:', err.message);
+            }
             
             // Referral sync jobs
             const referralCronJobs = require('./referralCronJobs');

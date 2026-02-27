@@ -1,151 +1,64 @@
-// models/InstallmentPlan.js
+// models/InstallmentPlan.js - NEW Unified Installment Plan System
 const mongoose = require('mongoose');
 
-const InstallmentSchema = new mongoose.Schema({
-  installmentNumber: {
-    type: Number,
+const paymentSchema = new mongoose.Schema({
+  amount: { type: Number, required: true },
+  date: { type: Date, default: Date.now },
+  method: { type: String, enum: ['bank_transfer', 'usdt', 'crypto'], default: 'bank_transfer' },
+  reference: { type: String },
+  proofPath: { type: String },
+  status: { type: String, enum: ['pending', 'approved', 'rejected'], default: 'pending' },
+  adminNote: { type: String, default: '' },
+  reviewedAt: { type: Date },
+  reviewedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' }
+}, { _id: true });
+
+const installmentPlanSchema = new mongoose.Schema({
+  user: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+  tier: {
+    type: String,
+    enum: ['basic', 'standard', 'premium', 'elite', 'platinum', 'supreme'],
     required: true
   },
-  amount: {
-    type: Number,
-    required: true
-  },
-  dueDate: {
-    type: Date,
-    required: true
-  },
+  tierType: { type: String, enum: ['regular', 'cofounder'], required: true },
+  totalPrice: { type: Number, required: true },
+  currency: { type: String, enum: ['naira', 'usdt'], default: 'naira' },
+  downPayment: { type: Number, required: true },
+  payments: [paymentSchema],
   status: {
     type: String,
-    enum: ['upcoming', 'pending', 'pending_verification', 'late', 'paid', 'cancelled'],
-    default: 'upcoming'
+    enum: ['pending_downpayment', 'active', 'completed', 'forfeited', 'cancelled'],
+    default: 'pending_downpayment'
   },
-  percentageOfTotal: {
-    type: Number,
-    required: true,
-    default: 20 // Default 20% of total shares per installment for 5 installments
-  },
-  lateFee: {
-    type: Number,
-    default: 0
-  },
-  paidAmount: {
-    type: Number,
-    default: 0
-  },
-  paidDate: {
-    type: Date,
-    default: null
-  },
-  transactionId: {
-    type: String,
-    default: null
-  },
-  paymentProofPath: {
-    type: String,
-    default: null
-  },
-  manualPaymentDetails: {
-    bankName: String,
-    accountName: String,
-    reference: String,
-    paymentMethod: String
-  },
-  adminNote: {
-    type: String,
-    default: null
-  }
+  deadline: { type: Date, required: true },
+  lastReminderSent: { type: Date },
+  completedAt: { type: Date },
+  forfeitedAt: { type: Date },
+  shareRecordId: { type: mongoose.Schema.Types.ObjectId }, // ref to UserShare or CoFounderShare after completion
 }, { timestamps: true });
 
-const InstallmentPlanSchema = new mongoose.Schema({
-  planId: {
-    type: String,
-    required: true,
-    unique: true
-  },
-  user: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'User',
-    required: true
-  },
-  status: {
-    type: String,
-    enum: ['pending', 'active', 'late', 'completed', 'cancelled'],
-    default: 'pending'
-  },
-  totalShares: {
-    type: Number,
-    required: true
-  },
-  totalPrice: {
-    type: Number,
-    required: true
-  },
-  currency: {
-    type: String,
-    enum: ['naira', 'usdt'],
-    required: true
-  },
-  installmentMonths: {
-    type: Number,
-    default: 5,
-    min: 2,
-    max: 12
-  },
-  sharesReleased: {
-    type: Number,
-    default: 0
-  },
-  lateFeePercentage: {
-    type: Number,
-    default: 0.34 // 0.34% per day as default
-  },
-  cancellationReason: {
-    type: String,
-    default: null
-  },
-  tierBreakdown: {
-    tier1: {
-      type: Number,
-      default: 0
-    },
-    tier2: {
-      type: Number,
-      default: 0
-    },
-    tier3: {
-      type: Number,
-      default: 0
-    }
-  },
-  installments: [InstallmentSchema]
-}, { timestamps: true });
+// Virtuals
+installmentPlanSchema.virtual('totalPaid').get(function () {
+  return this.payments
+    .filter(p => p.status === 'approved')
+    .reduce((sum, p) => sum + p.amount, 0);
+});
 
-// Add installment plan statistics
-InstallmentPlanSchema.statics.getStats = async function() {
-  const stats = await this.aggregate([
-    {
-      $group: {
-        _id: '$status',
-        count: { $sum: 1 },
-        totalShares: { $sum: '$totalShares' },
-        sharesReleased: { $sum: '$sharesReleased' },
-        totalValue: { $sum: '$totalPrice' }
-      }
-    }
-  ]);
+installmentPlanSchema.virtual('remainingBalance').get(function () {
+  return Math.max(0, this.totalPrice - this.totalPaid);
+});
 
-  // Format stats by status
-  const formattedStats = {};
-  stats.forEach(stat => {
-    formattedStats[stat._id] = {
-      count: stat.count,
-      totalShares: stat.totalShares,
-      sharesReleased: stat.sharesReleased,
-      totalValue: stat.totalValue
-    };
-  });
+installmentPlanSchema.virtual('percentPaid').get(function () {
+  if (this.totalPrice === 0) return 100;
+  return Math.min(100, Math.round((this.totalPaid / this.totalPrice) * 10000) / 100);
+});
 
-  return formattedStats;
-};
+installmentPlanSchema.set('toJSON', { virtuals: true });
+installmentPlanSchema.set('toObject', { virtuals: true });
 
-module.exports = mongoose.model('InstallmentPlan', InstallmentPlanSchema);
+// Indexes
+installmentPlanSchema.index({ user: 1, status: 1 });
+installmentPlanSchema.index({ status: 1, deadline: 1 });
+installmentPlanSchema.index({ tier: 1 });
+
+module.exports = mongoose.model('InstallmentPlan', installmentPlanSchema);
