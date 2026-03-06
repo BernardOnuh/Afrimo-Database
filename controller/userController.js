@@ -2166,14 +2166,15 @@ exports.submitOnboardingAgreement = async (req, res) => {
       });
     }
 
-    const user = await User.findById(userId);
+    // Use findByIdAndUpdate to avoid full model validation
+    const user = await User.findByIdAndUpdate(
+      userId,
+      { $set: { onboardingAgreed: true, onboardingAgreedAt: new Date() } },
+      { new: true }
+    );
     if (!user) {
       return res.status(404).json({ success: false, message: 'User not found' });
     }
-
-    user.onboardingAgreed = true;
-    user.onboardingAgreedAt = new Date();
-    await user.save();
 
     res.status(200).json({
       success: true,
