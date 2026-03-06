@@ -11,6 +11,7 @@ const tierConfigSchema = new mongoose.Schema({
       priceNGN: { type: Number, required: true },
       percentPerShare: { type: Number, required: true },
       earningPerPhone: { type: Number, default: null },
+      earningInKobo: { type: Number, default: null },
       sharesIncluded: { type: Number, default: 1 }
     },
     default: () => new Map(Object.entries(SHARE_TIERS))

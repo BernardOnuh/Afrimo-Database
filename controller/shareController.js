@@ -4609,6 +4609,27 @@ exports.submitManualPayment = async (req, res) => {
 
     const userId = req.user.id;
 
+    // ✅ DUPLICATE PREVENTION: Check if user already has a pending manual payment
+    const existingPending = await PaymentTransaction.findOne({
+      userId,
+      type: 'share',
+      paymentMethod: { $regex: '^manual_' },
+      status: 'pending'
+    });
+
+    if (existingPending) {
+      return res.status(400).json({
+        success: false,
+        message: 'You already have a pending payment awaiting approval. Please wait for admin review before submitting another payment.',
+        pendingTransaction: {
+          transactionId: existingPending.transactionId,
+          amount: existingPending.amount,
+          shares: existingPending.shares,
+          date: existingPending.createdAt
+        }
+      });
+    }
+
     // ✅ FIX 1: Add 'tier' to destructuring
     const { quantity, currency, paymentMethod, bankName, accountName, reference, tier } = req.body;
 
@@ -6825,5 +6846,207 @@ exports.sendCertificateEmail = async (req, res) => {
   } catch (error) {
     console.error('[SHARES] Certificate email error:', error);
     return res.status(500).json({ success: false, message: 'Failed to send certificate email' });
+  }
+};
+
+/**
+ * @desc    Admin: Revoke/delete any payment transaction (complete rollback)
+ * @route   DELETE /api/shares/admin/revoke/:transactionId
+ * @access  Private (Admin)
+ */
+exports.adminRevokeTransaction = async (req, res) => {
+  try {
+    const { transactionId } = req.params;
+    const { reason } = req.body;
+    const adminId = req.user.id;
+
+    // Check if admin
+    const admin = await User.findById(adminId);
+    if (!admin || !admin.isAdmin) {
+      return res.status(403).json({ success: false, message: 'Unauthorized: Admin access required' });
+    }
+
+    if (!transactionId) {
+      return res.status(400).json({ success: false, message: 'Transaction ID is required' });
+    }
+
+    // Find in PaymentTransaction
+    const paymentTransaction = await PaymentTransaction.findOne({ transactionId });
+
+    // Find in UserShare
+    const userShareRecord = await UserShare.findOne({ 'transactions.transactionId': transactionId });
+
+    if (!paymentTransaction && !userShareRecord) {
+      return res.status(404).json({ success: false, message: 'Transaction not found' });
+    }
+
+    let transactionDetails = {};
+    let userId = null;
+
+    if (paymentTransaction) {
+      transactionDetails = {
+        shares: paymentTransaction.shares,
+        amount: paymentTransaction.amount,
+        currency: paymentTransaction.currency,
+        status: paymentTransaction.status,
+        tierBreakdown: paymentTransaction.tierBreakdown,
+      };
+      userId = paymentTransaction.userId;
+    }
+
+    if (userShareRecord) {
+      const tx = userShareRecord.transactions.find(t => t.transactionId === transactionId);
+      if (tx && !transactionDetails.shares) {
+        transactionDetails = {
+          shares: tx.shares,
+          amount: tx.totalAmount,
+          currency: tx.currency,
+          status: tx.status,
+          tierBreakdown: tx.tierBreakdown,
+        };
+        userId = userShareRecord.user;
+      }
+    }
+
+    // Rollback global share counts if completed
+    if (transactionDetails.status === 'completed') {
+      const shareConfig = await Share.getCurrentConfig();
+      shareConfig.sharesSold = Math.max(0, shareConfig.sharesSold - (transactionDetails.shares || 0));
+
+      if (transactionDetails.tierBreakdown) {
+        shareConfig.tierSales.tier1Sold = Math.max(0, shareConfig.tierSales.tier1Sold - (transactionDetails.tierBreakdown.tier1 || 0));
+        shareConfig.tierSales.tier2Sold = Math.max(0, shareConfig.tierSales.tier2Sold - (transactionDetails.tierBreakdown.tier2 || 0));
+        shareConfig.tierSales.tier3Sold = Math.max(0, shareConfig.tierSales.tier3Sold - (transactionDetails.tierBreakdown.tier3 || 0));
+      }
+
+      // Rollback percentage sold
+      // (percentPerShare * shares if available)
+      await shareConfig.save();
+
+      // Rollback referral commissions
+      try {
+        await rollbackReferralCommission(userId, transactionId, transactionDetails.amount, transactionDetails.currency, 'share', 'UserShare');
+      } catch (e) {
+        console.error('Referral rollback error:', e);
+      }
+    }
+
+    // Delete from PaymentTransaction
+    if (paymentTransaction) {
+      // Delete cloudinary file if exists
+      if (paymentTransaction.paymentProofCloudinaryId) {
+        try { await deleteFromCloudinary(paymentTransaction.paymentProofCloudinaryId); } catch (e) { console.error('Cloudinary delete error:', e); }
+      }
+      await PaymentTransaction.deleteOne({ _id: paymentTransaction._id });
+    }
+
+    // Remove from UserShare
+    if (userShareRecord) {
+      userShareRecord.transactions = userShareRecord.transactions.filter(t => t.transactionId !== transactionId);
+      userShareRecord.totalShares = userShareRecord.transactions
+        .filter(t => t.status === 'completed' && t.paymentMethod !== 'co-founder')
+        .reduce((total, t) => total + (t.shares || 0), 0);
+      userShareRecord.coFounderShares = userShareRecord.transactions
+        .filter(t => t.status === 'completed' && t.paymentMethod === 'co-founder')
+        .reduce((total, t) => total + (t.coFounderShares || 0), 0);
+      await userShareRecord.save();
+    }
+
+    // Notify user
+    if (userId) {
+      const user = await User.findById(userId);
+      if (user && user.email) {
+        try {
+          await sendEmail({
+            email: user.email,
+            subject: 'AfriMobile - Transaction Revoked',
+            html: `
+              <h2>Transaction Revocation Notice</h2>
+              <p>Dear ${user.name},</p>
+              <p>Your transaction <strong>${transactionId}</strong> has been revoked by an administrator.</p>
+              <p>Shares: ${transactionDetails.shares || 0}</p>
+              <p>Amount: ${transactionDetails.currency === 'naira' ? '₦' : '$'}${transactionDetails.amount || 0}</p>
+              ${reason ? `<p>Reason: ${reason}</p>` : ''}
+              <p>If you have questions, please contact support.</p>
+            `
+          });
+        } catch (e) { console.error('Email error:', e); }
+      }
+    }
+
+    console.log(`[REVOKE] Transaction ${transactionId} revoked by admin ${adminId}. Reason: ${reason || 'N/A'}`);
+
+    res.status(200).json({
+      success: true,
+      message: 'Transaction revoked successfully. Shares and commissions rolled back.',
+      data: { transactionId, ...transactionDetails }
+    });
+  } catch (error) {
+    console.error('Error revoking transaction:', error);
+    res.status(500).json({ success: false, message: 'Failed to revoke transaction', error: process.env.NODE_ENV === 'development' ? error.message : undefined });
+  }
+};
+
+/**
+ * @desc    Check if user has a pending manual payment
+ * @route   GET /api/shares/user/pending-payment
+ * @access  Private (User)
+ */
+exports.checkPendingPayment = async (req, res) => {
+  try {
+    const userId = req.user.id;
+
+    // Check in PaymentTransaction
+    const pendingPaymentTx = await PaymentTransaction.findOne({
+      userId,
+      type: 'share',
+      paymentMethod: { $regex: '^manual_' },
+      status: 'pending'
+    });
+
+    if (pendingPaymentTx) {
+      return res.status(200).json({
+        success: true,
+        hasPending: true,
+        pendingTransaction: {
+          transactionId: pendingPaymentTx.transactionId,
+          amount: pendingPaymentTx.amount,
+          shares: pendingPaymentTx.shares,
+          currency: pendingPaymentTx.currency,
+          date: pendingPaymentTx.createdAt,
+          status: 'pending'
+        }
+      });
+    }
+
+    // Also check UserShare
+    const userShares = await UserShare.findOne({
+      user: userId,
+      'transactions.status': 'pending',
+      'transactions.paymentMethod': { $regex: '^manual_' }
+    });
+
+    if (userShares) {
+      const pendingTx = userShares.transactions.find(t => t.status === 'pending' && t.paymentMethod.startsWith('manual_'));
+      if (pendingTx) {
+        return res.status(200).json({
+          success: true,
+          hasPending: true,
+          pendingTransaction: {
+            transactionId: pendingTx.transactionId,
+            amount: pendingTx.totalAmount,
+            shares: pendingTx.shares,
+            currency: pendingTx.currency,
+            date: pendingTx.createdAt,
+            status: 'pending'
+          }
+        });
+      }
+    }
+
+    res.status(200).json({ success: true, hasPending: false });
+  } catch (error) {
+    console.error('Error checking pending payment:', error);
+    res.status(500).json({ success: false, message: 'Failed to check pending payment' });
   }
 };

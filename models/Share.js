@@ -10,12 +10,12 @@ const mongoose = require('mongoose');
  * 
  * New Tier Structure:
  * REGULAR SHARES:
- *   basic:    $30 / ₦30,000  — 0.00001% per share  — ₦6,000 earning/phone
- *   standard: $50 / ₦50,000  — 0.000021% per share — ₦14,000 earning/phone
- *   premium:  $100 / ₦100,000 — 0.00005% per share — ₦30,000 earning/phone
+ *   basic:    $30 / ₦30,000  — 0.00001% per share  — ₦6,000 earning/unit (in Kobo)
+ *   standard: $50 / ₦50,000  — 0.000021% per share — ₦14,000 earning/unit (in Kobo)
+ *   premium:  $100 / ₦100,000 — 0.00005% per share — ₦30,000 earning/unit (in Kobo)
  * 
  * CO-FOUNDER TIERS:
- *   elite:    $1,000 / ₦1,000,000  — 22 shares @ 0.000021% each — ₦14,000/phone
+ *   elite:    $1,000 / ₦1,000,000  — 22 shares @ 0.000021% each — ₦14,000/unit
  *   platinum: $2,500 / ₦2,500,000  — 27 shares @ 0.00005% each
  *   supreme:  $5,000 / ₦5,000,000  — 60 shares @ 0.00005% each
  */
@@ -30,6 +30,7 @@ const SHARE_TIERS = {
     priceNGN: 30000,
     percentPerShare: 0.00001,
     earningPerPhone: 6000,
+    earningInKobo: 6000,
     sharesIncluded: 1
   },
   standard: {
@@ -39,6 +40,7 @@ const SHARE_TIERS = {
     priceNGN: 50000,
     percentPerShare: 0.000021,
     earningPerPhone: 14000,
+    earningInKobo: 14000,
     sharesIncluded: 1
   },
   premium: {
@@ -48,6 +50,7 @@ const SHARE_TIERS = {
     priceNGN: 100000,
     percentPerShare: 0.00005,
     earningPerPhone: 30000,
+    earningInKobo: 30000,
     sharesIncluded: 1
   },
   // Co-Founder tiers
@@ -58,6 +61,7 @@ const SHARE_TIERS = {
     priceNGN: 1000000,
     percentPerShare: 0.000021,
     earningPerPhone: 14000,
+    earningInKobo: 14000,
     sharesIncluded: 22
   },
   platinum: {
@@ -67,6 +71,7 @@ const SHARE_TIERS = {
     priceNGN: 2500000,
     percentPerShare: 0.00005,
     earningPerPhone: null,
+    earningInKobo: null,
     sharesIncluded: 27
   },
   supreme: {
@@ -76,6 +81,7 @@ const SHARE_TIERS = {
     priceNGN: 5000000,
     percentPerShare: 0.00005,
     earningPerPhone: null,
+    earningInKobo: null,
     sharesIncluded: 60
   }
 };
@@ -215,6 +221,7 @@ shareSchema.statics.calculatePurchase = async function(quantity, currency, tier 
       totalPercent: totalPercent,
       totalPercentFormatted: `${totalPercent}%`,
       earningPerPhone: tierConfig.earningPerPhone,
+      earningInKobo: tierConfig.earningInKobo || tierConfig.earningPerPhone,
       sharesIncluded: tierConfig.sharesIncluded,
       pricePerUnit
     };

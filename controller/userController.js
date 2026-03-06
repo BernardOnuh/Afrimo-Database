@@ -2129,3 +2129,67 @@ exports.getUserDetails = async (req, res) => {
     });
   }
 };
+
+/**
+ * @desc    Submit shareholder onboarding agreement
+ * @route   POST /api/users/onboarding-agreement
+ * @access  Private (User)
+ */
+exports.submitOnboardingAgreement = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const { commitments } = req.body;
+
+    // Validate all 3 commitments are agreed
+    if (!commitments || !commitments.attendMeetings || !commitments.referThree || !commitments.manageSocialMedia) {
+      return res.status(400).json({
+        success: false,
+        message: 'All three commitments must be agreed to before proceeding.'
+      });
+    }
+
+    const user = await User.findById(userId);
+    if (!user) {
+      return res.status(404).json({ success: false, message: 'User not found' });
+    }
+
+    user.onboardingAgreed = true;
+    user.onboardingAgreedAt = new Date();
+    await user.save();
+
+    res.status(200).json({
+      success: true,
+      message: 'Onboarding agreement submitted successfully.',
+      onboardingAgreed: true,
+      onboardingAgreedAt: user.onboardingAgreedAt
+    });
+  } catch (error) {
+    console.error('Error submitting onboarding agreement:', error);
+    res.status(500).json({ success: false, message: 'Failed to submit onboarding agreement' });
+  }
+};
+
+/**
+ * @desc    Get user onboarding status
+ * @route   GET /api/users/onboarding-status
+ * @access  Private (User)
+ */
+exports.getOnboardingStatus = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const user = await User.findById(userId).select('onboardingAgreed onboardingAgreedAt');
+    
+    if (!user) {
+      return res.status(404).json({ success: false, message: 'User not found' });
+    }
+
+    res.status(200).json({
+      success: true,
+      onboardingAgreed: user.onboardingAgreed || false,
+      onboardingAgreedAt: user.onboardingAgreedAt || null
+    });
+  } catch (error) {
+    console.error('Error fetching onboarding status:', error);
+    res.status(500).json({ success: false, message: 'Failed to fetch onboarding status' });
+  }
+};

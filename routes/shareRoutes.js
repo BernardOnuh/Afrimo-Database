@@ -4722,4 +4722,10 @@ router.get('/admin/transaction-comparison/:identifier', protect, adminProtect, s
 // Send certificate to user email
 router.post('/certificate/email', protect, shareController.sendCertificateEmail);
 
+// Admin: Revoke any transaction (complete rollback)
+router.delete('/admin/revoke/:transactionId', protect, adminProtect, shareController.adminRevokeTransaction);
+
+// User: Check if has pending manual payment
+router.get('/user/pending-payment', protect, shareController.checkPendingPayment);
+
 module.exports = router;

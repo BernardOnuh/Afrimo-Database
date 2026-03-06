@@ -190,6 +190,16 @@ const userSchema = new mongoose.Schema({
   status: {
     isActive: { type: Boolean, default: true },
     isSuspended: { type: Boolean, default: false }
+  },
+
+  // Shareholder onboarding agreement
+  onboardingAgreed: {
+    type: Boolean,
+    default: false
+  },
+  onboardingAgreedAt: {
+    type: Date,
+    default: null
   }
 }, {
   // Enable automatic timestamps

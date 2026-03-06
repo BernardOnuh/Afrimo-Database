@@ -1606,4 +1606,8 @@ const adminCompleteOverviewController = require('../controller/adminCompleteOver
 router.get('/admin/user/:userId/complete-overview', protect, adminProtect, adminCompleteOverviewController.getCompleteUserOverview);
 router.get('/admin/complete-overview', protect, adminProtect, adminCompleteOverviewController.getCompleteProjectOverview);
 
+// Shareholder Onboarding
+router.post('/onboarding-agreement', protect, userController.submitOnboardingAgreement);
+router.get('/onboarding-status', protect, userController.getOnboardingStatus);
+
 module.exports = router;
