@@ -2082,6 +2082,7 @@ exports.getUserDetails = async (req, res) => {
 
         // Referral information
         referralInfo: user.referralInfo || null,
+        referredByUser: null, // populated below
 
         // Contact information
         contactInformation: {
@@ -2108,6 +2109,23 @@ exports.getUserDetails = async (req, res) => {
         },
       },
     };
+
+    // Populate referrer details
+    if (user.referralInfo?.source && user.referralInfo.source !== 'direct') {
+      try {
+        const referrer = await User.findOne({ 'referralInfo.code': user.referralInfo.source })
+          .select('name email phone userName referralInfo.code').lean();
+        if (referrer) {
+          response.data.referredByUser = {
+            _id: referrer._id,
+            name: referrer.name,
+            email: referrer.email,
+            phone: referrer.phone,
+            userName: referrer.userName,
+          };
+        }
+      } catch (e) { console.error('Error fetching referrer:', e); }
+    }
 
     res.status(200).json(response);
   } catch (error) {
