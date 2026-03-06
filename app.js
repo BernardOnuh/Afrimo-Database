@@ -581,7 +581,8 @@ app.use('/api/shares/tiers', require('./routes/tierRoutes'));
 //   - Multiple payment methods (bank transfer, crypto)
 //   - Automatic share transfer on payment confirmation
 app.use('/api/shares', require('./routes/shareListings'));
-app.use('/api/executives',  require('./routes/executiveRoutes')); 
+app.use('/api/executives',  require('./routes/executiveRoutes'));
+app.use('/api/franchise', require('./routes/franchiseRoutes')); 
 // ============================================================================
 // END API ROUTES
 // ============================================================================
