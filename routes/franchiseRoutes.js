@@ -2,13 +2,13 @@ const express = require('express');
 const router = express.Router();
 const { protect, adminProtect } = require('../middleware/auth');
 const fc = require('../controller/franchiseController');
-const { upload } = require('../config/cloudinary');
+const { sharePaymentUpload } = require('../config/cloudinary');
 
 // ===== User (franchise vendor) =====
 router.post('/apply', protect, fc.applyForFranchise);
 router.get('/my-profile', protect, fc.getMyFranchise);
 router.put('/bank-details', protect, fc.updateBankDetails);
-router.post('/buy-bulk', protect, upload.single('paymentProof'), fc.buyBulk);
+router.post('/buy-bulk', protect, sharePaymentUpload, fc.buyBulk);
 router.post('/packages', protect, fc.createPackage);
 router.put('/packages/:packageId', protect, fc.updatePackage);
 router.delete('/packages/:packageId', protect, fc.deletePackage);
@@ -20,7 +20,7 @@ router.put('/reject/:transactionId', protect, fc.rejectPayment);
 router.get('/list', protect, fc.listFranchises);
 router.get('/my-purchases', protect, fc.getMyPurchases);
 router.get('/:franchiseId/detail', protect, fc.getFranchiseDetail);
-router.post('/:franchiseId/buy', protect, upload.single('paymentProof'), fc.buyFromFranchise);
+router.post('/:franchiseId/buy', protect, sharePaymentUpload, fc.buyFromFranchise);
 router.post('/dispute/:transactionId', protect, fc.raiseDispute);
 
 // ===== Admin =====
