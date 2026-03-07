@@ -68,7 +68,7 @@ const upload = multer({
  */
 
 // ===================================================================
-// PUBLIC ROUTES
+// PUBLIC ROUTES  
 // ===================================================================
 
 /**
@@ -106,7 +106,17 @@ const upload = multer({
 router.get('/approved', executiveController.getApprovedExecutives);
 
 // ===================================================================
-// USER ROUTES
+// USER ROUTES (Activation Code Flow)
+// ===================================================================
+
+// Redeem activation code
+router.post('/redeem', protect, executiveController.redeemActivationCode);
+
+// Complete profile after redeeming code
+router.put('/complete-profile', protect, executiveController.completeProfile);
+
+// ===================================================================
+// USER ROUTES (Legacy + Update)
 // ===================================================================
 
 /**
@@ -432,5 +442,11 @@ router.delete('/admin/remove/:executiveId', protect, adminProtect, executiveCont
  *         description: Statistics retrieved successfully
  */
 router.get('/admin/statistics', protect, adminProtect, executiveController.getExecutiveStatistics);
+
+// Admin: Generate activation code
+router.post('/admin/generate-code', protect, adminProtect, executiveController.generateActivationCode);
+
+// Admin: List all activation codes
+router.get('/admin/codes', protect, adminProtect, executiveController.listActivationCodes);
 
 module.exports = router;

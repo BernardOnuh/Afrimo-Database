@@ -5,9 +5,22 @@ const executiveSchema = new mongoose.Schema({
   userId: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'User',
-    required: true,
-    unique: true
+    sparse: true
   },
+  
+  // Activation Code System
+  activationCode: {
+    type: String,
+    unique: true,
+    sparse: true
+  },
+  codeGeneratedBy: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User'
+  },
+  codeGeneratedAt: Date,
+  codeRedeemedAt: Date,
+  
   // Application Details
   applicationDate: {
     type: Date,
@@ -19,24 +32,15 @@ const executiveSchema = new mongoose.Schema({
     default: 'pending'
   },
   
+  // Profile Image
+  profileImage: String,
+  
   // Location Information
   location: {
-    country: {
-      type: String,
-      required: [true, 'Country is required']
-    },
-    state: {
-      type: String,
-      required: [true, 'State is required']
-    },
-    city: {
-      type: String,
-      required: [true, 'City is required']
-    },
-    address: {
-      type: String,
-      required: [true, 'Full address is required']
-    },
+    country: String,
+    state: String,
+    city: String,
+    address: String,
     coordinates: {
       latitude: Number,
       longitude: Number
@@ -45,15 +49,9 @@ const executiveSchema = new mongoose.Schema({
   
   // Contact Information
   contactInfo: {
-    phone: {
-      type: String,
-      required: [true, 'Phone number is required']
-    },
+    phone: String,
     alternativePhone: String,
-    email: {
-      type: String,
-      required: [true, 'Email is required']
-    },
+    email: String,
     alternativeEmail: String
   },
   
@@ -61,8 +59,7 @@ const executiveSchema = new mongoose.Schema({
   shareInfo: {
     totalShares: {
       type: Number,
-      required: true,
-      min: 1
+      default: 0
     },
     regularShares: {
       type: Number,
@@ -74,7 +71,7 @@ const executiveSchema = new mongoose.Schema({
     },
     shareValue: {
       type: Number,
-      required: true
+      default: 0
     },
     verifiedAt: {
       type: Date,
@@ -98,6 +95,16 @@ const executiveSchema = new mongoose.Schema({
     maxlength: 1000
   },
   expertise: [String],
+  
+  // Social Media (consolidated)
+  socialMedia: {
+    linkedin: String,
+    twitter: String,
+    facebook: String,
+    instagram: String
+  },
+  
+  // Keep top-level for backward compat
   linkedin: String,
   twitter: String,
   
@@ -168,6 +175,7 @@ const executiveSchema = new mongoose.Schema({
 // Indexes for better query performance
 executiveSchema.index({ userId: 1 });
 executiveSchema.index({ status: 1 });
+executiveSchema.index({ activationCode: 1 });
 executiveSchema.index({ 'location.country': 1, 'location.state': 1 });
 executiveSchema.index({ 'shareInfo.totalShares': -1 });
 

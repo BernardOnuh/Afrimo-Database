@@ -1,4 +1,5 @@
 // controller/executiveController.js
+const crypto = require('crypto');
 const Executive = require('../models/Executive');
 const User = require('../models/User');
 const UserShare = require('../models/UserShare');
@@ -9,6 +10,245 @@ const {
   logCloudinaryUpload, 
   handleCloudinaryError 
 } = require('../config/cloudinary');
+
+// Helper to generate unique 8-char alphanumeric code
+function generateActivationCode() {
+  return crypto.randomBytes(4).toString('hex').toUpperCase();
+}
+
+/**
+ * @desc    Admin: Generate activation code
+ * @route   POST /api/executives/admin/generate-code
+ * @access  Private (Admin)
+ */
+exports.generateActivationCode = async (req, res) => {
+  try {
+    const adminId = req.user.id;
+    const { userId } = req.body;
+
+    // Generate unique code
+    let code;
+    let exists = true;
+    while (exists) {
+      code = generateActivationCode();
+      exists = await Executive.findOne({ activationCode: code });
+    }
+
+    const execDoc = new Executive({
+      activationCode: code,
+      codeGeneratedBy: adminId,
+      codeGeneratedAt: new Date(),
+      status: 'pending',
+      ...(userId && { userId })
+    });
+
+    await execDoc.save();
+
+    console.log('[EXECUTIVE] Activation code generated:', code, 'by admin:', adminId);
+
+    res.status(201).json({
+      success: true,
+      message: 'Activation code generated successfully',
+      code,
+      executiveId: execDoc._id
+    });
+  } catch (error) {
+    console.error('[EXECUTIVE] Error generating code:', error);
+    res.status(500).json({ success: false, message: 'Failed to generate activation code' });
+  }
+};
+
+/**
+ * @desc    Admin: List all generated codes
+ * @route   GET /api/executives/admin/codes
+ * @access  Private (Admin)
+ */
+exports.listActivationCodes = async (req, res) => {
+  try {
+    const { page = 1, limit = 50 } = req.query;
+    const skip = (parseInt(page) - 1) * parseInt(limit);
+
+    const codes = await Executive.find({ activationCode: { $exists: true, $ne: null } })
+      .populate('userId', 'name email userName')
+      .populate('codeGeneratedBy', 'name email')
+      .select('activationCode userId codeGeneratedBy codeGeneratedAt codeRedeemedAt status location.country location.state')
+      .sort({ codeGeneratedAt: -1 })
+      .skip(skip)
+      .limit(parseInt(limit));
+
+    const totalCount = await Executive.countDocuments({ activationCode: { $exists: true, $ne: null } });
+
+    res.status(200).json({
+      success: true,
+      codes,
+      pagination: {
+        currentPage: parseInt(page),
+        totalPages: Math.ceil(totalCount / parseInt(limit)),
+        totalCount
+      }
+    });
+  } catch (error) {
+    console.error('[EXECUTIVE] Error listing codes:', error);
+    res.status(500).json({ success: false, message: 'Failed to list activation codes' });
+  }
+};
+
+/**
+ * @desc    User: Redeem activation code
+ * @route   POST /api/executives/redeem
+ * @access  Private (User)
+ */
+exports.redeemActivationCode = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const { code } = req.body;
+
+    if (!code) {
+      return res.status(400).json({ success: false, message: 'Activation code is required' });
+    }
+
+    // Check if user already has an executive record
+    const existingExec = await Executive.findOne({ userId, codeRedeemedAt: { $exists: true } });
+    if (existingExec) {
+      return res.status(400).json({ success: false, message: 'You already have an executive record' });
+    }
+
+    // Find the code
+    const execDoc = await Executive.findOne({ activationCode: code.toUpperCase().trim() });
+    if (!execDoc) {
+      return res.status(404).json({ success: false, message: 'Invalid activation code' });
+    }
+
+    if (execDoc.codeRedeemedAt) {
+      return res.status(400).json({ success: false, message: 'This code has already been redeemed' });
+    }
+
+    // If pre-assigned to a different user, reject
+    if (execDoc.userId && execDoc.userId.toString() !== userId) {
+      return res.status(403).json({ success: false, message: 'This code is assigned to a different user' });
+    }
+
+    // Redeem the code
+    execDoc.userId = userId;
+    execDoc.codeRedeemedAt = new Date();
+    await execDoc.save();
+
+    console.log('[EXECUTIVE] Code redeemed:', code, 'by user:', userId);
+
+    res.status(200).json({
+      success: true,
+      message: 'Activation code redeemed successfully. Please complete your profile.',
+      executiveId: execDoc._id
+    });
+  } catch (error) {
+    console.error('[EXECUTIVE] Error redeeming code:', error);
+    res.status(500).json({ success: false, message: 'Failed to redeem activation code' });
+  }
+};
+
+/**
+ * @desc    User: Complete executive profile after redeeming code
+ * @route   PUT /api/executives/complete-profile
+ * @access  Private (User)
+ */
+exports.completeProfile = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const {
+      country, state, city, address, phone, alternativePhone,
+      email, alternativeEmail, bio, expertise, linkedin, twitter,
+      facebook, instagram, profileImage, latitude, longitude
+    } = req.body;
+
+    // Find the redeemed executive doc
+    const execDoc = await Executive.findOne({ userId, codeRedeemedAt: { $exists: true } });
+    if (!execDoc) {
+      return res.status(404).json({ success: false, message: 'No redeemed activation code found. Please redeem a code first.' });
+    }
+
+    // Validate required fields
+    if (!country || !state || !city || !address || !phone || !email) {
+      return res.status(400).json({ success: false, message: 'Please provide all required fields: country, state, city, address, phone, and email' });
+    }
+
+    if (!profileImage) {
+      return res.status(400).json({ success: false, message: 'Profile image is required' });
+    }
+
+    // Get user's share information
+    let totalEffectiveShares = 0, regularShares = 0, coFounderShares = 0;
+    try {
+      const userShares = await UserShare.findOne({ user: userId });
+      if (userShares) {
+        const coFounderConfig = await CoFounderShare.findOne();
+        const shareToRegularRatio = coFounderConfig?.shareToRegularRatio || 29;
+        userShares.transactions.forEach(t => {
+          if (t.status === 'completed') {
+            if (t.paymentMethod === 'co-founder') {
+              coFounderShares += t.coFounderShares || t.shares || 0;
+            } else {
+              regularShares += t.shares || 0;
+            }
+          }
+        });
+        totalEffectiveShares = regularShares + (coFounderShares * shareToRegularRatio);
+      }
+    } catch (e) {
+      console.log('[EXECUTIVE] Could not fetch share info:', e.message);
+    }
+
+    // Update the executive doc
+    execDoc.profileImage = profileImage;
+    execDoc.location = { country, state, city, address, coordinates: { latitude: latitude || null, longitude: longitude || null } };
+    execDoc.contactInfo = { phone, alternativePhone: alternativePhone || null, email, alternativeEmail: alternativeEmail || null };
+    execDoc.shareInfo = { totalShares: totalEffectiveShares, regularShares, coFounderShares, shareValue: totalEffectiveShares * 100000, verifiedAt: new Date() };
+    execDoc.bio = bio || null;
+    execDoc.expertise = expertise || [];
+    execDoc.socialMedia = { linkedin: linkedin || null, twitter: twitter || null, facebook: facebook || null, instagram: instagram || null };
+    execDoc.linkedin = linkedin || null;
+    execDoc.twitter = twitter || null;
+    execDoc.status = 'approved';
+    execDoc.isVerified = true;
+    execDoc.approvalInfo = { approvedAt: new Date(), adminNotes: 'Auto-approved via activation code' };
+
+    await execDoc.save();
+
+    console.log('[EXECUTIVE] Profile completed for user:', userId);
+
+    // Send confirmation email
+    const user = await User.findById(userId);
+    if (user && user.email) {
+      try {
+        await sendEmail({
+          email: user.email,
+          subject: 'AfriMobile - Welcome, Executive!',
+          html: `
+            <h2>Welcome to the AfriMobile Executive Team!</h2>
+            <p>Dear ${user.name},</p>
+            <p>Your executive profile has been activated. You are now an AfriMobile Executive!</p>
+            <p><strong>Details:</strong></p>
+            <ul>
+              <li>Location: ${city}, ${state}, ${country}</li>
+              <li>Shares: ${totalEffectiveShares}</li>
+            </ul>
+            <p>Best regards,<br>AfriMobile Team</p>
+          `
+        });
+      } catch (emailError) {
+        console.error('[EXECUTIVE] Failed to send welcome email:', emailError);
+      }
+    }
+
+    res.status(200).json({
+      success: true,
+      message: 'Executive profile completed successfully!',
+      application: execDoc
+    });
+  } catch (error) {
+    console.error('[EXECUTIVE] Error completing profile:', error);
+    res.status(500).json({ success: false, message: 'Failed to complete executive profile' });
+  }
+};
 
 /**
  * @desc    Upload executive profile image
