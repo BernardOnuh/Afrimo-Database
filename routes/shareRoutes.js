@@ -74,6 +74,18 @@ const validateManualPayment = (req, res, next) => {
   next();
 };
 
+const requiredMethods = [
+  'sendCertificateEmail',
+  'checkPendingPayment', 
+  'adminRevokeTransaction',
+  // add others you're unsure about
+];
+
+requiredMethods.forEach(method => {
+  if (!shareController[method]) {
+    console.error(`❌ shareController.${method} is UNDEFINED`);
+  }
+});
 
 
 /**
@@ -1309,7 +1321,7 @@ router.post('/centiiv/crypto-pay', protect, shareController.initiateCentiivCrypt
  *       500:
  *         $ref: '#/components/responses/ServerError'
  */
-router.post('/centiiv/crypto-verify', protect, shareController.submitCentiivCryptoHash);
+router.post('/centiiv/crypto-verify', protect, shareController.submitCryptoTransactionHash);
 
 /**
  * @swagger

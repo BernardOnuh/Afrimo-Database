@@ -1,4 +1,3 @@
-// controller/shareController.js
 const Share = require('../models/Share');
 const UserShare = require('../models/UserShare');
 const User = require('../models/User');
@@ -13,7 +12,6 @@ const CoFounderShare = require('../models/CoFounderShare');
 const PaymentTransaction = require('../models/Transaction');
 const { processReferralCommission, rollbackReferralCommission } = require('../utils/referralUtils');
 const { deleteFromCloudinary } = require('../config/cloudinary');
-
 // Generate a unique transaction ID
 const generateTransactionId = () => {
   return `TXN-${crypto.randomBytes(4).toString('hex').toUpperCase()}-${Date.now().toString().slice(-6)}`;
