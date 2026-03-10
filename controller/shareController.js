@@ -4595,10 +4595,16 @@ exports.adminGetWeb3Transactions = async (req, res) => {
 exports.submitManualPayment = async (req, res) => {
   try {
     console.log('[SHARES] Manual payment submission started');
+    console.log('[SHARES] req.body:', req.body);
+    console.log('[SHARES] req.file:', req.file ? {
+      path: req.file.path,
+      filename: req.file.filename,
+      originalname: req.file.originalname,
+      size: req.file.size
+    } : 'NO FILE');
 
-    // Check user authentication
+    // Auth check
     if (!req.user || !req.user.id) {
-      console.error('[SHARES] User not authenticated');
       return res.status(401).json({
         success: false,
         message: 'Authentication required. Please log in.'
@@ -4607,7 +4613,7 @@ exports.submitManualPayment = async (req, res) => {
 
     const userId = req.user.id;
 
-    // ✅ DUPLICATE PREVENTION: Check if user already has a pending manual payment
+    // ─── DUPLICATE PREVENTION ────────────────────────────────────
     const existingPending = await PaymentTransaction.findOne({
       userId,
       type: 'share',
@@ -4618,7 +4624,7 @@ exports.submitManualPayment = async (req, res) => {
     if (existingPending) {
       return res.status(400).json({
         success: false,
-        message: 'You already have a pending payment awaiting approval. Please wait for admin review before submitting another payment.',
+        message: 'You already have a pending payment awaiting approval. Please wait for admin review before submitting another.',
         pendingTransaction: {
           transactionId: existingPending.transactionId,
           amount: existingPending.amount,
@@ -4628,83 +4634,84 @@ exports.submitManualPayment = async (req, res) => {
       });
     }
 
-    // ✅ FIX 1: Add 'tier' to destructuring
+    // ─── FIELD VALIDATION ────────────────────────────────────────
     const { quantity, currency, paymentMethod, bankName, accountName, reference, tier } = req.body;
 
-    console.log('[SHARES] Request details:', {
-      quantity,
-      currency,
-      paymentMethod,
-      tier  // ✅ Log tier
-    });
-
-    // Validate required fields
     if (!quantity || !currency || !paymentMethod) {
-      console.error('[SHARES] Missing required fields');
       return res.status(400).json({
         success: false,
-        message: 'Please provide quantity, currency, and payment method'
+        message: 'Please provide quantity, currency, and payment method',
+        received: { quantity: !!quantity, currency: !!currency, paymentMethod: !!paymentMethod }
       });
     }
 
-    // Check for payment proof file
-    if (!req.file && !req.body.adminNote) {
-      console.error('[SHARES] No payment proof uploaded');
+    const qty = parseInt(quantity);
+    if (isNaN(qty) || qty < 1) {
+      return res.status(400).json({ success: false, message: 'Invalid quantity. Must be a positive integer.' });
+    }
+
+    if (!['naira', 'usdt'].includes(currency.toLowerCase())) {
+      return res.status(400).json({ success: false, message: 'Invalid currency. Must be "naira" or "usdt".' });
+    }
+
+    const validPaymentMethods = ['bank_transfer', 'cash', 'other'];
+    if (!validPaymentMethods.includes(paymentMethod)) {
       return res.status(400).json({
         success: false,
-        message: 'Please upload payment proof'
+        message: `Invalid payment method. Must be one of: ${validPaymentMethods.join(', ')}`
       });
     }
 
-    // ✅ FIX 2: Pass tier to Share.calculatePurchase()
-    const Share = require('../models/Share');
+    // ─── FILE CHECK ───────────────────────────────────────────────
+    // req.file is set by Cloudinary multer middleware (sharePaymentUpload.single)
+    // req.file.path = Cloudinary secure URL
+    // req.file.filename = Cloudinary public_id
+    if (!req.file || !req.file.path) {
+      console.error('[SHARES] No Cloudinary file found on req.file:', req.file);
+      return res.status(400).json({
+        success: false,
+        message: 'Payment proof image is required. Please upload a valid image file (JPG, PNG, PDF, max 5MB).',
+        error: 'MISSING_PAYMENT_PROOF',
+        debug: process.env.NODE_ENV === 'development' ? {
+          hasFile: !!req.file,
+          fileKeys: req.file ? Object.keys(req.file) : [],
+          bodyKeys: Object.keys(req.body)
+        } : undefined
+      });
+    }
+
+    // ─── CALCULATE PURCHASE ───────────────────────────────────────
     const selectedTier = tier || 'standard';
-
-    const purchaseDetails = await Share.calculatePurchase(
-      parseInt(quantity), 
-      currency.toLowerCase(),
-      selectedTier  // ✅ THIS LINE WAS MISSING!
-    );
-
-    console.log('✅ [SHARES] Purchase calculated with tier:', {
-      tier: selectedTier,
-      totalPrice: purchaseDetails.totalPrice,
-      shares: purchaseDetails.totalShares
-    });
+    const purchaseDetails = await Share.calculatePurchase(qty, currency.toLowerCase(), selectedTier);
 
     if (!purchaseDetails.success) {
-      console.error('[SHARES] Share calculation failed:', purchaseDetails.message);
-      return res.status(400).json({
-        success: false,
-        message: purchaseDetails.message
-      });
+      return res.status(400).json({ success: false, message: purchaseDetails.message });
     }
 
-    // Generate transaction ID
+    // ─── BUILD FILE INFO FROM CLOUDINARY ─────────────────────────
+    const fileInfo = {
+      cloudinaryUrl: req.file.path,           // Cloudinary secure_url
+      cloudinaryId: req.file.filename,         // Cloudinary public_id
+      originalname: req.file.originalname || 'payment-proof',
+      size: req.file.size,
+      mimetype: req.file.mimetype,
+      format: req.file.format
+    };
+
+    console.log('[SHARES] Cloudinary file info:', fileInfo);
+
+    // ─── GENERATE TRANSACTION ID ──────────────────────────────────
     const crypto = require('crypto');
     const transactionId = `TXN-${crypto.randomBytes(4).toString('hex').toUpperCase()}-${Date.now().toString().slice(-6)}`;
 
-    // Extract file info from Cloudinary (if using Cloudinary)
-    let fileInfo = {};
-    if (req.file) {
-      fileInfo = {
-        cloudinaryUrl: req.file.path,
-        cloudinaryId: req.file.filename,
-        originalname: req.file.originalname,
-        size: req.file.size
-      };
-      console.log('[SHARES] File uploaded:', { url: fileInfo.cloudinaryUrl });
-    }
-
-    // Create PaymentTransaction record
-    const PaymentTransaction = require('../models/Transaction');
+    // ─── CREATE PaymentTransaction RECORD ────────────────────────
     const paymentTransactionData = {
       userId,
       transactionId,
       type: 'share',
-      shares: parseInt(quantity),
+      shares: qty,
       amount: purchaseDetails.totalPrice,
-      currency,
+      currency: currency.toLowerCase(),
       paymentMethod: `manual_${paymentMethod}`,
       status: 'pending',
       tier: selectedTier,
@@ -4714,65 +4721,92 @@ exports.submitManualPayment = async (req, res) => {
         accountName: accountName || null,
         reference: reference || null
       },
-      paymentProofPath: fileInfo.cloudinaryUrl || null,
-      paymentProofOriginalName: fileInfo.originalname || null,
-      paymentProofFilename: fileInfo.cloudinaryId || null
+      // Legacy field (some queries use this)
+      paymentProofPath: fileInfo.cloudinaryUrl,
+      paymentProofOriginalName: fileInfo.originalname,
+      paymentProofFilename: fileInfo.cloudinaryId,
+      // Cloudinary-specific fields
+      paymentProofCloudinaryUrl: fileInfo.cloudinaryUrl,
+      paymentProofCloudinaryId: fileInfo.cloudinaryId,
+      paymentProofFileSize: fileInfo.size,
+      paymentProofFormat: fileInfo.format
     };
-
-    if (fileInfo.cloudinaryUrl) {
-      paymentTransactionData.paymentProofCloudinaryUrl = fileInfo.cloudinaryUrl;
-      paymentTransactionData.paymentProofCloudinaryId = fileInfo.cloudinaryId;
-    }
 
     const paymentTransaction = new PaymentTransaction(paymentTransactionData);
     await paymentTransaction.save();
-    console.log('[SHARES] Payment transaction created:', transactionId);
+    console.log('[SHARES] PaymentTransaction created:', transactionId);
 
-    // Also create UserShare record
-    const UserShare = require('../models/UserShare');
+    // ─── CREATE UserShare RECORD ──────────────────────────────────
     const userShareData = {
       transactionId,
-      shares: parseInt(quantity),
-      pricePerShare: purchaseDetails.totalPrice / parseInt(quantity),
-      currency,
+      shares: qty,
+      pricePerShare: purchaseDetails.totalPrice / qty,
+      currency: currency.toLowerCase(),
       totalAmount: purchaseDetails.totalPrice,
       paymentMethod: `manual_${paymentMethod}`,
       status: 'pending',
-      tierBreakdown: purchaseDetails.tierBreakdown
+      tierBreakdown: purchaseDetails.tierBreakdown,
+      paymentProofPath: fileInfo.cloudinaryUrl,
+      paymentProofCloudinaryUrl: fileInfo.cloudinaryUrl,
+      paymentProofCloudinaryId: fileInfo.cloudinaryId,
+      paymentProofOriginalName: fileInfo.originalname,
+      paymentProofFileSize: fileInfo.size
     };
 
-    if (fileInfo.cloudinaryUrl) {
-      userShareData.paymentProofCloudinaryUrl = fileInfo.cloudinaryUrl;
-      userShareData.paymentProofCloudinaryId = fileInfo.cloudinaryId;
-    }
-
-    await UserShare.addShares(userId, parseInt(quantity), userShareData);
+    await UserShare.addShares(userId, qty, userShareData);
     console.log('[SHARES] UserShare record created');
 
-    // Send success response
-    res.status(200).json({
+    // ─── NOTIFY ADMINS ────────────────────────────────────────────
+    try {
+      const user = await User.findById(userId);
+      const admins = await User.find({ isAdmin: true, email: { $exists: true } });
+      for (const admin of admins) {
+        await sendEmail({
+          email: admin.email,
+          subject: 'New Manual Share Payment Submitted',
+          html: `
+            <h2>New Manual Payment Requires Review</h2>
+            <p><strong>User:</strong> ${user?.name} (${user?.email})</p>
+            <p><strong>Transaction ID:</strong> ${transactionId}</p>
+            <p><strong>Shares:</strong> ${qty}</p>
+            <p><strong>Amount:</strong> ${currency === 'naira' ? '₦' : '$'}${purchaseDetails.totalPrice}</p>
+            <p><strong>Payment Method:</strong> ${paymentMethod}</p>
+            <p><strong>Payment Proof:</strong> <a href="${fileInfo.cloudinaryUrl}">View Proof</a></p>
+            <p>Please review in the admin dashboard.</p>
+          `
+        });
+      }
+    } catch (emailErr) {
+      console.error('[SHARES] Admin notification email failed:', emailErr.message);
+      // Non-fatal — don't fail the request
+    }
+
+    // ─── SUCCESS RESPONSE ─────────────────────────────────────────
+    return res.status(200).json({
       success: true,
-      message: 'Payment proof submitted successfully',
+      message: 'Payment proof submitted successfully. Awaiting admin verification.',
       data: {
         transactionId,
-        shares: parseInt(quantity),
+        shares: qty,
         amount: purchaseDetails.totalPrice,
-        currency,
+        currency: currency.toLowerCase(),
         status: 'pending',
-        tier: selectedTier,  // ✅ Include tier in response
-        paymentMethod: `manual_${paymentMethod}`
+        tier: selectedTier,
+        paymentMethod: `manual_${paymentMethod}`,
+        paymentProofUrl: fileInfo.cloudinaryUrl
       }
     });
 
   } catch (error) {
-    console.error('[SHARES] Error:', error);
-    res.status(500).json({
+    console.error('[SHARES] submitManualPayment error:', error);
+    return res.status(500).json({
       success: false,
-      message: 'Failed to submit manual payment',
+      message: 'Failed to submit manual payment. Please try again.',
       error: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
 };
+
 
 /**
  * @desc    Get payment proof from Cloudinary

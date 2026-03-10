@@ -439,195 +439,203 @@ const verifyCoFounderPaystackPayment = async (req, res) => {
  */
 const submitCoFounderManualPayment = async (req, res) => {
     try {
-        console.log('[COFOUNDER] Manual payment submission started');
-        console.log('[COFOUNDER] req.body:', req.body);
-        console.log('[COFOUNDER] req.file:', req.file);
-        console.log('[COFOUNDER] req.files:', req.files);
-        
-        // ✅ FIX: Check if user is authenticated
-        if (!req.user || !req.user.id) {
-            console.error('[COFOUNDER] User not authenticated or missing user ID');
-            console.log('[COFOUNDER] req.user:', req.user);
-            return res.status(401).json({
-                success: false,
-                message: 'Authentication required. Please log in.',
-                error: 'USER_NOT_AUTHENTICATED',
-                debug: {
-                    hasUser: !!req.user,
-                    userKeys: req.user ? Object.keys(req.user) : [],
-                    authHeaders: req.headers.authorization ? 'present' : 'missing'
-                }
-            });
-        }
-
-        const { quantity, paymentMethod, bankName, accountName, reference, currency } = req.body;
-        const userId = req.user.id;
-        
-        console.log('[COFOUNDER] Authenticated user ID:', userId);
-        
-        // Validate required fields
-        if (!quantity || !paymentMethod || !currency) {
-            console.error('[COFOUNDER] Missing required fields');
-            return res.status(400).json({
-                success: false,
-                message: 'Please provide quantity, payment method, and currency',
-                error: 'MISSING_FIELDS'
-            });
-        }
-        
-        // ✅ CLOUDINARY: Check for Cloudinary file upload
-        if (!req.file && !req.files && !req.body.adminNote) {
-            console.error('[COFOUNDER] No payment proof uploaded');
-            return res.status(400).json({
-                success: false,
-                message: 'Please upload payment proof or provide admin notes',
-                error: 'MISSING_FILE',
-                debug: {
-                    hasFile: !!req.file,
-                    hasFiles: !!req.files,
-                    hasAdminNote: !!req.body.adminNote,
-                    fileKeys: req.file ? Object.keys(req.file) : [],
-                    bodyKeys: Object.keys(req.body)
-                }
-            });
-        }
-        
-        // Validate currency
-        if (!['naira', 'usdt'].includes(currency)) {
-            return res.status(400).json({
-                success: false,
-                message: 'Please provide a valid currency (naira or usdt)'
-            });
-        }
-        
-        // Get co-founder share configuration
-        const CoFounderShare = require('../models/CoFounderShare');
-        const coFounderShare = await CoFounderShare.findOne();
-        if (!coFounderShare) {
-            return res.status(400).json({
-                success: false,
-                message: 'Co-founder share configuration not found'
-            });
-        }
-        
-        // Validate available shares
-        const requestedShares = parseInt(quantity);
-        if (coFounderShare.sharesSold + requestedShares > coFounderShare.totalShares) {
-            return res.status(400).json({
-                success: false,
-                message: 'Insufficient shares available',
-                availableShares: coFounderShare.totalShares - coFounderShare.sharesSold
-            });
-        }
-        
-        // Calculate price
-        const price = currency === 'naira' ? 
-            coFounderShare.pricing.priceNaira : 
-            coFounderShare.pricing.priceUSDT;
-        
-        const totalPrice = requestedShares * price;
-        
-        // Generate transaction ID
-        const crypto = require('crypto'); // Make sure crypto is imported
-        const generateTransactionId = () => {
-            return `CFD-${crypto.randomBytes(4).toString('hex').toUpperCase()}-${Date.now().toString().slice(-6)}`;
-        };
-        const transactionId = generateTransactionId();
-        
-        // ✅ CLOUDINARY: Extract file info (same pattern as share controller)
-        let fileInfo = {};
-        if (req.file) {
-            // Cloudinary file structure
-            fileInfo = {
-                cloudinaryUrl: req.file.path,
-                cloudinaryId: req.file.filename,
-                originalname: req.file.originalname,
-                size: req.file.size,
-                mimetype: req.file.mimetype,
-                format: req.file.format
-            };
-            console.log('[COFOUNDER] Cloudinary file detected:', {
-                url: fileInfo.cloudinaryUrl,
-                publicId: fileInfo.cloudinaryId,
-                size: fileInfo.size
-            });
-        } else if (req.files && req.files.paymentProof) {
-            // Alternative file structure
-            const file = Array.isArray(req.files.paymentProof) ? req.files.paymentProof[0] : req.files.paymentProof;
-            fileInfo = {
-                cloudinaryUrl: file.path || file.location || file.url,
-                cloudinaryId: file.filename || file.key,
-                originalname: file.originalname || file.name,
-                size: file.size,
-                mimetype: file.mimetype || file.type,
-                format: file.format
-            };
-        }
-        
-        // Create PaymentTransaction record with Cloudinary data
-        const PaymentTransaction = require('../models/Transaction');
-        const paymentTransactionData = {
-            userId,
-            transactionId,
-            type: 'co-founder',
-            shares: parseInt(quantity),
-            amount: totalPrice,
-            currency,
-            paymentMethod: `manual_${paymentMethod}`,
-            status: 'pending',
-            manualPaymentDetails: {
-                bankName: bankName || null,
-                accountName: accountName || null,
-                reference: reference || null
-            },
-            
-            // 🔥 CRITICAL ADDITION: These fields satisfy your model validation
-            paymentProofPath: fileInfo.cloudinaryUrl || null,  // This is what your validation checks for!
-            paymentProofOriginalName: fileInfo.originalname || null,
-            paymentProofFilename: fileInfo.cloudinaryId || null
-        };
-        
-        // ✅ CLOUDINARY: Add Cloudinary fields as well (for future use)
-        if (fileInfo.cloudinaryUrl) {
-            paymentTransactionData.paymentProofCloudinaryUrl = fileInfo.cloudinaryUrl;
-            paymentTransactionData.paymentProofCloudinaryId = fileInfo.cloudinaryId;
-            paymentTransactionData.paymentProofOriginalName = fileInfo.originalname;
-            paymentTransactionData.paymentProofFileSize = fileInfo.size;
-            paymentTransactionData.paymentProofFormat = fileInfo.format;
-        }
-        
-        const paymentTransaction = new PaymentTransaction(paymentTransactionData);
-        await paymentTransaction.save();
-        console.log('[COFOUNDER] Payment transaction created with Cloudinary data:', transactionId);
-        
-        // Send success response
-        res.status(200).json({
-            success: true,
-            message: 'Payment proof submitted successfully and awaiting verification',
-            data: {
-                transactionId,
-                shares: requestedShares,
-                amount: totalPrice,
-                currency,
-                status: 'pending',
-                fileInfo: fileInfo,
-                paymentMethod: `manual_${paymentMethod}`,
-                fileUrl: `/api/cofounder/payment-proof/${transactionId}`,
-                cloudinaryUrl: fileInfo.cloudinaryUrl // Include direct Cloudinary URL
-            }
+      console.log('[COFOUNDER] Manual payment submission started');
+      console.log('[COFOUNDER] req.body:', req.body);
+      console.log('[COFOUNDER] req.file:', req.file ? {
+        path: req.file.path,
+        filename: req.file.filename,
+        originalname: req.file.originalname,
+        size: req.file.size
+      } : 'NO FILE');
+  
+      // ─── AUTH CHECK ───────────────────────────────────────────────
+      if (!req.user || !req.user.id) {
+        return res.status(401).json({
+          success: false,
+          message: 'Authentication required. Please log in.',
+          error: 'USER_NOT_AUTHENTICATED'
         });
-        
+      }
+  
+      const userId = req.user.id;
+  
+      // ─── FIELD VALIDATION ────────────────────────────────────────
+      const { quantity, paymentMethod, bankName, accountName, reference, currency } = req.body;
+  
+      if (!quantity || !paymentMethod || !currency) {
+        return res.status(400).json({
+          success: false,
+          message: 'Please provide quantity, payment method, and currency',
+          received: { quantity: !!quantity, paymentMethod: !!paymentMethod, currency: !!currency }
+        });
+      }
+  
+      if (!['naira', 'usdt'].includes(currency.toLowerCase())) {
+        return res.status(400).json({
+          success: false,
+          message: 'Invalid currency. Must be "naira" or "usdt".'
+        });
+      }
+  
+      const requestedShares = parseInt(quantity);
+      if (isNaN(requestedShares) || requestedShares < 1) {
+        return res.status(400).json({ success: false, message: 'Invalid quantity.' });
+      }
+  
+      // ─── FILE CHECK ───────────────────────────────────────────────
+      // FIX: Only check req.file (single upload), not req.files
+      if (!req.file || !req.file.path) {
+        console.error('[COFOUNDER] No Cloudinary file on req.file:', req.file);
+        return res.status(400).json({
+          success: false,
+          message: 'Payment proof image is required. Please upload a valid image file.',
+          error: 'MISSING_PAYMENT_PROOF',
+          debug: process.env.NODE_ENV === 'development' ? {
+            hasFile: !!req.file,
+            fileKeys: req.file ? Object.keys(req.file) : [],
+            bodyKeys: Object.keys(req.body)
+          } : undefined
+        });
+      }
+  
+      // ─── CO-FOUNDER CONFIG ────────────────────────────────────────
+      const CoFounderShare = require('../models/CoFounderShare');
+      const coFounderShare = await CoFounderShare.findOne();
+  
+      if (!coFounderShare) {
+        return res.status(400).json({ success: false, message: 'Co-founder share configuration not found.' });
+      }
+  
+      if (coFounderShare.sharesSold + requestedShares > coFounderShare.totalShares) {
+        return res.status(400).json({
+          success: false,
+          message: 'Insufficient co-founder shares available.',
+          availableShares: coFounderShare.totalShares - coFounderShare.sharesSold
+        });
+      }
+  
+      // ─── DUPLICATE PREVENTION ────────────────────────────────────
+      const existingPending = await PaymentTransaction.findOne({
+        userId,
+        type: 'co-founder',
+        paymentMethod: { $regex: '^manual_' },
+        status: 'pending'
+      });
+  
+      if (existingPending) {
+        return res.status(400).json({
+          success: false,
+          message: 'You already have a pending co-founder payment awaiting approval.',
+          pendingTransaction: {
+            transactionId: existingPending.transactionId,
+            amount: existingPending.amount,
+            shares: existingPending.shares,
+            date: existingPending.createdAt
+          }
+        });
+      }
+  
+      // ─── PRICE CALCULATION ────────────────────────────────────────
+      const price = currency.toLowerCase() === 'naira'
+        ? coFounderShare.pricing.priceNaira
+        : coFounderShare.pricing.priceUSDT;
+      const totalPrice = requestedShares * price;
+  
+      // ─── BUILD FILE INFO FROM CLOUDINARY ─────────────────────────
+      const fileInfo = {
+        cloudinaryUrl: req.file.path,
+        cloudinaryId: req.file.filename,
+        originalname: req.file.originalname || 'payment-proof',
+        size: req.file.size,
+        mimetype: req.file.mimetype,
+        format: req.file.format
+      };
+  
+      console.log('[COFOUNDER] Cloudinary file info:', fileInfo);
+  
+      // ─── GENERATE TRANSACTION ID ──────────────────────────────────
+      const crypto = require('crypto');
+      const transactionId = `CFD-${crypto.randomBytes(4).toString('hex').toUpperCase()}-${Date.now().toString().slice(-6)}`;
+  
+      // ─── CREATE PaymentTransaction RECORD ────────────────────────
+      const paymentTransactionData = {
+        userId,
+        transactionId,
+        type: 'co-founder',
+        shares: requestedShares,
+        amount: totalPrice,
+        currency: currency.toLowerCase(),
+        paymentMethod: `manual_${paymentMethod}`,
+        status: 'pending',
+        manualPaymentDetails: {
+          bankName: bankName || null,
+          accountName: accountName || null,
+          reference: reference || null
+        },
+        // Legacy field
+        paymentProofPath: fileInfo.cloudinaryUrl,
+        paymentProofOriginalName: fileInfo.originalname,
+        paymentProofFilename: fileInfo.cloudinaryId,
+        // Cloudinary fields
+        paymentProofCloudinaryUrl: fileInfo.cloudinaryUrl,
+        paymentProofCloudinaryId: fileInfo.cloudinaryId,
+        paymentProofFileSize: fileInfo.size,
+        paymentProofFormat: fileInfo.format
+      };
+  
+      const paymentTransaction = new PaymentTransaction(paymentTransactionData);
+      await paymentTransaction.save();
+      console.log('[COFOUNDER] PaymentTransaction created:', transactionId);
+  
+      // ─── NOTIFY ADMINS ────────────────────────────────────────────
+      try {
+        const user = await User.findById(userId);
+        const admins = await User.find({ isAdmin: true, email: { $exists: true } });
+        for (const admin of admins) {
+          await sendEmail({
+            email: admin.email,
+            subject: 'New Co-Founder Manual Payment Submitted',
+            html: `
+              <h2>New Co-Founder Manual Payment Requires Review</h2>
+              <p><strong>User:</strong> ${user?.name} (${user?.email})</p>
+              <p><strong>Transaction ID:</strong> ${transactionId}</p>
+              <p><strong>Co-Founder Shares:</strong> ${requestedShares}</p>
+              <p><strong>Amount:</strong> ${currency === 'naira' ? '₦' : '$'}${totalPrice}</p>
+              <p><strong>Payment Method:</strong> ${paymentMethod}</p>
+              <p><strong>Payment Proof:</strong> <a href="${fileInfo.cloudinaryUrl}">View Proof</a></p>
+              <p>Please review in the admin dashboard.</p>
+            `
+          });
+        }
+      } catch (emailErr) {
+        console.error('[COFOUNDER] Admin notification email failed:', emailErr.message);
+      }
+  
+      // ─── SUCCESS ──────────────────────────────────────────────────
+      return res.status(200).json({
+        success: true,
+        message: 'Co-founder payment proof submitted successfully. Awaiting admin verification.',
+        data: {
+          transactionId,
+          shares: requestedShares,
+          amount: totalPrice,
+          currency: currency.toLowerCase(),
+          status: 'pending',
+          paymentMethod: `manual_${paymentMethod}`,
+          paymentProofUrl: fileInfo.cloudinaryUrl
+        }
+      });
+  
     } catch (error) {
-        console.error('[COFOUNDER] Manual payment submission error:', error);
-        
-        res.status(500).json({
-            success: false,
-            message: 'Failed to submit manual payment',
-            error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error',
-            stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
-        });
+      console.error('[COFOUNDER] submitCoFounderManualPayment error:', error);
+      return res.status(500).json({
+        success: false,
+        message: 'Failed to submit co-founder manual payment. Please try again.',
+        error: process.env.NODE_ENV === 'development' ? error.message : undefined
+      });
     }
-};
+  };
+  
 
 /**
  * @desc    Get co-founder payment proof from Cloudinary
