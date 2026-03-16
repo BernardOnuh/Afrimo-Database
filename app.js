@@ -582,7 +582,9 @@ app.use('/api/shares/tiers', require('./routes/tierRoutes'));
 //   - Automatic share transfer on payment confirmation
 app.use('/api/shares', require('./routes/shareListings'));
 app.use('/api/executives',  require('./routes/executiveRoutes'));
-app.use('/api/franchise', require('./routes/franchiseRoutes')); 
+app.use('/api/franchise', require('./routes/franchiseRoutes'));
+app.use('/api/preorders', require('./routes/preOrderRoutes'));
+app.use('/api/loans', require('./routes/shareLoanRoutes')); 
 // ============================================================================
 // END API ROUTES
 // ============================================================================
