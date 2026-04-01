@@ -2300,7 +2300,7 @@ function mapCentiivStatus(centiivStatus) {
 // Admin: Update share pricing
 exports.updateSharePricing = async (req, res) => {
   try {
-    const { tier, priceNaira, priceUSDT } = req.body;
+    const { tier, priceNaira, priceUSDT, percentPerShare, capacity } = req.body;
     const adminId = req.user.id; // From auth middleware
     
     // Check if admin
@@ -2330,7 +2330,9 @@ exports.updateSharePricing = async (req, res) => {
     const updatedConfig = await Share.updatePricing(
       tier,
       priceNaira ? parseInt(priceNaira) : undefined,
-      priceUSDT ? parseInt(priceUSDT) : undefined
+      priceUSDT ? parseInt(priceUSDT) : undefined,
+      percentPerShare ? parseFloat(percentPerShare) : undefined,
+      capacity ? parseInt(capacity) : undefined
     );
     
     res.status(200).json({
@@ -7080,5 +7082,157 @@ exports.checkPendingPayment = async (req, res) => {
   } catch (error) {
     console.error('Error checking pending payment:', error);
     res.status(500).json({ success: false, message: 'Failed to check pending payment' });
+  }
+};
+
+
+exports.createTier = async (req, res) => {
+  try {
+    const { tier, priceNaira, priceUSDT, capacity, percentPerShare } = req.body;
+    const admin = await User.findById(req.user.id);
+    if (!admin || !admin.isAdmin) return res.status(403).json({ success: false, message: 'Admin required' });
+    if (!tier || !priceNaira) return res.status(400).json({ success: false, message: 'tier and priceNaira are required' });
+
+    const shareConfig = await Share.getCurrentConfig();
+    if (!shareConfig.currentPrices) shareConfig.currentPrices = {};
+    if (!shareConfig.tierSales) shareConfig.tierSales = {};
+    if (!shareConfig.totalTierShares) shareConfig.totalTierShares = {};
+
+    shareConfig.currentPrices[tier] = {
+      priceNaira: parseInt(priceNaira),
+      priceUSDT: priceUSDT ? parseFloat(priceUSDT) : 0,
+      percentPerShare: percentPerShare ? parseFloat(percentPerShare) : 0
+    };
+    shareConfig.tierSales[tier + 'Sold'] = 0;
+    shareConfig.totalTierShares[tier] = capacity ? parseInt(capacity) : 0;
+
+    shareConfig.markModified('currentPrices');
+    shareConfig.markModified('tierSales');
+    shareConfig.markModified('totalTierShares');
+    await shareConfig.save();
+
+    res.status(201).json({ success: true, message: 'Tier created successfully', tier, config: shareConfig.currentPrices[tier] });
+  } catch (error) {
+    console.error('Error creating tier:', error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+exports.deleteTier = async (req, res) => {
+  try {
+    const { tier } = req.params;
+    const admin = await User.findById(req.user.id);
+    if (!admin || !admin.isAdmin) return res.status(403).json({ success: false, message: 'Admin required' });
+
+    const shareConfig = await Share.getCurrentConfig();
+    const soldKey = tier + 'Sold';
+
+    if (shareConfig.tierSales && shareConfig.tierSales[soldKey] > 0) {
+      return res.status(400).json({ success: false, message: 'Cannot delete a tier that has existing sales' });
+    }
+
+    if (shareConfig.currentPrices) {
+      delete shareConfig.currentPrices[tier];
+      shareConfig.markModified('currentPrices');
+    }
+    if (shareConfig.tierSales) {
+      delete shareConfig.tierSales[soldKey];
+      shareConfig.markModified('tierSales');
+    }
+    if (shareConfig.totalTierShares) {
+      delete shareConfig.totalTierShares[tier];
+      shareConfig.markModified('totalTierShares');
+    }
+
+    await shareConfig.save();
+    res.status(200).json({ success: true, message: 'Tier deleted successfully', tier });
+  } catch (error) {
+    console.error('Error deleting tier:', error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+exports.adminUpdateUserShares = async (req, res) => {
+  try {
+    const admin = await User.findById(req.user.id);
+    if (!admin || !admin.isAdmin) return res.status(403).json({ success: false, message: 'Admin required' });
+
+    const { userId } = req.params;
+    const { regular, cofounder, tier1, tier2, tier3, adminNote } = req.body;
+
+    const user = await User.findById(userId);
+    if (!user) return res.status(404).json({ success: false, message: 'User not found' });
+
+    let userShare = await UserShare.findOne({ user: userId });
+    if (!userShare) userShare = new UserShare({ user: userId, transactions: [], totalShares: 0 });
+
+    const transactionId = 'ADM-' + crypto.randomBytes(4).toString('hex').toUpperCase() + '-' + Date.now().toString().slice(-6);
+
+    userShare.totalShares = (parseInt(regular) || 0) + (parseInt(cofounder) || 0);
+    userShare.transactions.push({
+      transactionId,
+      shares: parseInt(regular) || 0,
+      coFounderShares: parseInt(cofounder) || 0,
+      currency: 'naira',
+      totalAmount: 0,
+      paymentMethod: 'admin_override',
+      status: 'completed',
+      adminAction: true,
+      adminNote: adminNote || 'Direct share count override by admin',
+      tierBreakdown: {
+        tier1: parseInt(tier1) || 0,
+        tier2: parseInt(tier2) || 0,
+        tier3: parseInt(tier3) || 0
+      }
+    });
+
+    await userShare.save();
+    res.status(200).json({ success: true, message: 'User shares updated successfully', userId, shares: { regular, cofounder } });
+  } catch (error) {
+    console.error('Error updating user shares:', error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+exports.adminEditTransaction = async (req, res) => {
+  try {
+    const admin = await User.findById(req.user.id);
+    if (!admin || !admin.isAdmin) return res.status(403).json({ success: false, message: 'Admin required' });
+
+    const { transactionId } = req.params;
+    const { status, shares, adminNote, type } = req.body;
+
+    let updated = false;
+
+    const paymentTx = await PaymentTransaction.findOne({ transactionId });
+    if (paymentTx) {
+      if (status) paymentTx.status = status;
+      if (shares) paymentTx.shares = parseInt(shares);
+      if (adminNote) paymentTx.adminNotes = adminNote;
+      if (type) paymentTx.type = type;
+      paymentTx.verifiedBy = req.user.id;
+      paymentTx.verifiedAt = new Date();
+      await paymentTx.save();
+      updated = true;
+    }
+
+    const userShare = await UserShare.findOne({ 'transactions.transactionId': transactionId });
+    if (userShare) {
+      const tx = userShare.transactions.find(t => t.transactionId === transactionId);
+      if (tx) {
+        if (status) tx.status = status;
+        if (shares) tx.shares = parseInt(shares);
+        if (adminNote) tx.adminNote = adminNote;
+        await userShare.save();
+        updated = true;
+      }
+    }
+
+    if (!updated) return res.status(404).json({ success: false, message: 'Transaction not found' });
+
+    res.status(200).json({ success: true, message: 'Transaction updated successfully', transactionId });
+  } catch (error) {
+    console.error('Error editing transaction:', error);
+    res.status(500).json({ success: false, message: error.message });
   }
 };

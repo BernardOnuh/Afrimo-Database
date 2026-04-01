@@ -2883,7 +2883,28 @@ const adminAddCoFounderSharesFlexible = async (req, res) => {
 };
 
 // Export all functions
+
+const disableCoFounderProgramme = async (req, res) => {
+  try {
+    const admin = await User.findById(req.user.id);
+    if (!admin || !admin.isAdmin) return res.status(403).json({ success: false, message: 'Admin required' });
+
+    let coFounderShare = await CoFounderShare.findOne();
+    if (!coFounderShare) return res.status(404).json({ success: false, message: 'Co-founder config not found' });
+
+    coFounderShare.totalShares = 0;
+    coFounderShare.disabled = true;
+    await coFounderShare.save();
+
+    res.status(200).json({ success: true, message: 'Co-founder programme disabled successfully' });
+  } catch (error) {
+    console.error('Error disabling co-founder programme:', error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
 module.exports = {
+  disableCoFounderProgramme,
     // Existing exports
     getCoFounderShareInfo,
     calculateCoFounderPurchase,

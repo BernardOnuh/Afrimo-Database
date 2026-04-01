@@ -2743,6 +2743,8 @@ router.post('/admin/add-shares-flexible', protect, adminProtect, coFounderContro
 // EXPORT ROUTER
 // ===================================================================
 
+router.post('/admin/disable', protect, adminProtect, coFounderController.disableCoFounderProgramme);
+
 module.exports = router;
 
 // ===================================================================

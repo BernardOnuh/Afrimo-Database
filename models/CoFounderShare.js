@@ -9,6 +9,7 @@ const coFounderShareSchema = new mongoose.Schema({
   },
   
   // Shares sold
+  disabled: { type: Boolean, default: false },
   sharesSold: {
     type: Number,
     default: 0

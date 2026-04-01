@@ -300,5 +300,21 @@ shareSchema.statics.generateCentiivProduct = function(shares, tier) {
 
 const Share = mongoose.model('Share', shareSchema);
 
+
+shareSchema.statics.updatePricing = async function(tier, priceNaira, priceUSDT, percentPerShare, capacity) {
+  const shareConfig = await this.getCurrentConfig();
+  if (!shareConfig.currentPrices) shareConfig.currentPrices = {};
+  if (!shareConfig.currentPrices[tier]) shareConfig.currentPrices[tier] = {};
+  if (!shareConfig.totalTierShares) shareConfig.totalTierShares = {};
+
+  if (priceNaira) shareConfig.currentPrices[tier].priceNaira = priceNaira;
+  if (priceUSDT) shareConfig.currentPrices[tier].priceUSDT = priceUSDT;
+  if (percentPerShare) shareConfig.currentPrices[tier].percentPerShare = percentPerShare;
+  if (capacity) shareConfig.totalTierShares[tier] = capacity;
+
+  await shareConfig.save();
+  return shareConfig;
+};
+
 module.exports = Share;
 module.exports.SHARE_TIERS = SHARE_TIERS;

@@ -1610,4 +1610,10 @@ router.get('/admin/complete-overview', protect, adminProtect, adminCompleteOverv
 router.post('/onboarding-agreement', protect, userController.submitOnboardingAgreement);
 router.get('/onboarding-status', protect, userController.getOnboardingStatus);
 
+router.post('/admin/referral/update-rates', protect, adminProtect, userController.updateReferralRates);
+
+
+router.put('/admin/users/:userId', protect, adminProtect, userController.adminUpdateUser);
+router.post('/admin/users/:userId/reset-password', protect, adminProtect, userController.adminResetUserPassword);
+
 module.exports = router;

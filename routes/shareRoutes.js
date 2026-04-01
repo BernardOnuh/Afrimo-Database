@@ -1840,4 +1840,10 @@ router.delete('/admin/revoke/:transactionId', protect, adminProtect, shareContro
  */
 router.get('/user/pending-payment', protect, shareController.checkPendingPayment);
 
+
+router.post('/admin/create-tier', protect, adminProtect, shareController.createTier);
+router.delete('/admin/delete-tier/:tier', protect, adminProtect, shareController.deleteTier);
+router.put('/admin/user/:userId/shares', protect, adminProtect, shareController.adminUpdateUserShares);
+router.put('/admin/transaction/:transactionId', protect, adminProtect, shareController.adminEditTransaction);
+
 module.exports = router;

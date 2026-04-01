@@ -2212,3 +2212,74 @@ exports.getOnboardingStatus = async (req, res) => {
     res.status(500).json({ success: false, message: 'Failed to fetch onboarding status' });
   }
 };
+exports.updateReferralRates = async (req, res) => {
+  try {
+    const admin = await User.findById(req.user.id);
+    if (!admin || !admin.isAdmin) return res.status(403).json({ success: false, message: 'Admin required' });
+
+    const { levels, maxDepth, minPurchase, lockDays, commissionRules } = req.body;
+
+    const SiteConfig = require('../models/SiteConfig');
+    const config = await SiteConfig.getCurrentConfig();
+
+    if (levels) config.referralRates = levels;
+    if (maxDepth) config.referralMaxDepth = parseInt(maxDepth);
+    if (minPurchase) config.referralMinPurchase = parseInt(minPurchase);
+    if (lockDays !== undefined) config.referralLockDays = parseInt(lockDays);
+    if (commissionRules) config.commissionRules = commissionRules;
+
+    config.markModified('referralRates');
+    config.markModified('commissionRules');
+    await config.save();
+
+    res.status(200).json({ success: true, message: 'Referral rates updated successfully', config });
+  } catch (error) {
+    console.error('Error updating referral rates:', error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+exports.adminUpdateUser = async (req, res) => {
+  try {
+    const admin = await User.findById(req.user.id);
+    if (!admin || !admin.isAdmin) return res.status(403).json({ success: false, message: 'Admin required' });
+    const { userId } = req.params;
+    const { name, userName, email, phoneNumber, walletAddress, kycStatus, referralCode } = req.body;
+    const user = await User.findById(userId);
+    if (!user) return res.status(404).json({ success: false, message: 'User not found' });
+    if (name !== undefined) user.name = name;
+    if (userName !== undefined) user.userName = userName;
+    if (email !== undefined) user.email = email;
+    if (phoneNumber !== undefined) user.phoneNumber = phoneNumber;
+    if (walletAddress !== undefined) user.walletAddress = walletAddress;
+    if (kycStatus !== undefined) user.kycStatus = kycStatus;
+    if (referralCode !== undefined && user.referralInfo) user.referralInfo.code = referralCode;
+    await user.save();
+    res.status(200).json({ success: true, message: 'User updated successfully', data: user });
+  } catch (error) {
+    console.error('Error updating user:', error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+exports.adminResetUserPassword = async (req, res) => {
+  try {
+    const admin = await User.findById(req.user.id);
+    if (!admin || !admin.isAdmin) return res.status(403).json({ success: false, message: 'Admin required' });
+    const { userId } = req.params;
+    const { newPassword } = req.body;
+    if (!newPassword || newPassword.length < 6) {
+      return res.status(400).json({ success: false, message: 'Password must be at least 6 characters' });
+    }
+    const user = await User.findById(userId);
+    if (!user) return res.status(404).json({ success: false, message: 'User not found' });
+    const bcrypt = require('bcryptjs');
+    const salt = await bcrypt.genSalt(10);
+    user.password = await bcrypt.hash(newPassword, salt);
+    await user.save();
+    res.status(200).json({ success: true, message: 'Password reset successfully' });
+  } catch (error) {
+    console.error('Error resetting password:', error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};

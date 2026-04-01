@@ -2,6 +2,12 @@
 const mongoose = require('mongoose');
 
 const siteConfigSchema = new mongoose.Schema({
+  
+  referralRates:       { type: Array, default: [{ level: 1, rate: 5 }, { level: 2, rate: 2 }, { level: 3, rate: 1 }] },
+  referralMaxDepth:    { type: Number, default: 3 },
+  referralMinPurchase: { type: Number, default: 50000 },
+  referralLockDays:    { type: Number, default: 30 },
+  commissionRules:     { type: Array, default: [] },
   companyWalletAddress: {
     type: String,
     required: true,
