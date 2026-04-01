@@ -12,14 +12,12 @@ exports.getOverview = async (req, res) => {
     let startOfDay, startOfWeek, startOfMonth, startOfYear;
     
     if (year && month) {
-      // Specific month in a year
       const y = parseInt(year), m = parseInt(month) - 1;
       startOfDay = new Date(y, m, now.getDate() <= new Date(y, m + 1, 0).getDate() ? now.getDate() : 1);
       startOfWeek = new Date(y, m, 1);
       startOfMonth = new Date(y, m, 1);
       startOfYear = new Date(y, 0, 1);
     } else if (year) {
-      // Specific year
       const y = parseInt(year);
       startOfDay = new Date(y, now.getMonth(), now.getDate());
       startOfWeek = new Date(y, 0, 1);
@@ -59,7 +57,11 @@ exports.getOverview = async (req, res) => {
       };
     };
 
-    const [daily, weekly, monthly, yearly, totalUsers, totalTxAgg, totalSharesAgg, totalWdAgg, recentTransactions, recentUsers] = await Promise.all([
+    const [
+      daily, weekly, monthly, yearly,
+      totalUsers, totalTxAgg, totalSharesAgg, totalWdAgg,
+      recentTransactions, recentUsers, recentWithdrawals
+    ] = await Promise.all([
       buildPeriodStats(startOfDay),
       buildPeriodStats(startOfWeek),
       buildPeriodStats(startOfMonth),
@@ -78,8 +80,22 @@ exports.getOverview = async (req, res) => {
         { $match: { status: { $in: ['completed', 'paid'] } } },
         { $group: { _id: null, count: { $sum: 1 }, amount: { $sum: '$amount' } } }
       ]),
-      Transaction.find().sort({ createdAt: -1 }).limit(20).populate('userId', 'name email userName').lean(),
-      User.find().sort({ createdAt: -1 }).limit(10).select('name email userName createdAt phone').lean()
+      Transaction.find()
+        .sort({ createdAt: -1 })
+        .limit(20)
+        .populate('userId', 'name email userName')
+        .lean(),
+      User.find()
+        .sort({ createdAt: -1 })
+        .limit(10)
+        .select('name email userName createdAt phone')
+        .lean(),
+      // ✅ NEW: recent withdrawals (all statuses so admin sees pending too)
+      Withdrawal.find({ status: { $in: ['completed', 'paid', 'pending', 'failed', 'rejected'] } })
+        .sort({ createdAt: -1 })
+        .limit(20)
+        .populate('userId', 'name email userName')
+        .lean()
     ]);
 
     res.json({
@@ -94,10 +110,14 @@ exports.getOverview = async (req, res) => {
           totalTransactions: totalTxAgg[0]?.count || 0,
           totalRevenue: totalTxAgg[0]?.amount || 0,
           totalSharesSold: totalSharesAgg[0]?.count || 0,
-          totalWithdrawals: { count: totalWdAgg[0]?.count || 0, amount: totalWdAgg[0]?.amount || 0 }
+          totalWithdrawals: {
+            count: totalWdAgg[0]?.count || 0,
+            amount: totalWdAgg[0]?.amount || 0
+          }
         },
         recentTransactions,
-        recentUsers
+        recentUsers,
+        recentWithdrawals  // ✅ NEW
       }
     });
   } catch (error) {
@@ -115,13 +135,11 @@ exports.getTransactionDetail = async (req, res) => {
   try {
     const { transactionId } = req.params;
 
-    // Find in Transaction collection
     const transaction = await Transaction.findOne({ transactionId })
       .populate('userId', 'name email phone userName referralCode referredBy createdAt onboardingAgreed')
       .lean();
 
     if (!transaction) {
-      // Try by _id
       const txById = await Transaction.findById(transactionId)
         .populate('userId', 'name email phone userName referralCode referredBy createdAt onboardingAgreed')
         .lean();
@@ -141,13 +159,11 @@ exports.getTransactionDetail = async (req, res) => {
 async function buildDetailResponse(res, transaction) {
   const user = transaction.userId;
   
-  // Find referrer if user was referred
   let referrer = null;
   if (user?.referredBy) {
     referrer = await User.findById(user.referredBy).select('name email phone userName').lean();
   }
 
-  // Find in UserShare for additional share data
   let userShareData = null;
   if (user?._id) {
     const userShare = await UserShare.findOne({ user: user._id }).lean();
