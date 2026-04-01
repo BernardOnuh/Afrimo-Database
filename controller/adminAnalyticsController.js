@@ -60,7 +60,7 @@ exports.getOverview = async (req, res) => {
     const [
       daily, weekly, monthly, yearly,
       totalUsers, totalTxAgg, totalSharesAgg, totalWdAgg,
-      recentTransactions, recentUsers, recentWithdrawals
+      rawTransactions, recentUsers, rawWithdrawals
     ] = await Promise.all([
       buildPeriodStats(startOfDay),
       buildPeriodStats(startOfWeek),
@@ -82,7 +82,7 @@ exports.getOverview = async (req, res) => {
       ]),
       Transaction.find()
         .sort({ createdAt: -1 })
-        .limit(20)
+        .limit(40)
         .populate('userId', 'name email userName')
         .lean(),
       User.find()
@@ -90,13 +90,30 @@ exports.getOverview = async (req, res) => {
         .limit(10)
         .select('name email userName createdAt phone')
         .lean(),
-      // ✅ NEW: recent withdrawals (all statuses so admin sees pending too)
-      Withdrawal.find({ status: { $in: ['completed', 'paid', 'pending', 'failed', 'rejected'] } })
+      Withdrawal.find({
+        status: { $in: ['completed', 'paid', 'pending', 'processing', 'failed', 'rejected'] }
+      })
         .sort({ createdAt: -1 })
-        .limit(20)
-        .populate('userId', 'name email userName')
+        .limit(40)
+        .populate('user', 'name email userName')
         .lean()
     ]);
+
+    // Tag each item with activityType then merge and sort by date
+    const taggedTransactions = rawTransactions.map(tx => ({
+      ...tx,
+      activityType: 'transaction'
+    }));
+
+    const taggedWithdrawals = rawWithdrawals.map(wd => ({
+      ...wd,
+      activityType: 'withdrawal',
+      userId: wd.user, // normalize to same key as transactions
+    }));
+
+    const recentActivity = [...taggedTransactions, ...taggedWithdrawals]
+      .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
+      .slice(0, 40);
 
     res.json({
       success: true,
@@ -115,13 +132,13 @@ exports.getOverview = async (req, res) => {
             amount: totalWdAgg[0]?.amount || 0
           }
         },
-        recentTransactions,
-        recentUsers,
-        recentWithdrawals  // ✅ NEW
+        recentActivity,
+        recentUsers
       }
     });
   } catch (error) {
     console.error('Admin analytics overview error:', error);
+    console.error('Stack:', error.stack);
     res.status(500).json({ success: false, message: 'Failed to fetch analytics', error: error.message });
   }
 };
