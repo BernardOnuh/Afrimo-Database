@@ -178,6 +178,15 @@ const TransactionSchema = new mongoose.Schema({
     enum: ['pending', 'completed', 'failed'],
     default: 'pending'
   },
+
+  earningKobo: {
+    type: Number,
+    default: 0
+  },
+  ownershipPct: {
+    type: Number,
+    default: 0
+  },
   verified: {
     type: Boolean,
     default: false

@@ -1847,3 +1847,33 @@ router.put('/admin/user/:userId/shares', protect, adminProtect, shareController.
 router.put('/admin/transaction/:transactionId', protect, adminProtect, shareController.adminEditTransaction);
 
 module.exports = router;
+// GET /api/shares/user/earnings-summary
+router.get('/user/earnings-summary', protect, async (req, res) => {
+  try {
+    const PaymentTransaction = require('../models/Transaction');
+
+    const transactions = await PaymentTransaction.find({
+      userId: req.user.id,
+      status: 'completed'
+    }).lean();
+
+    let totalEarnings = 0;
+    let totalOwnershipPct = 0;
+
+    transactions.forEach(t => {
+      const earning = (t.earningKobo || 0) * (t.shares || 0);
+      const ownership = (t.ownershipPct || 0) * (t.shares || 0);
+      totalEarnings += earning;
+      totalOwnershipPct += ownership;
+    });
+
+    res.json({
+      success: true,
+      totalEarnings,
+      totalOwnershipPct,
+      formattedOwnership: totalOwnershipPct.toFixed(7) + '%'
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
