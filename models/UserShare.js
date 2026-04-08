@@ -155,6 +155,21 @@ const userShareSchema = new mongoose.Schema({
       type: String,
       sparse: true
     },
+
+    // ✅ ADDED: Package reference and earnings fields
+    packageId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'SharePackage'
+    },
+    earningKobo: {
+      type: Number,
+      default: 0
+    },
+    ownershipPct: {
+      type: Number,
+      default: 0
+    },
+
     createdAt: {
       type: Date,
       default: Date.now

@@ -115,7 +115,14 @@ const TransactionSchema = new mongoose.Schema({
       trim: true
     }
   },
-  
+
+  // ✅ ADDED: Package reference for share purchases
+  packageId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'SharePackage',
+    required: false
+  },
+
   // ✅ ADDED: Share tier name (basic/standard/premium/elite/platinum/supreme)
   tier: {
     type: String,
