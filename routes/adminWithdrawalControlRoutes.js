@@ -1,13 +1,10 @@
 /**
  * ADMIN WITHDRAWAL CONTROL ROUTES
- * Mount in app.js: app.use('/api/withdrawal/admin/control', require('./routes/adminWithdrawalControlRoutes'));
  */
-
 const express = require('express');
 const router = express.Router();
 const ctrl = require('../controller/adminWithdrawalControlController');
 const { protect, adminProtect } = require('../middleware/auth');
-
 const admin = [protect, adminProtect];
 
 // System status
@@ -44,15 +41,21 @@ router.post('/override/:withdrawalId', ...admin, ctrl.overrideWithdrawalStatus);
 router.get('/blacklisted', ...admin, ctrl.getBlacklistedUsers);
 router.get('/paused-users', ...admin, ctrl.getPausedUsers);
 
-module.exports = router;
-
-// ─── AUDIT LOG ───────────────────────────────────────────────────────────────
+// Audit log
 router.get('/audit-log', ...admin, ctrl.getAuditLog);
 
-// ─── DASHBOARD ───────────────────────────────────────────────────────────────
+// Dashboard
 router.get('/dashboard', ...admin, ctrl.getAdminDashboard);
 
-// ─── BULK OPERATIONS ─────────────────────────────────────────────────────────
+// Bulk operations
 router.post('/bulk/cancel-pending', ...admin, ctrl.bulkCancelAllPendingWithdrawals);
 router.post('/bulk/pause-users', ...admin, ctrl.bulkPauseUsers);
-router.post('/bulk/blacklist-users', ...admin, ctrl.bulkBlacklistUs;
+router.post('/bulk/blacklist-users', ...admin, ctrl.bulkBlacklistUsers);
+
+// Scheduled controls
+router.post('/schedule', ...admin, ctrl.scheduleControl);
+router.get('/schedules', ...admin, ctrl.getScheduledControls);
+router.delete('/schedule/:scheduleId', ...admin, ctrl.cancelScheduledControl);
+router.post('/run-schedules', ...admin, ctrl.executeScheduledControls);
+
+module.exports = router;

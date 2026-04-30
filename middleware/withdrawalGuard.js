@@ -110,7 +110,7 @@ async function withdrawalGuard(req, res, next) {
           return res.status(400).json({
             success: false,
             code: 'ABOVE_MAX_LIMIT',
-            message:ximum withdrawal amount is ₦${globalMax.toLocaleString()}`
+            message: `Maximum withdrawal amount is ₦${globalMax.toLocaleString()}`
           });
         }
       }
@@ -149,7 +149,7 @@ async function bankWithdrawalGuard(req, res, next) {
  */
 async function cryptoWithdrawalGuard(req, res, next) {
   try {
-    cot cryptoEnabled = await getConfig('crypto_withdrawals_enabled', true);
+    const cryptoEnabled = await getConfig('crypto_withdrawals_enabled', true);
     if (!cryptoEnabled) {
       return res.status(403).json({
         success: false,
