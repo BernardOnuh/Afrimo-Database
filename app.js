@@ -558,6 +558,7 @@ app.use('/api/referral', require('./routes/referralRoutes'));
 app.use('/api/admin/referrals', require('./routes/adminReferralRoutes'));
 app.use('/api/payment', require('./routes/paymentRoutes'));
 app.use('/api/withdrawal', require('./routes/withdrawalRoutes'));
+app.use('/api/withdrawal/admin/control', require('./routes/adminWithdrawalControlRoutes'));
 app.use('/api/exchange-rates', require('./routes/exchangeRateRoutes'));
 app.use('/api/management', require('./routes/managementRoutes'));
 // DISABLED: Old installment routes (Feb 2026)
@@ -1528,3 +1529,5 @@ module.exports = app;
 module.exports.EnhancedUtils = EnhancedUtils;
 module.exports.AppConfig = AppConfig;
 module.exports.jobsManager = jobsManager;
+// Withdrawal schedule executor (checks for due scheduled controls every 60s)
+require('./jobs/scheduleExecutor').startInterval(60000);

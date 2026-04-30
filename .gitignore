@@ -1,4 +1,4 @@
 /node_modules
 /.env
-/logslogs/
+/logs/
 .DS_Store
