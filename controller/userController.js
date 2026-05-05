@@ -1130,10 +1130,21 @@ exports.getAllUsers = async (req, res) => {
       .populate("bannedBy", "name email")
       .populate("unbannedBy", "name email");
 
+    const usersWithReferrer = await Promise.all(users.map(async (user) => {
+      const obj = user.toObject();
+      if (user.referralInfo?.code) {
+        const referrer = await User.findOne({ userName: user.referralInfo.code }, 'name userName');
+        obj.referredByName = referrer?.name || referrer?.userName || user.referralInfo.code;
+      } else {
+        obj.referredByName = null;
+      }
+      return obj;
+    }));
+
     res.status(200).json({
       success: true,
       data: {
-        users,
+        users: usersWithReferrer,
         pagination: {
           currentPage: page,
           totalPages,
