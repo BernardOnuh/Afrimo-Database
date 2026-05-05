@@ -13,6 +13,7 @@ const express = require('express');
 const router = express.Router();
 const withdrawalController = require('../controller/withdrawalController');
 const { protect, adminProtect } = require('../middleware/auth');
+const { bankWithdrawalGuard, cryptoWithdrawalGuard } = require('../middleware/withdrawalGuard');
 
 // ========== BANK WITHDRAWAL ROUTES ==========
 
@@ -46,7 +47,7 @@ const { protect, adminProtect } = require('../middleware/auth');
  *       200:
  *         description: Withdrawal processed successfully
  */
-router.post('/instant', protect, withdrawalController.checkExistingWithdrawals, withdrawalController.processInstantWithdrawal);
+router.post('/instant', protect, bankWithdrawalGuard, withdrawalController.checkExistingWithdrawals, withdrawalController.processInstantWithdrawal);
 
 /**
  * @swagger
@@ -54,7 +55,7 @@ router.post('/instant', protect, withdrawalController.checkExistingWithdrawals, 
  *   post:
  *     summary: Request a bank withdrawal
  */
-router.post('/request', protect, withdrawalController.checkExistingWithdrawals, withdrawalController.requestWithdrawal);
+router.post('/request', protect, bankWithdrawalGuard, withdrawalController.checkExistingWithdrawals, withdrawalController.requestWithdrawal);
 
 /**
  * @swagger
@@ -333,7 +334,7 @@ router.post('/crypto/wallet/setup', protect, withdrawalController.setupCryptoWal
  *   post:
  *     summary: Request crypto withdrawal
  */
-router.post('/crypto/request', protect, withdrawalController.processCryptoWithdrawal);
+router.post('/crypto/request', protect, cryptoWithdrawalGuard, withdrawalController.processCryptoWithdrawal);
 
 /**
  * @swagger
