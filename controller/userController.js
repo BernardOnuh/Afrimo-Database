@@ -1084,68 +1084,132 @@ exports.getAllUsers = async (req, res) => {
         message: "Permission denied: Admin access required",
       });
     }
-
+ 
     // Parse query parameters
-    const page = parseInt(req.query.page) || 1;
-    const limit = parseInt(req.query.limit) || 10;
-    const search = req.query.search || "";
-    const status = req.query.status || "all";
-
-    // Calculate skip value for pagination
+    const page       = parseInt(req.query.page)  || 1;
+    const limit      = parseInt(req.query.limit) || 10;
+    const search     = req.query.search     || "";
+    const status     = req.query.status     || "all";      // all | active | banned
+    const country    = req.query.country    || "";         // e.g. "Nigeria" or "NG"
+    const state      = req.query.state      || "";         // e.g. "Lagos"
+    const city       = req.query.city       || "";         // e.g. "Ibadan"
+    const interest   = req.query.interest   || "";         // e.g. "shareholder"
+    const isAdmin    = req.query.isAdmin    || "";         // "true" | "false"
+    const isVerified = req.query.isVerified || "";         // "true" | "false"
+    const kycStatus  = req.query.kycStatus  || "";         // not_started | pending | verified | failed
+    const onboarding = req.query.onboarding || "";         // "true" | "false"
+    const referredBy = req.query.referredBy || "";         // referral code / username of referrer
+    const sortBy     = req.query.sortBy     || "createdAt"; // createdAt | name | email | userName
+    const sortOrder  = req.query.sortOrder  || "desc";      // asc | desc
+    const dateFrom   = req.query.dateFrom   || "";         // ISO date string
+    const dateTo     = req.query.dateTo     || "";         // ISO date string
+ 
     const skip = (page - 1) * limit;
-
-    // Build filter object
+ 
+    // ── Build filter ─────────────────────────────────────────
     let filter = {};
-
-    // Add search filter
+ 
+    // Text search (name, email, username, phone)
     if (search) {
       filter.$or = [
-        { name: { $regex: search, $options: "i" } },
-        { email: { $regex: search, $options: "i" } },
+        { name:     { $regex: search, $options: "i" } },
+        { email:    { $regex: search, $options: "i" } },
         { userName: { $regex: search, $options: "i" } },
+        { phone:    { $regex: search, $options: "i" } },
       ];
     }
-
-    // Add status filter
-    if (status === "active") {
-      filter.isBanned = { $ne: true };
-    } else if (status === "banned") {
-      filter.isBanned = true;
+ 
+    // Status
+    if (status === "active")  filter.isBanned = { $ne: true };
+    if (status === "banned")  filter.isBanned = true;
+ 
+    // Geography
+    if (country)  filter.$or
+      ? filter.$and = [{ $or: filter.$or }, { $or: [
+          { country:     { $regex: country,  $options: "i" } },
+          { countryCode: { $regex: country,  $options: "i" } },
+        ]}]
+      : filter.$or = [
+          { country:     { $regex: country,  $options: "i" } },
+          { countryCode: { $regex: country,  $options: "i" } },
+        ];
+ 
+    if (state)  filter.state = { $regex: state, $options: "i" };
+    if (city)   filter.city  = { $regex: city,  $options: "i" };
+ 
+    // Interest / role
+    if (interest) filter.interest = { $regex: interest, $options: "i" };
+ 
+    // Admin flag
+    if (isAdmin === "true")  filter.isAdmin = true;
+    if (isAdmin === "false") filter.isAdmin = { $ne: true };
+ 
+    // Verification / KYC
+    if (isVerified === "true")  filter.isVerified = true;
+    if (isVerified === "false") filter.isVerified = { $ne: true };
+    if (kycStatus)  filter.kycStatus = kycStatus;
+ 
+    // Onboarding
+    if (onboarding === "true")  filter.onboardingAgreed = true;
+    if (onboarding === "false") filter.onboardingAgreed = { $ne: true };
+ 
+    // Referred-by: match users whose referralInfo.code equals the given username/code
+    if (referredBy) filter["referralInfo.code"] = { $regex: referredBy, $options: "i" };
+ 
+    // Date range (registration date)
+    if (dateFrom || dateTo) {
+      filter.createdAt = {};
+      if (dateFrom) filter.createdAt.$gte = new Date(dateFrom);
+      if (dateTo)   filter.createdAt.$lte = new Date(dateTo);
     }
-
-    // Get total count for pagination
+ 
+    // ── Sort ─────────────────────────────────────────────────
+    const allowedSortFields = ["createdAt", "name", "email", "userName", "updatedAt"];
+    const sortField = allowedSortFields.includes(sortBy) ? sortBy : "createdAt";
+    const sortDir   = sortOrder === "asc" ? 1 : -1;
+ 
+    // ── Query ─────────────────────────────────────────────────
     const totalUsers = await User.countDocuments(filter);
-
-    // Calculate pagination info
     const totalPages = Math.ceil(totalUsers / limit);
-    const hasNext = page < totalPages;
-    const hasPrev = page > 1;
-
-    // Fetch users with pagination
+ 
     const users = await User.find(filter)
       .select("-password -resetPasswordToken -resetPasswordExpire")
-      .sort({ createdAt: -1 })
+      .sort({ [sortField]: sortDir })
       .skip(skip)
       .limit(limit)
-      .populate("bannedBy", "name email")
+      .populate("bannedBy",   "name email")
       .populate("unbannedBy", "name email");
-
-      const usersWithReferrer = await Promise.all(users.map(async (user) => {
-        const obj = user.toObject();
+ 
+    // ── Enrich with referrer name ─────────────────────────────
+    const usersWithReferrer = await Promise.all(
+      users.map(async (user) => {
+        const obj     = user.toObject();
         const refCode = user.referralInfo?.code;
+ 
         if (refCode) {
-          // Find the user whose referral code matches (stored as userName or referralCode field)
+          // Look up the referrer by their userName (which is the stored referral code)
           const referrer = await User.findOne(
             { $or: [{ userName: refCode }, { referralCode: refCode }] },
-            'name userName'
-          );
-          obj.referredByName = referrer?.name || referrer?.userName || refCode;
+            "name userName email"
+          ).lean();
+ 
+          obj.referredBy = referrer
+            ? {
+                _id:      referrer._id,
+                name:     referrer.name,
+                userName: referrer.userName,
+                email:    referrer.email,
+              }
+            : { name: refCode }; // fallback: just show the raw code
         } else {
-          obj.referredByName = null;
+          obj.referredBy = null;
         }
+ 
         return obj;
-      }));
-
+      })
+    );
+ 
+    // ── Response ──────────────────────────────────────────────
     res.status(200).json({
       success: true,
       data: {
@@ -1154,9 +1218,15 @@ exports.getAllUsers = async (req, res) => {
           currentPage: page,
           totalPages,
           totalUsers,
-          hasNext,
-          hasPrev,
+          hasNext: page < totalPages,
+          hasPrev: page > 1,
           limit,
+        },
+        appliedFilters: {
+          search, status, country, state, city,
+          interest, isAdmin, isVerified, kycStatus,
+          onboarding, referredBy, dateFrom, dateTo,
+          sortBy: sortField, sortOrder,
         },
       },
     });

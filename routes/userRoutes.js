@@ -858,37 +858,78 @@ router.get('/admin/users/banned', protect, adminProtect, userController.getBanne
  *   get:
  *     tags: [Admin]
  *     summary: Get all users
- *     description: Get list of all users with pagination (admin only)
+ *     description: Get list of all users with pagination and rich filtering (admin only)
  *     security:
  *       - adminAuth: []
  *     parameters:
  *       - in: query
  *         name: page
- *         schema:
- *           type: integer
- *           minimum: 1
- *           default: 1
- *         description: Page number for pagination
+ *         schema: { type: integer, minimum: 1, default: 1 }
+ *         description: Page number
  *       - in: query
  *         name: limit
- *         schema:
- *           type: integer
- *           minimum: 1
- *           maximum: 100
- *           default: 10
- *         description: Number of users per page
+ *         schema: { type: integer, minimum: 1, maximum: 100, default: 10 }
+ *         description: Users per page
  *       - in: query
  *         name: search
- *         schema:
- *           type: string
- *         description: Search by name, email, or username
+ *         schema: { type: string }
+ *         description: Search by name, email, username, or phone
  *       - in: query
  *         name: status
- *         schema:
- *           type: string
- *           enum: [active, banned, all]
- *           default: all
- *         description: Filter by user status
+ *         schema: { type: string, enum: [all, active, banned], default: all }
+ *         description: Filter by ban status
+ *       - in: query
+ *         name: country
+ *         schema: { type: string }
+ *         description: "Filter by country name or code (e.g. Nigeria or NG)"
+ *       - in: query
+ *         name: state
+ *         schema: { type: string }
+ *         description: "Filter by state (e.g. Lagos)"
+ *       - in: query
+ *         name: city
+ *         schema: { type: string }
+ *         description: "Filter by city (e.g. Ibadan)"
+ *       - in: query
+ *         name: interest
+ *         schema: { type: string }
+ *         description: "Filter by interest (e.g. shareholder)"
+ *       - in: query
+ *         name: isAdmin
+ *         schema: { type: string, enum: [true, false] }
+ *         description: Filter admin users
+ *       - in: query
+ *         name: isVerified
+ *         schema: { type: string, enum: [true, false] }
+ *         description: Filter by KYC verification status
+ *       - in: query
+ *         name: kycStatus
+ *         schema: { type: string, enum: [not_started, pending, verified, failed] }
+ *         description: Filter by exact KYC status
+ *       - in: query
+ *         name: onboarding
+ *         schema: { type: string, enum: [true, false] }
+ *         description: Filter by onboarding agreement
+ *       - in: query
+ *         name: referredBy
+ *         schema: { type: string }
+ *         description: Filter users referred by a specific username/referral code
+ *       - in: query
+ *         name: dateFrom
+ *         schema: { type: string, format: date-time }
+ *         description: "Registration date range start (e.g. 2026-01-01)"
+ *       - in: query
+ *         name: dateTo
+ *         schema: { type: string, format: date-time }
+ *         description: "Registration date range end (e.g. 2026-12-31)"
+ *       - in: query
+ *         name: sortBy
+ *         schema: { type: string, enum: [createdAt, name, email, userName, updatedAt], default: createdAt }
+ *         description: Field to sort by
+ *       - in: query
+ *         name: sortOrder
+ *         schema: { type: string, enum: [asc, desc], default: desc }
+ *         description: Sort direction
  *     responses:
  *       200:
  *         description: Users retrieved successfully
@@ -906,25 +947,30 @@ router.get('/admin/users/banned', protect, adminProtect, userController.getBanne
  *                     users:
  *                       type: array
  *                       items:
- *                         $ref: '#/components/schemas/User'
+ *                         allOf:
+ *                           - $ref: '#/components/schemas/User'
+ *                           - type: object
+ *                             properties:
+ *                               referredBy:
+ *                                 type: object
+ *                                 nullable: true
+ *                                 description: Details of the user who referred this user
+ *                                 properties:
+ *                                   _id: { type: string }
+ *                                   name: { type: string }
+ *                                   userName: { type: string }
+ *                                   email: { type: string }
  *                     pagination:
  *                       type: object
  *                       properties:
- *                         currentPage:
- *                           type: integer
- *                           example: 1
- *                         totalPages:
- *                           type: integer
- *                           example: 5
- *                         totalUsers:
- *                           type: integer
- *                           example: 50
- *                         hasNext:
- *                           type: boolean
- *                           example: true
- *                         hasPrev:
- *                           type: boolean
- *                           example: false
+ *                         currentPage: { type: integer, example: 1 }
+ *                         totalPages:  { type: integer, example: 125 }
+ *                         totalUsers:  { type: integer, example: 1245 }
+ *                         hasNext:     { type: boolean, example: true }
+ *                         hasPrev:     { type: boolean, example: false }
+ *                     appliedFilters:
+ *                       type: object
+ *                       description: Echo of all filters that were applied
  *       401:
  *         $ref: '#/components/responses/UnauthorizedError'
  *       403:
