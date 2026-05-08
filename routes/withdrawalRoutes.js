@@ -13,7 +13,7 @@ const express = require('express');
 const router = express.Router();
 const withdrawalController = require('../controller/withdrawalController');
 const { protect, adminProtect } = require('../middleware/auth');
-const { bankWithdrawalGuard, cryptoWithdrawalGuard } = require('../middleware/withdrawalGuard');
+const { bankWithdrawalGuard, cryptoWithdrawalGuard, withdrawalAdminGuard } = require('../middleware/withdrawalGuard');
 
 // ========== BANK WITHDRAWAL ROUTES ==========
 
@@ -179,7 +179,7 @@ router.get('/admin/pending', protect, adminProtect, withdrawalController.getPend
  *   put:
  *     summary: Approve pending bank withdrawal (Admin)
  */
-router.put('/admin/:id/approve', protect, adminProtect, withdrawalController.approveWithdrawal);
+router.put('/admin/:id/approve', protect, adminProtect, withdrawalAdminGuard, withdrawalController.approveWithdrawal);
 
 /**
  * @swagger
@@ -195,7 +195,7 @@ router.put('/admin/:id/reject', protect, adminProtect, withdrawalController.reje
  *   put:
  *     summary: Mark withdrawal as paid (Admin)
  */
-router.put('/admin/:id/pay', protect, adminProtect, withdrawalController.markWithdrawalAsPaid);
+router.put('/admin/:id/pay', protect, adminProtect, withdrawalAdminGuard, withdrawalController.markWithdrawalAsPaid);
 
 /**
  * @swagger
@@ -392,7 +392,7 @@ router.get('/admin/crypto/wallet/status', protect, adminProtect, withdrawalContr
  *   post:
  *     summary: Process pending crypto withdrawals (Admin)
  */
-router.post('/admin/crypto/process', protect, adminProtect, withdrawalController.processPendingCryptoWithdrawals);
+router.post('/admin/crypto/process', protect, adminProtect, withdrawalAdminGuard, withdrawalController.processPendingCryptoWithdrawals);
 
 /**
  * @swagger
