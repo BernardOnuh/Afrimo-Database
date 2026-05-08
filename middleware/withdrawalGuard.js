@@ -4,9 +4,11 @@
  * Apply this to any withdrawal processing route.
  *
  * Usage in routes:
- *   const { withdrawalGuard, cryptoGuard } = require('../middleware/withdrawalGuard');
- *   router.post('/instant', protect, withdrawalGuard, controller.processInstantWithdrawal);
- *   router.post('/crypto/request', protect, cryptoGuard, controller.processCryptoWithdrawal);
+ *   const { bankWithdrawalGuard, cryptoWithdrawalGuard, withdrawalAdminGuard } = require('../middleware/withdrawalGuard');
+ *   router.post('/instant',        protect, bankWithdrawalGuard,   controller.processInstantWithdrawal);
+ *   router.post('/crypto/request', protect, cryptoWithdrawalGuard, controller.processCryptoWithdrawal);
+ *   router.put('/admin/:id/approve', protect, adminProtect, withdrawalAdminGuard, controller.approveWithdrawal);
+ *   router.put('/admin/:id/pay',     protect, adminProtect, withdrawalAdminGuard, controller.markWithdrawalAsPaid);
  */
 
 const WithdrawalConfig = require('../models/WithdrawalConfig');
@@ -18,14 +20,16 @@ async function getConfig(key, defaultValue = null) {
 }
 
 /**
- * Core guard — checks global + per-user controls
+ * Core guard — checks global freeze/pause + per-user controls + limits.
+ * Fail-CLOSED: if the guard itself throws, the withdrawal is BLOCKED (not allowed through).
  */
 async function withdrawalGuard(req, res, next) {
   try {
     const userId = req.user.id;
 
     // 1. Emergency freeze check (hardest block)
-    const frozen = await getCoig('emergency_freeze', false);
+    // BUG FIX: was `getCoig` (typo) — corrected to `getConfig`
+    const frozen = await getConfig('emergency_freeze', false);
     if (frozen) {
       const reason = await getConfig('emergency_freeze_reason', 'Emergency maintenance in progress');
       return res.status(503).json({
@@ -60,18 +64,18 @@ async function withdrawalGuard(req, res, next) {
         return res.status(403).json({
           success: false,
           code: 'USER_PAUSED',
-          message: 'Your withdrawals are temporarily paused. Please contact support.'
+          message: userControl.pauseReason || 'Your withdrawals are temporarily paused. Please contact support.'
         });
       }
 
       // 4. Per-user limit check
       const requestedAmount = req.body.amount || req.body.amountNGN;
       if (requestedAmount) {
-        const effectiveMin = userControl.customMinLimit !== null
+        const effectiveMin = userControl.customMinLimit !== null && userControl.customMinLimit !== undefined
           ? userControl.customMinLimit
           : await getConfig('global_min_limit', 20000);
 
-        const effectiveMax = userControl.customMaxLimit !== null
+        const effectiveMax = userControl.customMaxLimit !== null && userControl.customMaxLimit !== undefined
           ? userControl.customMaxLimit
           : await getConfig('global_max_limit', null);
 
@@ -83,7 +87,8 @@ async function withdrawalGuard(req, res, next) {
           });
         }
 
-        if (effectiveMax !==ull && requestedAmount > effectiveMax) {
+        // BUG FIX: was `!==ull` (missing `n`) — corrected to `!== null`
+        if (effectiveMax !== null && requestedAmount > effectiveMax) {
           return res.status(400).json({
             success: false,
             code: 'ABOVE_MAX_LIMIT',
@@ -92,7 +97,7 @@ async function withdrawalGuard(req, res, next) {
         }
       }
     } else {
-      // No per-user record, still enforce global limits
+      // No per-user record — still enforce global limits
       const requestedAmount = req.body.amount || req.body.amountNGN;
       if (requestedAmount) {
         const globalMin = await getConfig('global_min_limit', 20000);
@@ -118,14 +123,19 @@ async function withdrawalGuard(req, res, next) {
 
     next();
   } catch (error) {
-    console.error('withdrawalGuard error:', error);
-    // Fail-safe: allow through if guard itself errors (avoid blocking real users due to DB issues)
-    next();
+    console.error('[withdrawalGuard] error:', error);
+    // Fail-CLOSED: block the withdrawal if the guard itself crashes.
+    // This prevents a DB outage from silently bypassing all controls.
+    return res.status(500).json({
+      success: false,
+      code: 'GUARD_ERROR',
+      message: 'Unable to verify withdrawal system status. Please try again shortly.'
+    });
   }
 }
 
 /**
- * Bank-specific guard (also checks bank channel toggle)
+ * Bank-specific guard — checks bank channel toggle, then runs core guard.
  */
 async function bankWithdrawalGuard(req, res, next) {
   try {
@@ -139,13 +149,17 @@ async function bankWithdrawalGuard(req, res, next) {
     }
     return withdrawalGuard(req, res, next);
   } catch (error) {
-    console.error('bankWithdrawalGuard error:', error);
-    next();
+    console.error('[bankWithdrawalGuard] error:', error);
+    return res.status(500).json({
+      success: false,
+      code: 'GUARD_ERROR',
+      message: 'Unable to verify withdrawal system status. Please try again shortly.'
+    });
   }
 }
 
 /**
- * Crypto-specific guard (also checks crypto channel toggle)
+ * Crypto-specific guard — checks crypto channel toggle, then runs core guard.
  */
 async function cryptoWithdrawalGuard(req, res, next) {
   try {
@@ -159,9 +173,51 @@ async function cryptoWithdrawalGuard(req, res, next) {
     }
     return withdrawalGuard(req, res, next);
   } catch (error) {
-    console.error('cryptoWithdrawalGuard error:', error);
-    next();
+    console.error('[cryptoWithdrawalGuard] error:', error);
+    return res.status(500).json({
+      success: false,
+      code: 'GUARD_ERROR',
+      message: 'Unable to verify withdrawal system status. Please try again shortly.'
+    });
   }
 }
 
-module.exports = { withdrawalGuard, bankWithdrawalGuard, cryptoWithdrawalGuard };
+/**
+ * Admin approval/payout guard — prevents admins from pushing money out
+ * while the system is frozen or globally paused.
+ * Does NOT check per-user blacklist/pause (admins may need to force-resolve).
+ */
+async function withdrawalAdminGuard(req, res, next) {
+  try {
+    const frozen = await getConfig('emergency_freeze', false);
+    if (frozen) {
+      const reason = await getConfig('emergency_freeze_reason', 'Emergency maintenance in progress');
+      return res.status(503).json({
+        success: false,
+        code: 'EMERGENCY_FREEZE',
+        message: `Withdrawal system is frozen: ${reason}. Lift the freeze before approving payouts.`
+      });
+    }
+
+    const paused = await getConfig('global_paused', false);
+    if (paused) {
+      const reason = await getConfig('global_pause_reason', 'Withdrawals are currently paused');
+      return res.status(403).json({
+        success: false,
+        code: 'GLOBAL_PAUSE',
+        message: `${reason}. Resume the system before approving payouts.`
+      });
+    }
+
+    next();
+  } catch (error) {
+    console.error('[withdrawalAdminGuard] error:', error);
+    return res.status(500).json({
+      success: false,
+      code: 'GUARD_ERROR',
+      message: 'Unable to verify withdrawal system status.'
+    });
+  }
+}
+
+module.exports = { withdrawalGuard, bankWithdrawalGuard, cryptoWithdrawalGuard, withdrawalAdminGuard }; 

@@ -2,53 +2,57 @@ const User = require('../models/User');
 const Transaction = require('../models/Transaction');
 const Withdrawal = require('../models/Withdrawal');
 const UserShare = require('../models/UserShare');
-const PaymentTransaction = require('../models/Transaction');
 
 exports.getOverview = async (req, res) => {
   try {
     const { year, month } = req.query;
-    const now = new Date();
     
-    let startOfDay, startOfWeek, startOfMonth, startOfYear;
+    console.log('Filter params:', { year, month }); // Debug log
     
-    if (year && month) {
-      const y = parseInt(year), m = parseInt(month) - 1;
-      startOfDay = new Date(y, m, now.getDate() <= new Date(y, m + 1, 0).getDate() ? now.getDate() : 1);
-      startOfWeek = new Date(y, m, 1);
-      startOfMonth = new Date(y, m, 1);
-      startOfYear = new Date(y, 0, 1);
-    } else if (year) {
-      const y = parseInt(year);
-      startOfDay = new Date(y, now.getMonth(), now.getDate());
-      startOfWeek = new Date(y, 0, 1);
-      startOfMonth = new Date(y, now.getMonth(), 1);
-      startOfYear = new Date(y, 0, 1);
-    } else {
-      startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-      startOfWeek = new Date(startOfDay);
-      startOfWeek.setDate(startOfWeek.getDate() - startOfWeek.getDay());
-      startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
-      startOfYear = new Date(now.getFullYear(), 0, 1);
-    }
-
-    const buildPeriodStats = async (since) => {
+    // Function to get date range based on filter
+    const getDateRangeForFilter = () => {
+      if (!year && !month) return null;
+      
+      let startDate, endDate;
+      
+      if (year && month) {
+        // Specific month
+        const y = parseInt(year);
+        const m = parseInt(month) - 1;
+        startDate = new Date(y, m, 1, 0, 0, 0);
+        endDate = new Date(y, m + 1, 1, 0, 0, 0);
+      } else if (year && !month) {
+        // Full year
+        const y = parseInt(year);
+        startDate = new Date(y, 0, 1, 0, 0, 0);
+        endDate = new Date(y + 1, 0, 1, 0, 0, 0);
+      }
+      
+      console.log('Date range:', { startDate, endDate }); // Debug log
+      return { startDate, endDate };
+    };
+    
+    const filterRange = getDateRangeForFilter();
+    
+    // Build stats for a specific date range
+    const buildPeriodStats = async (startDate, endDate) => {
       const [txAgg, newUsers, sharesAgg, wdAgg] = await Promise.all([
         Transaction.aggregate([
-          { $match: { createdAt: { $gte: since }, status: 'completed' } },
+          { $match: { createdAt: { $gte: startDate, $lt: endDate }, status: 'completed' } },
           { $group: { _id: null, count: { $sum: 1 }, amount: { $sum: '$amount' } } }
         ]),
-        User.countDocuments({ createdAt: { $gte: since } }),
+        User.countDocuments({ createdAt: { $gte: startDate, $lt: endDate } }),
         UserShare.aggregate([
           { $unwind: '$transactions' },
-          { $match: { 'transactions.date': { $gte: since }, 'transactions.status': 'completed' } },
+          { $match: { 'transactions.date': { $gte: startDate, $lt: endDate }, 'transactions.status': 'completed' } },
           { $group: { _id: null, count: { $sum: '$transactions.shares' } } }
         ]),
         Withdrawal.aggregate([
-          { $match: { createdAt: { $gte: since }, status: { $in: ['completed', 'paid'] } } },
+          { $match: { createdAt: { $gte: startDate, $lt: endDate }, status: { $in: ['completed', 'paid'] } } },
           { $group: { _id: null, count: { $sum: 1 }, amount: { $sum: '$amount' } } }
         ])
       ]);
-
+      
       return {
         transactions: { count: txAgg[0]?.count || 0, amount: txAgg[0]?.amount || 0 },
         newUsers,
@@ -56,65 +60,181 @@ exports.getOverview = async (req, res) => {
         withdrawals: { count: wdAgg[0]?.count || 0, amount: wdAgg[0]?.amount || 0 }
       };
     };
-
-    const [
-      daily, weekly, monthly, yearly,
-      totalUsers, totalTxAgg, totalSharesAgg, totalWdAgg,
-      rawTransactions, recentUsers, rawWithdrawals
-    ] = await Promise.all([
-      buildPeriodStats(startOfDay),
-      buildPeriodStats(startOfWeek),
-      buildPeriodStats(startOfMonth),
-      buildPeriodStats(startOfYear),
-      User.countDocuments(),
-      Transaction.aggregate([
-        { $match: { status: 'completed' } },
-        { $group: { _id: null, count: { $sum: 1 }, amount: { $sum: '$amount' } } }
-      ]),
-      UserShare.aggregate([
-        { $unwind: '$transactions' },
-        { $match: { 'transactions.status': 'completed' } },
-        { $group: { _id: null, count: { $sum: '$transactions.shares' } } }
-      ]),
-      Withdrawal.aggregate([
-        { $match: { status: { $in: ['completed', 'paid'] } } },
-        { $group: { _id: null, count: { $sum: 1 }, amount: { $sum: '$amount' } } }
-      ]),
-      Transaction.find()
-        .sort({ createdAt: -1 })
-        .limit(40)
-        .populate('userId', 'name email userName')
-        .lean(),
-      User.find()
+    
+    let daily, weekly, monthly, yearly;
+    let allTimeStats;
+    let recentActivity;
+    let recentUsers;
+    
+    if (filterRange) {
+      // FILTERED VIEW - All periods show the same filtered data
+      const { startDate, endDate } = filterRange;
+      const periodStats = await buildPeriodStats(startDate, endDate);
+      daily = weekly = monthly = yearly = periodStats;
+      
+      // All time stats within filter range
+      const [totalUsers, totalTxAgg, totalSharesAgg, totalWdAgg] = await Promise.all([
+        User.countDocuments({ createdAt: { $gte: startDate, $lt: endDate } }),
+        Transaction.aggregate([
+          { $match: { createdAt: { $gte: startDate, $lt: endDate }, status: 'completed' } },
+          { $group: { _id: null, count: { $sum: 1 }, amount: { $sum: '$amount' } } }
+        ]),
+        UserShare.aggregate([
+          { $unwind: '$transactions' },
+          { $match: { 'transactions.date': { $gte: startDate, $lt: endDate }, 'transactions.status': 'completed' } },
+          { $group: { _id: null, count: { $sum: '$transactions.shares' } } }
+        ]),
+        Withdrawal.aggregate([
+          { $match: { createdAt: { $gte: startDate, $lt: endDate }, status: { $in: ['completed', 'paid'] } } },
+          { $group: { _id: null, count: { $sum: 1 }, amount: { $sum: '$amount' } } }
+        ])
+      ]);
+      
+      allTimeStats = {
+        totalUsers,
+        totalTransactions: totalTxAgg[0]?.count || 0,
+        totalRevenue: totalTxAgg[0]?.amount || 0,
+        totalSharesSold: totalSharesAgg[0]?.count || 0,
+        totalWithdrawals: {
+          count: totalWdAgg[0]?.count || 0,
+          amount: totalWdAgg[0]?.amount || 0
+        }
+      };
+      
+      // Filtered recent activity
+      const [rawTransactions, rawWithdrawals] = await Promise.all([
+        Transaction.find({ createdAt: { $gte: startDate, $lt: endDate } })
+          .sort({ createdAt: -1 })
+          .limit(40)
+          .populate('userId', 'name email userName')
+          .lean(),
+        Withdrawal.find({ 
+          createdAt: { $gte: startDate, $lt: endDate },
+          status: { $in: ['completed', 'paid', 'pending', 'processing', 'failed', 'rejected'] }
+        })
+          .sort({ createdAt: -1 })
+          .limit(40)
+          .populate('user', 'name email userName')
+          .lean()
+      ]);
+      
+      const taggedTransactions = rawTransactions.map(tx => ({ ...tx, activityType: 'transaction' }));
+      const taggedWithdrawals = rawWithdrawals.map(wd => ({ 
+        ...wd, 
+        activityType: 'withdrawal',
+        userId: wd.user
+      }));
+      
+      recentActivity = [...taggedTransactions, ...taggedWithdrawals]
+        .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
+        .slice(0, 40);
+      
+      // Filtered recent users
+      recentUsers = await User.find({ createdAt: { $gte: startDate, $lt: endDate } })
         .sort({ createdAt: -1 })
         .limit(10)
         .select('name email userName createdAt phone')
-        .lean(),
-      Withdrawal.find({
-        status: { $in: ['completed', 'paid', 'pending', 'processing', 'failed', 'rejected'] }
-      })
+        .lean();
+        
+    } else {
+      // DEFAULT VIEW - Current periods
+      const now = new Date();
+      const currentYear = now.getFullYear();
+      const currentMonth = now.getMonth();
+      const currentDate = now.getDate();
+      
+      const dailyRange = {
+        start: new Date(currentYear, currentMonth, currentDate),
+        end: new Date(currentYear, currentMonth, currentDate + 1)
+      };
+      
+      const weeklyStart = new Date(now);
+      weeklyStart.setDate(now.getDate() - now.getDay());
+      weeklyStart.setHours(0, 0, 0, 0);
+      const weeklyRange = {
+        start: weeklyStart,
+        end: new Date(weeklyStart.getTime() + 7 * 24 * 60 * 60 * 1000)
+      };
+      
+      const monthlyRange = {
+        start: new Date(currentYear, currentMonth, 1),
+        end: new Date(currentYear, currentMonth + 1, 1)
+      };
+      
+      const yearlyRange = {
+        start: new Date(currentYear, 0, 1),
+        end: new Date(currentYear + 1, 0, 1)
+      };
+      
+      [daily, weekly, monthly, yearly] = await Promise.all([
+        buildPeriodStats(dailyRange.start, dailyRange.end),
+        buildPeriodStats(weeklyRange.start, weeklyRange.end),
+        buildPeriodStats(monthlyRange.start, monthlyRange.end),
+        buildPeriodStats(yearlyRange.start, yearlyRange.end)
+      ]);
+      
+      // All-time stats (no filter)
+      const [totalUsers, totalTxAgg, totalSharesAgg, totalWdAgg] = await Promise.all([
+        User.countDocuments(),
+        Transaction.aggregate([
+          { $match: { status: 'completed' } },
+          { $group: { _id: null, count: { $sum: 1 }, amount: { $sum: '$amount' } } }
+        ]),
+        UserShare.aggregate([
+          { $unwind: '$transactions' },
+          { $match: { 'transactions.status': 'completed' } },
+          { $group: { _id: null, count: { $sum: '$transactions.shares' } } }
+        ]),
+        Withdrawal.aggregate([
+          { $match: { status: { $in: ['completed', 'paid'] } } },
+          { $group: { _id: null, count: { $sum: 1 }, amount: { $sum: '$amount' } } }
+        ])
+      ]);
+      
+      allTimeStats = {
+        totalUsers,
+        totalTransactions: totalTxAgg[0]?.count || 0,
+        totalRevenue: totalTxAgg[0]?.amount || 0,
+        totalSharesSold: totalSharesAgg[0]?.count || 0,
+        totalWithdrawals: {
+          count: totalWdAgg[0]?.count || 0,
+          amount: totalWdAgg[0]?.amount || 0
+        }
+      };
+      
+      // Recent activity (last 40)
+      const [rawTransactions, rawWithdrawals] = await Promise.all([
+        Transaction.find()
+          .sort({ createdAt: -1 })
+          .limit(40)
+          .populate('userId', 'name email userName')
+          .lean(),
+        Withdrawal.find({ status: { $in: ['completed', 'paid', 'pending', 'processing', 'failed', 'rejected'] } })
+          .sort({ createdAt: -1 })
+          .limit(40)
+          .populate('user', 'name email userName')
+          .lean()
+      ]);
+      
+      const taggedTransactions = rawTransactions.map(tx => ({ ...tx, activityType: 'transaction' }));
+      const taggedWithdrawals = rawWithdrawals.map(wd => ({ 
+        ...wd, 
+        activityType: 'withdrawal',
+        userId: wd.user
+      }));
+      
+      recentActivity = [...taggedTransactions, ...taggedWithdrawals]
+        .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
+        .slice(0, 40);
+      
+      // Recent users
+      recentUsers = await User.find()
         .sort({ createdAt: -1 })
-        .limit(40)
-        .populate('user', 'name email userName')
-        .lean()
-    ]);
-
-    // Tag each item with activityType then merge and sort by date
-    const taggedTransactions = rawTransactions.map(tx => ({
-      ...tx,
-      activityType: 'transaction'
-    }));
-
-    const taggedWithdrawals = rawWithdrawals.map(wd => ({
-      ...wd,
-      activityType: 'withdrawal',
-      userId: wd.user, // normalize to same key as transactions
-    }));
-
-    const recentActivity = [...taggedTransactions, ...taggedWithdrawals]
-      .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
-      .slice(0, 40);
-
+        .limit(10)
+        .select('name email userName createdAt phone')
+        .lean();
+    }
+    
     res.json({
       success: true,
       data: {
@@ -122,27 +242,25 @@ exports.getOverview = async (req, res) => {
         weekly,
         monthly,
         yearly,
-        allTime: {
-          totalUsers,
-          totalTransactions: totalTxAgg[0]?.count || 0,
-          totalRevenue: totalTxAgg[0]?.amount || 0,
-          totalSharesSold: totalSharesAgg[0]?.count || 0,
-          totalWithdrawals: {
-            count: totalWdAgg[0]?.count || 0,
-            amount: totalWdAgg[0]?.amount || 0
-          }
-        },
+        allTime: allTimeStats,
         recentActivity,
-        recentUsers
+        recentUsers,
+        filterApplied: filterRange ? { year, month } : null // Helpful for debugging
       }
     });
   } catch (error) {
     console.error('Admin analytics overview error:', error);
-    console.error('Stack:', error.stack);
-    res.status(500).json({ success: false, message: 'Failed to fetch analytics', error: error.message });
+    res.status(500).json({ 
+      success: false, 
+      message: 'Failed to fetch analytics', 
+      error: error.message 
+    });
   }
 };
 
+
+
+// ADD THIS MISSING FUNCTION
 /**
  * @desc    Get transaction detail (full user info, payment proof, referrer, etc.)
  * @route   GET /api/admin/analytics/transaction/:transactionId
@@ -173,6 +291,7 @@ exports.getTransactionDetail = async (req, res) => {
   }
 };
 
+// Helper function for transaction detail
 async function buildDetailResponse(res, transaction) {
   const user = transaction.userId;
   

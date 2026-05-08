@@ -195,8 +195,13 @@ exports.liftEmergencyFreeze = async (req, res) => {
       setConfig('global_paused', false, req.user.id, reason),
       setConfig('global_pause_reason', null, req.user.id, reason)
     ]);
+    await auditLog('EMERGENCY_FREEZE_LIFTED', req.user.id, { reason, ip: req.ip }); // ← add this line
     console.log(`[ADMIN] Emergency freeze LIFTED by ${req.user.id}`);
-    res.json({ success: true, message: 'Emergency freeze lifted, withdrawals resumed', data: { frozen: false, liftedBy: req.user.id, liftedAt: new Date() } });
+    res.json({
+      success: true,
+      message: 'Emergency freeze lifted, withdrawals resumed',
+      data: { frozen: false, liftedBy: req.user.id, liftedAt: new Date() }
+    });
   } catch (error) {
     console.error('liftEmergencyFreeze error:', error);
     res.status(500).json({ success: false, message: 'Failed to lift freeze' });
