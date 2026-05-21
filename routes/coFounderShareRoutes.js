@@ -14,6 +14,15 @@ const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
 
+const {
+  getCoFounderShareConfig,
+  adminAllocateSharesByPercentage,
+  adminUpdateAllocationSold,
+  adminGetAllocationStats,
+  adminToggleProgram,
+  adminUpdatePricing
+} = require('../controller/coFounderController');
+
 // ===================================================================
 // MULTER CONFIGURATION FOR FILE UPLOADS (FIXED)
 // ===================================================================
@@ -72,7 +81,7 @@ const upload = multer({
   storage: storage,
   fileFilter: fileFilter,
   limits: {
-    fileSize: 5 * 1024 * 1024, // 5MB limit
+    fileSize: 50 * 1024 * 1024, // 5MB limit
     files: 1
   }
 });
@@ -2744,6 +2753,17 @@ router.post('/admin/add-shares-flexible', protect, adminProtect, coFounderContro
 // ===================================================================
 
 router.post('/admin/disable', protect, adminProtect, coFounderController.disableCoFounderProgramme);
+
+ 
+// Public routes
+router.get('/config', getCoFounderShareConfig);
+ 
+// Admin routes
+router.post('/admin/allocate-by-percentage', protect, adminProtect, adminAllocateSharesByPercentage);
+router.post('/admin/update-allocation-sold', protect, adminProtect, adminUpdateAllocationSold);
+router.get('/admin/statistics', protect, adminProtect, adminGetAllocationStats);
+router.post('/admin/toggle-program', protect, adminProtect, adminToggleProgram);
+router.post('/admin/update-pricing', protect, adminProtect, adminUpdatePricing);
 
 module.exports = router;
 

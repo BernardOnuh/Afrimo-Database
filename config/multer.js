@@ -24,7 +24,7 @@ const fileFilter = (req, file, cb) => {
 const paymentProofUpload = multer({
   storage: memoryStorage,
   limits: {
-    fileSize: 5 * 1024 * 1024 // 5MB limit
+    fileSize: 50 * 1024 * 1024 // 5MB limit
   },
   fileFilter: fileFilter
 });
@@ -42,7 +42,7 @@ const kycUpload = multer({
 const coFounderPaymentUpload = multer({
   storage: memoryStorage,
   limits: {
-    fileSize: 5 * 1024 * 1024 // 5MB limit
+    fileSize: 50 * 1024 * 1024 // 5MB limit
   },
   fileFilter: fileFilter
 });

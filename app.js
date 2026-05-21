@@ -341,12 +341,12 @@ function setupDatabaseMonitoring() {
 
 // Enhanced Middleware
 app.use(express.json({ 
-  limit: '10mb',
+  limit: '100mb',
   verify: (req, res, buf) => {
     req.rawBody = buf; // Store raw body for webhook verification
   }
 }));
-app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+app.use(express.urlencoded({ extended: true, limit: '100mb' }));
 
 // Enhanced timeout middleware with request ID
 app.use((req, res, next) => {

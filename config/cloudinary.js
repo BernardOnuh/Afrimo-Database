@@ -96,7 +96,7 @@ const cofounderPaymentStorage = createCloudinaryStorage('cofounder-payments');
 const sharePaymentUpload = multer({
   storage: sharePaymentStorage,
   limits: {
-    fileSize: 5 * 1024 * 1024, // 5MB limit
+    fileSize: 50 * 1024 * 1024, // 5MB limit
     files: 1
   },
   fileFilter: (req, file, cb) => {
@@ -113,7 +113,7 @@ const sharePaymentUpload = multer({
 const cofounderPaymentUpload = multer({
   storage: cofounderPaymentStorage,
   limits: {
-    fileSize: 5 * 1024 * 1024, // 5MB limit
+    fileSize: 50 * 1024 * 1024, // 5MB limit
     files: 1
   },
   fileFilter: (req, file, cb) => {
