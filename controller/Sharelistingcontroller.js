@@ -69,7 +69,7 @@ exports.createShareListing = async (req, res) => {
     const userId = req.user.id;
     const {
       shares,
-      shareType = 'regular',
+      shareType = 'share',
       pricePerShare,
       currency,
       paymentMethods,
@@ -101,7 +101,7 @@ exports.createShareListing = async (req, res) => {
     }
 
     // Check share balance based on type
-    const availableShares = shareType === 'cofounder'
+    const availableShares = shareType === 'co-founder'
       ? userShares.transactions
         .filter(t => t.paymentMethod === 'co-founder' && t.status === 'completed')
         .reduce((sum, t) => sum + (t.coFounderShares || t.shares || 0), 0)

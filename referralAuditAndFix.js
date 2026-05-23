@@ -183,7 +183,7 @@ class ReferralAudit {
           if (tx.status === 'completed') {
             transactions.push({
               id: tx.transactionId || tx._id,
-              type: 'regular',
+              type: 'share',
               amount: tx.totalAmount,
               currency: tx.currency,
               shares: tx.shares,
@@ -205,7 +205,7 @@ class ReferralAudit {
       for (const tx of coFounderTransactions) {
         transactions.push({
           id: tx._id,
-          type: 'cofounder',
+          type: 'co-founder',
           amount: tx.amount,
           currency: tx.currency,
           shares: tx.shares,

@@ -375,7 +375,7 @@ class ImmediateReferralFix {
           if (tx.status === 'completed') {
             transactions.push({
               id: tx.transactionId || tx._id,
-              type: 'share', // FIXED: Changed from 'regular' to 'share'
+              type: 'share', // FIXED: Changed from 'share' to 'share'
               amount: tx.totalAmount,
               currency: tx.currency || 'naira',
               date: tx.createdAt,
@@ -394,7 +394,7 @@ class ImmediateReferralFix {
       for (const tx of coFounderTxs) {
         transactions.push({
           id: tx._id,
-          type: 'cofounder', // This is correct for co-founder
+          type: 'co-founder', // This is correct for co-founder
           amount: tx.amount,
           currency: tx.currency || 'naira',
           date: tx.createdAt,
@@ -461,7 +461,7 @@ class ImmediateReferralFix {
         amount: expected.amount,
         currency: expected.currency,
         generation: expected.generation,
-        purchaseType: transaction.type, // FIXED: This will now be 'share' or 'cofounder'
+        purchaseType: transaction.type, // FIXED: This will now be 'share' or 'co-founder'
         sourceTransaction: transaction.id,
         sourceTransactionModel: transaction.sourceModel,
         status: 'completed',

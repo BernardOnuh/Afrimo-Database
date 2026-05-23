@@ -58,7 +58,7 @@ const processReferralCommission = async (userId, purchaseAmount, purchaseType = 
     let currency = 'naira'; // Default currency
     let sourceModel = 'UserShare'; // Default source model
     
-    if (purchaseType === 'cofounder') {
+    if (purchaseType === 'co-founder') {
       sourceModel = 'PaymentTransaction';
       
       try {
@@ -179,7 +179,7 @@ const processReferralCommission = async (userId, purchaseAmount, purchaseType = 
         };
         
         // FIXED: Add enhanced metadata for co-founder transactions
-        if (purchaseType === 'cofounder') {
+        if (purchaseType === 'co-founder') {
           try {
             const transaction = await PaymentTransaction.findById(transactionId);
             if (transaction && transaction.shares) {
@@ -848,7 +848,7 @@ const rollbackReferralCommission = async (userId, transactionId, amount, currenc
     console.log(`👤 User: ${userId}, Type: ${purchaseType}, Amount: ${amount} ${currency}`);
     
     // FIXED: Determine correct source model
-    const correctSourceModel = purchaseType === 'cofounder' ? 'PaymentTransaction' : sourceModel;
+    const correctSourceModel = purchaseType === 'co-founder' ? 'PaymentTransaction' : sourceModel;
     
     // Find all referral transactions for this source transaction
     const referralTransactions = await ReferralTransaction.find({
@@ -1193,7 +1193,7 @@ const debugReferralData = async (userId, transactionId = null) => {
  * @param {number} amount - Test amount
  * @param {string} purchaseType - Purchase type to test
  */
-const testReferralProcessing = async (userId, amount = 1000, purchaseType = 'cofounder') => {
+const testReferralProcessing = async (userId, amount = 1000, purchaseType = 'co-founder') => {
   try {
     console.log(`\n🧪 [TEST] Testing referral processing for user: ${userId}`);
     console.log(`💰 Test amount: ${amount}, Type: ${purchaseType}`);
@@ -1204,7 +1204,7 @@ const testReferralProcessing = async (userId, amount = 1000, purchaseType = 'cof
       userId: userId,
       amount: amount,
       currency: 'naira',
-      shares: purchaseType === 'cofounder' ? Math.floor(amount / 1000) : 0,
+      shares: purchaseType === 'co-founder' ? Math.floor(amount / 1000) : 0,
       type: purchaseType,
       status: 'completed'
     };

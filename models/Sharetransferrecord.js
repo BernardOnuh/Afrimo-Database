@@ -40,8 +40,8 @@ const shareTransferRecordSchema = new mongoose.Schema({
   
   shareType: {
     type: String,
-    enum: ['regular', 'cofounder'],
-    default: 'regular'
+    enum: ['share', 'co-founder'],
+    default: 'share'
   },
   
   // For sales

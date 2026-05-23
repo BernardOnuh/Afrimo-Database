@@ -25,7 +25,7 @@ const SHARE_TIERS = {
   // Regular share tiers
   basic: {
     name: 'Basic',
-    type: 'regular',
+    type: 'share',
     priceUSD: 30,
     priceNGN: 30000,
     percentPerShare: 0.00001,
@@ -35,7 +35,7 @@ const SHARE_TIERS = {
   },
   standard: {
     name: 'Standard',
-    type: 'regular',
+    type: 'share',
     priceUSD: 50,
     priceNGN: 50000,
     percentPerShare: 0.000021,
@@ -45,7 +45,7 @@ const SHARE_TIERS = {
   },
   premium: {
     name: 'Premium',
-    type: 'regular',
+    type: 'share',
     priceUSD: 100,
     priceNGN: 100000,
     percentPerShare: 0.00005,
@@ -56,7 +56,7 @@ const SHARE_TIERS = {
   // Co-Founder tiers
   elite: {
     name: 'Elite',
-    type: 'cofounder',
+    type: 'co-founder',
     priceUSD: 1000,
     priceNGN: 1000000,
     percentPerShare: 0.000021,
@@ -66,7 +66,7 @@ const SHARE_TIERS = {
   },
   platinum: {
     name: 'Platinum',
-    type: 'cofounder',
+    type: 'co-founder',
     priceUSD: 2500,
     priceNGN: 2500000,
     percentPerShare: 0.00005,
@@ -76,7 +76,7 @@ const SHARE_TIERS = {
   },
   supreme: {
     name: 'Supreme',
-    type: 'cofounder',
+    type: 'co-founder',
     priceUSD: 5000,
     priceNGN: 5000000,
     percentPerShare: 0.00005,
@@ -163,14 +163,14 @@ shareSchema.statics.getTierConfig = function() {
 // Static: get regular tiers only
 shareSchema.statics.getRegularTiers = function() {
   return Object.entries(SHARE_TIERS)
-    .filter(([, v]) => v.type === 'regular')
+    .filter(([, v]) => v.type === 'share')
     .reduce((acc, [k, v]) => ({ ...acc, [k]: v }), {});
 };
 
 // Static: get cofounder tiers only
 shareSchema.statics.getCoFounderTiers = function() {
   return Object.entries(SHARE_TIERS)
-    .filter(([, v]) => v.type === 'cofounder')
+    .filter(([, v]) => v.type === 'co-founder')
     .reduce((acc, [k, v]) => ({ ...acc, [k]: v }), {});
 };
 
@@ -205,7 +205,7 @@ shareSchema.statics.calculatePurchase = async function(quantity, currency, tier 
 
     const pricePerUnit = currency === 'naira' ? tierConfig.priceNGN : tierConfig.priceUSD;
     const totalPrice = quantity * pricePerUnit;
-    const totalShares = tierConfig.type === 'cofounder' ? quantity * tierConfig.sharesIncluded : quantity;
+    const totalShares = tierConfig.type === 'co-founder' ? quantity * tierConfig.sharesIncluded : quantity;
     const totalPercent = totalShares * tierConfig.percentPerShare;
 
     return {

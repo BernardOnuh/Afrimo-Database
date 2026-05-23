@@ -417,7 +417,7 @@ exports.getAllTiers = async (req, res) => {
 
       tiersWithSales[key] = tierWithData;
 
-      if (tier.type === 'regular') {
+      if (tier.type === 'share') {
         regularTiers[key] = tierWithData;
       } else {
         cofounderTiers[key] = tierWithData;

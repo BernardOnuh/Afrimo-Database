@@ -20,7 +20,7 @@ const installmentPlanSchema = new mongoose.Schema({
     enum: ['basic', 'standard', 'premium', 'elite', 'platinum', 'supreme'],
     required: true
   },
-  tierType: { type: String, enum: ['regular', 'cofounder'], required: true },
+  tierType: { type: String, enum: ['share', 'co-founder'], required: true },
   totalPrice: { type: Number, required: true },
   currency: { type: String, enum: ['naira', 'usdt'], default: 'naira' },
   downPayment: { type: Number, required: true },

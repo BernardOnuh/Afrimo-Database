@@ -39,7 +39,7 @@ exports.createPackage = async (req, res) => {
 
     const pkg = await SharePackage.create({
       name,
-      type: type || 'regular',
+      type: type || 'share',
       description: description || '',
       priceNaira: Number(priceNaira),
       priceUSDT: Number(priceUSDT),

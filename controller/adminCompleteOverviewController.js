@@ -95,7 +95,7 @@ exports.getCompleteProjectOverview = async (req, res) => {
     };
 
     const regularTransactions = await Transaction.find({
-      type: 'regular',
+      type: 'share',
       status: 'completed'
     });
 
@@ -310,8 +310,8 @@ exports.getCompleteProjectOverview = async (req, res) => {
         sold: await ShareListing.countDocuments({ status: 'sold' }),
         cancelled: await ShareListing.countDocuments({ status: 'cancelled' }),
         expired: await ShareListing.countDocuments({ status: 'expired' }),
-        regular: await ShareListing.countDocuments({ shareType: 'regular', status: 'active' }),
-        cofounder: await ShareListing.countDocuments({ shareType: 'cofounder', status: 'active' }),
+        regular: await ShareListing.countDocuments({ shareType: 'share', status: 'active' }),
+        cofounder: await ShareListing.countDocuments({ shareType: 'co-founder', status: 'active' }),
         totalSharesListed: (await ShareListing.aggregate([
           { $match: { status: 'active', sharesAvailable: { $gt: 0 } } },
           { $group: { _id: null, total: { $sum: '$sharesAvailable' } } }

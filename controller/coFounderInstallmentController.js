@@ -709,7 +709,7 @@ const verifyCoFounderInstallmentPaystack = async (req, res) => {
           await processReferralCommission(
             plan.user,
             amount,
-            'cofounder',
+            'co-founder',
             transactionId,
             { session }
           );

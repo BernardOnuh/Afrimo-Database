@@ -307,7 +307,7 @@ async function getAllPurchaseTransactions(validUsers = null) {
           referralCode: tx.userId.referralInfo.code,
           amount: tx.amount || 0,
           currency: tx.currency || 'naira',
-          type: 'cofounder',
+          type: 'co-founder',
           sourceModel: 'PaymentTransaction',
           shares: tx.shares || 0,
           date: tx.createdAt,
@@ -500,7 +500,7 @@ function displayAnalysis(analysis) {
   
   console.log(`💰 Valid Transactions:`);
   console.log(`   • Total Purchase Transactions: ${analysis.allTransactions.length}`);
-  console.log(`   • Co-founder Transactions: ${analysis.allTransactions.filter(t => t.type === 'cofounder').length}`);
+  console.log(`   • Co-founder Transactions: ${analysis.allTransactions.filter(t => t.type === 'co-founder').length}`);
   console.log(`   • Regular Share Transactions: ${analysis.allTransactions.filter(t => t.type === 'share').length}`);
   console.log('');
   
@@ -649,7 +649,7 @@ async function processTransactionCommissions(transaction, chainAnalysis) {
       };
       
       // Add metadata for co-founder transactions
-      if (transaction.type === 'cofounder') {
+      if (transaction.type === 'co-founder') {
         const coFounderShare = await CoFounderShare.findOne();
         const shareToRegularRatio = coFounderShare?.shareToRegularRatio || COFOUNDER_TO_SHARES_RATIO;
         

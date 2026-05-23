@@ -226,7 +226,7 @@ const processCofounderReferralCommission = async (userId, purchaseAmount, shares
       amount: gen1Commission,
       currency: 'USD',
       generation: 1,
-      purchaseType: 'cofounder',
+      purchaseType: 'co-founder',
       sourceTransaction: transactionId,
       sourceTransactionModel: 'PaymentTransaction',
       status: 'completed',
@@ -282,7 +282,7 @@ const processCofounderReferralCommission = async (userId, purchaseAmount, shares
           amount: gen2Commission,
           currency: 'USD',
           generation: 2,
-          purchaseType: 'cofounder',
+          purchaseType: 'co-founder',
           sourceTransaction: transactionId,
           sourceTransactionModel: 'PaymentTransaction',
           status: 'completed',
@@ -335,7 +335,7 @@ const processCofounderReferralCommission = async (userId, purchaseAmount, shares
               amount: gen3Commission,
               currency: 'USD',
               generation: 3,
-              purchaseType: 'cofounder',
+              purchaseType: 'co-founder',
               sourceTransaction: transactionId,
               sourceTransactionModel: 'PaymentTransaction',
               status: 'completed',
@@ -406,7 +406,7 @@ const processReferralCommission = async (userId, purchaseAmount, purchaseType = 
     console.log(`🚀 Processing referral commission - Type: ${purchaseType}, Amount: ${purchaseAmount}`);
     
     // For co-founder purchases, use the specialized function
-    if (purchaseType === 'cofounder') {
+    if (purchaseType === 'co-founder') {
       return await processCofounderReferralCommission(userId, purchaseAmount, shares, transactionId);
     }
     
@@ -723,7 +723,7 @@ const handleCofounderPurchase = async (userId, purchaseAmount, shares, transacti
     console.log(`🔥 Handling co-founder purchase: User ${userId}, Amount: ${purchaseAmount}, Shares: ${shares}`);
     
     // Process the referral commissions
-    const result = await processReferralCommission(userId, purchaseAmount, 'cofounder', transactionId, shares);
+    const result = await processReferralCommission(userId, purchaseAmount, 'co-founder', transactionId, shares);
     
     if (result.success) {
       console.log(`✅ Co-founder purchase processing completed successfully`);
@@ -1347,12 +1347,12 @@ const verifyCofounderCommissionSetup = async (req, res) => {
     
     // Check for co-founder transactions
     const cofounderTransactions = await ReferralTransaction.find({
-      purchaseType: 'cofounder'
+      purchaseType: 'co-founder'
     }).populate('beneficiary', 'userName').populate('referredUser', 'userName');
     
     // Get co-founder commission summary
     const commissionSummary = await ReferralTransaction.aggregate([
-      { $match: { purchaseType: 'cofounder', status: 'completed' } },
+      { $match: { purchaseType: 'co-founder', status: 'completed' } },
       {
         $group: {
           _id: '$generation',

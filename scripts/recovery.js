@@ -118,7 +118,7 @@ async function emergencyReferralRecovery() {
         // Co-founder purchases
         for (const tx of coFounderTransactions) {
           allTransactions.push({
-            type: 'cofounder',
+            type: 'co-founder',
             amount: tx.amount,
             transactionId: tx._id.toString(),
             date: tx.createdAt,
@@ -291,7 +291,7 @@ async function createReferralTransaction(data) {
     generation: data.generation,
     purchaseType: data.purchaseType,
     sourceTransaction: data.sourceTransaction,
-    sourceTransactionModel: data.purchaseType === 'cofounder' ? 'PaymentTransaction' : 'UserShare',
+    sourceTransactionModel: data.purchaseType === 'co-founder' ? 'PaymentTransaction' : 'UserShare',
     status: 'completed',
     metadata: data.metadata,
     createdAt: new Date()

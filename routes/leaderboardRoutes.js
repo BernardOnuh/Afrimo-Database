@@ -1957,11 +1957,11 @@ router.get('/filter/shares', async (req, res) => {
 //         $addFields: {
 //           filterShareCount: {
 //             $cond: {
-//               if: { $eq: [filters.shareType, 'regular'] },
+//               if: { $eq: [filters.shareType, 'share'] },
 //               then: '$regularShares',
 //               else: {
 //                 $cond: {
-//                   if: { $eq: [filters.shareType, 'cofounder'] },
+//                   if: { $eq: [filters.shareType, 'co-founder'] },
 //                   then: '$cofounderSharesTotal',
 //                   else: '$combinedShares'
 //                 }

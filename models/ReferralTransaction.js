@@ -50,7 +50,7 @@ const ReferralTransactionSchema = new mongoose.Schema({
   
   purchaseType: {
     type: String,
-    enum: ['share', 'cofounder', 'other'],
+    enum: ['share', 'co-founder', 'other'],
     default: 'share'
   },
   

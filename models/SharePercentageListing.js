@@ -66,7 +66,7 @@ const SharePercentageListingSchema = new mongoose.Schema(
 
     tierType: {
       type: String,
-      enum: ['regular', 'cofounder'],
+      enum: ['share', 'co-founder'],
       description: 'Whether this is regular or co-founder tier'
     },
 

@@ -14,14 +14,7 @@ const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
 
-const {
-  getCoFounderShareConfig,
-  adminAllocateSharesByPercentage,
-  adminUpdateAllocationSold,
-  adminGetAllocationStats,
-  adminToggleProgram,
-  adminUpdatePricing
-} = require('../controller/coFounderController');
+
 
 // ===================================================================
 // MULTER CONFIGURATION FOR FILE UPLOADS (FIXED)
@@ -115,70 +108,31 @@ const handleUploadError = (err, req, res, next) => {
 }; 
 
 const validateCoFounderManualPayment = (req, res, next) => {
-  console.log('\n=== CO-FOUNDER VALIDATION MIDDLEWARE (CLOUDINARY) ===');
-  console.log('Body:', req.body);
-  console.log('File:', req.file);
-  
-  const { quantity, currency, paymentMethod } = req.body;
-  
-  // Check required fields
-  if (!quantity || !currency || !paymentMethod) {
-    console.log('Missing required fields');
+  const { packageId, currency, paymentMethod } = req.body;
+
+  if (!packageId || !currency || !paymentMethod) {
     return res.status(400).json({
       success: false,
-      message: 'Missing required fields: quantity, currency, and paymentMethod are required',
-      error: 'MISSING_FIELDS',
-      received: {
-        quantity: !!quantity,
-        currency: !!currency,
-        paymentMethod: !!paymentMethod,
-        file: !!req.file
-      }
+      message: 'packageId, currency, and paymentMethod are required'
     });
   }
-  
-  // Validate quantity
-  const qty = parseInt(quantity);
-  if (isNaN(qty) || qty < 1) {
-    return res.status(400).json({
-      success: false,
-      message: 'Invalid quantity. Must be a positive integer.',
-      error: 'INVALID_QUANTITY'
-    });
-  }
-  
-  // Validate currency
+
   if (!['naira', 'usdt'].includes(currency.toLowerCase())) {
+    return res.status(400).json({ success: false, message: 'Currency must be naira or usdt' });
+  }
+
+  const validMethods = ['bank_transfer', 'cash', 'other'];
+  if (!validMethods.includes(paymentMethod)) {
     return res.status(400).json({
       success: false,
-      message: 'Invalid currency. Must be either "naira" or "usdt".',
-      error: 'INVALID_CURRENCY'
+      message: `paymentMethod must be one of: ${validMethods.join(', ')}`
     });
   }
-  
-  // Validate payment method
-  const validPaymentMethods = ['bank_transfer', 'cash', 'other'];
-  if (!validPaymentMethods.includes(paymentMethod)) {
-    return res.status(400).json({
-      success: false,
-      message: `Invalid payment method. Must be one of: ${validPaymentMethods.join(', ')}`,
-      error: 'INVALID_PAYMENT_METHOD'
-    });
-  }
-  
-  // Check if Cloudinary file was uploaded
+
   if (!req.file || !req.file.path) {
-    return res.status(400).json({
-      success: false,
-      message: 'Payment proof image is required and must be uploaded successfully',
-      error: 'MISSING_CLOUDINARY_FILE'
-    });
+    return res.status(400).json({ success: false, message: 'Payment proof is required' });
   }
-  
-  console.log('Validation passed - Cloudinary file uploaded successfully');
-  console.log('Cloudinary URL:', req.file.path);
-  console.log('Public ID:', req.file.filename);
-  console.log('============================\n');
+
   next();
 };
 
@@ -426,170 +380,7 @@ router.get('/payment-config', coFounderController.getPaymentConfig);
 // USER PAYMENT ROUTES
 // ===================================================================
 
-/**
- * @swagger
- * /cofounder/paystack/initiate:
- *   post:
- *     tags: [Co-Founder - Payment]
- *     summary: Initiate Paystack payment
- *     description: Initialize Paystack payment for co-founder shares
- *     security:
- *       - bearerAuth: []
- *     requestBody:
- *       required: true
- *       content:
- *         application/json:
- *           schema:
- *             type: object
- *             required: [quantity, email]
- *             properties:
- *               quantity:
- *                 type: integer
- *                 minimum: 1
- *                 example: 5
- *               email:
- *                 type: string
- *                 format: email
- *                 example: "user@example.com"
- *     responses:
- *       200:
- *         description: Payment initialized successfully
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 success:
- *                   type: boolean
- *                   example: true
- *                 data:
- *                   type: object
- *                   properties:
- *                     authorization_url:
- *                       type: string
- *                       example: "https://checkout.paystack.com/..."
- *                     reference:
- *                       type: string
- *                       example: "CFD-A1B2-123456"
- *                     amount:
- *                       type: number
- *                       example: 500000
- *       400:
- *         description: Bad request
- *       401:
- *         description: Unauthorized
- *       500:
- *         description: Server error
- */
-router.post('/paystack/initiate', protect, coFounderController.initiateCoFounderPaystackPayment);
 
-/**
- * @swagger
- * /cofounder/paystack/verify/{reference}:
- *   get:
- *     tags: [Co-Founder - Payment]
- *     summary: Verify Paystack payment
- *     description: Verify and complete Paystack payment
- *     parameters:
- *       - in: path
- *         name: reference
- *         required: true
- *         schema:
- *           type: string
- *         description: Payment reference
- *         example: "CFD-A1B2-123456"
- *     responses:
- *       200:
- *         description: Payment verified successfully
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 success:
- *                   type: boolean
- *                   example: true
- *                 message:
- *                   type: string
- *                   example: "Payment verified successfully"
- *                 shares:
- *                   type: integer
- *                   example: 5
- *                 amount:
- *                   type: number
- *                   example: 500000
- *       400:
- *         description: Verification failed
- *       404:
- *         description: Transaction not found
- *       500:
- *         description: Server error
- */
-router.get('/paystack/verify/:reference', coFounderController.verifyCoFounderPaystackPayment);
-
-/**
- * @swagger
- * /cofounder/web3/verify:
- *   post:
- *     tags: [Co-Founder - Payment]
- *     summary: Verify Web3 transaction
- *     description: Submit blockchain transaction for verification
- *     security:
- *       - bearerAuth: []
- *     requestBody:
- *       required: true
- *       content:
- *         application/json:
- *           schema:
- *             type: object
- *             required: [transactionHash, amount, currency, shares]
- *             properties:
- *               transactionHash:
- *                 type: string
- *                 example: "0x1234567890abcdef..."
- *               amount:
- *                 type: number
- *                 example: 500
- *               currency:
- *                 type: string
- *                 enum: [usdt, usdc, eth]
- *                 example: "usdt"
- *               shares:
- *                 type: integer
- *                 example: 5
- *     responses:
- *       200:
- *         description: Transaction submitted for verification
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 success:
- *                   type: boolean
- *                   example: true
- *                 message:
- *                   type: string
- *                   example: "Transaction submitted for verification"
- *                 transaction:
- *                   type: object
- *                   properties:
- *                     id:
- *                       type: string
- *                     status:
- *                       type: string
- *                       example: "pending"
- *                     shares:
- *                       type: integer
- *                       example: 5
- *       400:
- *         description: Invalid parameters
- *       401:
- *         description: Unauthorized
- *       500:
- *         description: Server error
- */
-router.post('/web3/verify', protect, coFounderController.verifyWeb3Transaction);
 
 /**
  * @swagger
@@ -890,109 +681,6 @@ router.get('/manual/status/:transactionId', protect, coFounderController.getCoFo
 // ADMIN ROUTES
 // ===================================================================
 
-/**
- * @swagger
- * /cofounder/admin/web3/verify:
- *   post:
- *     tags: [Co-Founder - Admin]
- *     summary: Admin verify Web3 transaction
- *     description: Manually verify Web3 transaction (admin only)
- *     security:
- *       - adminAuth: []
- *     requestBody:
- *       required: true
- *       content:
- *         application/json:
- *           schema:
- *             type: object
- *             required: [transactionId, status]
- *             properties:
- *               transactionId:
- *                 type: string
- *                 example: "60f7c6b4c8f1a2b3c4d5e6f7"
- *               status:
- *                 type: string
- *                 enum: [completed, failed]
- *                 example: "completed"
- *               adminNotes:
- *                 type: string
- *                 example: "Transaction verified manually"
- *     responses:
- *       200:
- *         description: Transaction verified successfully
- *       400:
- *         description: Bad request
- *       401:
- *         description: Unauthorized
- *       403:
- *         description: Admin access required
- *       404:
- *         description: Transaction not found
- *       500:
- *         description: Server error
- */
-router.post('/admin/web3/verify', protect, adminProtect, coFounderController.adminVerifyWeb3Transaction);
-
-/**
- * @swagger
- * /cofounder/admin/web3/transactions:
- *   get:
- *     tags: [Co-Founder - Admin]
- *     summary: Get Web3 transactions
- *     description: Get all Web3 transactions (admin only)
- *     security:
- *       - adminAuth: []
- *     parameters:
- *       - in: query
- *         name: page
- *         schema:
- *           type: integer
- *           minimum: 1
- *           default: 1
- *       - in: query
- *         name: limit
- *         schema:
- *           type: integer
- *           minimum: 1
- *           maximum: 100
- *           default: 20
- *       - in: query
- *         name: status
- *         schema:
- *           type: string
- *           enum: [pending, completed, failed]
- *     responses:
- *       200:
- *         description: Transactions retrieved successfully
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 success:
- *                   type: boolean
- *                   example: true
- *                 transactions:
- *                   type: array
- *                   items:
- *                     $ref: '#/components/schemas/CoFounderTransaction'
- *                 pagination:
- *                   type: object
- *                   properties:
- *                     currentPage:
- *                       type: integer
- *                     totalPages:
- *                       type: integer
- *                     totalCount:
- *                       type: integer
- *       401:
- *         description: Unauthorized
- *       403:
- *         description: Admin access required
- *       500:
- *         description: Server error
- */
-router.get('/admin/web3/transactions', protect, adminProtect, coFounderController.adminGetWeb3Transactions);
 
 /**
  * @swagger
@@ -1030,7 +718,6 @@ router.get('/admin/web3/transactions', protect, adminProtect, coFounderControlle
  *       500:
  *         description: Server error
  */
-router.post('/admin/update-pricing', protect, adminProtect, coFounderController.updateCoFounderSharePricing);
 
 /**
  * @swagger
@@ -1077,42 +764,6 @@ router.post('/admin/add-shares', protect, adminProtect, coFounderController.admi
 
 // CONTINUATION OF coFounderRoutes.js - ADMIN MANUAL PAYMENT ROUTES
 
-/**
- * @swagger
- * /cofounder/admin/update-wallet:
- *   post:
- *     tags: [Co-Founder - Admin]
- *     summary: Update company wallet
- *     description: Update company Web3 wallet address (admin only)
- *     security:
- *       - adminAuth: []
- *     requestBody:
- *       required: true
- *       content:
- *         application/json:
- *           schema:
- *             type: object
- *             required: [walletAddress]
- *             properties:
- *               walletAddress:
- *                 type: string
- *                 example: "0x742d35Cc6643C673532925e2aC5c48C0F30A37a0"
- *               reason:
- *                 type: string
- *                 example: "Security update"
- *     responses:
- *       200:
- *         description: Wallet updated successfully
- *       400:
- *         description: Invalid wallet address
- *       401:
- *         description: Unauthorized
- *       403:
- *         description: Admin access required
- *       500:
- *         description: Server error
- */
-router.post('/admin/update-wallet', protect, adminProtect, coFounderController.updateCompanyWallet);
 
 /**
  * @swagger
@@ -1808,56 +1459,6 @@ router.get('/admin/manual/all', protect, adminProtect, coFounderController.getAl
 // DEBUG/TROUBLESHOOTING ROUTES (TEMPORARY)
 // ===================================================================
 
-/**
- * @swagger
- * /cofounder/admin/debug/manual:
- *   get:
- *     tags: [Co-Founder - Debug]
- *     summary: Debug manual payment data
- *     description: |
- *       Debug endpoint to analyze manual payment transactions (admin only).
- *       
- *       **Purpose**: Troubleshoot manual payment visibility issues.
- *       
- *       Returns detailed breakdown of transaction data for analysis.
- *     security:
- *       - adminAuth: []
- *     responses:
- *       200:
- *         description: Debug information retrieved successfully
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 success:
- *                   type: boolean
- *                   example: true
- *                 debug:
- *                   type: object
- *                   properties:
- *                     totalCoFounderTransactions:
- *                       type: integer
- *                       example: 15
- *                     uniquePaymentMethods:
- *                       type: array
- *                       items:
- *                         type: string
- *                       example: ["paystack", "manual_bank_transfer", "crypto"]
- *                     transactionsWithProof:
- *                       type: integer
- *                       example: 5
- *                     potentialManualTransactions:
- *                       type: integer
- *                       example: 5
- *       401:
- *         description: Unauthorized
- *       403:
- *         description: Admin access required
- *       500:
- *         description: Server error
- */
-router.get('/admin/debug/manual', protect, adminProtect, coFounderController.debugManualTransactions);
 
 /**
  * @swagger
@@ -2285,108 +1886,6 @@ router.post('/admin/emergency/fix-payment-methods', protect, adminProtect, async
 // LEGACY/COMPATIBILITY ROUTES
 // ===================================================================
 
-/**
- * @swagger
- * /cofounder/manual/initiate:
- *   post:
- *     tags: [Co-Founder - Legacy]
- *     summary: Initiate manual payment (DEPRECATED)
- *     description: |
- *       **DEPRECATED** - Legacy endpoint for initiating manual payment.
- *       
- *       **⚠️ Use `/cofounder/manual/submit` instead.**
- *       
- *       This endpoint is kept for backward compatibility but will be removed in future versions.
- *     security:
- *       - bearerAuth: []
- *     deprecated: true
- *     requestBody:
- *       required: true
- *       content:
- *         application/json:
- *           schema:
- *             type: object
- *             required: [quantity, currency, paymentMethod]
- *             properties:
- *               quantity:
- *                 type: integer
- *                 minimum: 1
- *                 example: 5
- *               currency:
- *                 type: string
- *                 enum: [naira, usdt]
- *                 example: "naira"
- *               paymentMethod:
- *                 type: string
- *                 enum: [bank_transfer, cash, other]
- *                 example: "bank_transfer"
- *     responses:
- *       200:
- *         description: Manual payment initiated (Legacy response)
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 success:
- *                   type: boolean
- *                   example: true
- *                 message:
- *                   type: string
- *                   example: "Manual payment initiated. Please upload payment proof."
- *                 data:
- *                   type: object
- *                   properties:
- *                     transactionId:
- *                       type: string
- *                       example: "CFD-A1B2-123456"
- *                     instructions:
- *                       type: string
- *                       example: "Please make payment and upload proof using the upload endpoint"
- *       400:
- *         description: Bad request
- *       401:
- *         description: Unauthorized
- *       500:
- *         description: Server error
- */
-router.post('/manual/initiate', protect, coFounderController.initiateCoFounderManualPayment);
-
-/**
- * @swagger
- * /cofounder/manual/upload:
- *   post:
- *     tags: [Co-Founder - Legacy]
- *     summary: Upload payment proof (DEPRECATED)
- *     description: |
- *       **DEPRECATED** - Legacy endpoint for uploading payment proof.
- *       
- *       **⚠️ Use `/cofounder/manual/submit` instead.**
- *       
- *       This endpoint is kept for backward compatibility but will be removed in future versions.
- *     security:
- *       - bearerAuth: []
- *     deprecated: true
- *     responses:
- *       200:
- *         description: Legacy endpoint notice
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 success:
- *                   type: boolean
- *                   example: true
- *                 message:
- *                   type: string
- *                   example: "Please use the manual payment submission endpoint with payment proof"
- *       401:
- *         description: Unauthorized
- *       500:
- *         description: Server error
- */
-router.post('/manual/upload', protect, coFounderController.uploadCoFounderPaymentProof);
 
 // ===================================================================
 // ADDITIONS TO coFounderRoutes.js
@@ -2755,132 +2254,6 @@ router.post('/admin/add-shares-flexible', protect, adminProtect, coFounderContro
 router.post('/admin/disable', protect, adminProtect, coFounderController.disableCoFounderProgramme);
 
  
-// Public routes
-router.get('/config', getCoFounderShareConfig);
- 
-// Admin routes
-router.post('/admin/allocate-by-percentage', protect, adminProtect, adminAllocateSharesByPercentage);
-router.post('/admin/update-allocation-sold', protect, adminProtect, adminUpdateAllocationSold);
-router.get('/admin/statistics', protect, adminProtect, adminGetAllocationStats);
-router.post('/admin/toggle-program', protect, adminProtect, adminToggleProgram);
-router.post('/admin/update-pricing', protect, adminProtect, adminUpdatePricing);
 
 module.exports = router;
 
-// ===================================================================
-// TESTING EXAMPLES FOR SWAGGER UI
-// ===================================================================
-
-/*
-
-TESTING WORKFLOW:
-
-1. **Test File Upload (User)**:
-   POST /cofounder/manual/submit
-   - Use form-data with paymentProof file
-   - Should return success with transactionId
-
-2. **Check Admin Visibility**:
-   GET /cofounder/admin/manual/transactions
-   - Should see the uploaded transaction
-
-3. **View Payment Proof**:
-   GET /cofounder/payment-proof/{transactionId}
-   - Should return the uploaded image/PDF
-
-4. **Admin Approve/Reject**:
-   POST /cofounder/admin/manual/verify
-   - Test both approval and rejection
-
-5. **Check Status Update**:
-   GET /cofounder/manual/status/{transactionId}
-   - Should reflect the admin decision
-
-6. **Debug if Issues**:
-   GET /cofounder/admin/debug/manual
-   GET /cofounder/admin/debug/all-transactions
-   - Use these to troubleshoot data issues
-
-7. **Emergency Fix (if needed)**:
-   POST /cofounder/admin/emergency/fix-payment-methods
-   - Run with dryRun: true first
-   - Then with force: true if needed
-
-SAMPLE CURL COMMANDS:
-
-# 1. Submit manual payment
-curl -X POST "https://api.afrimobile.com/cofounder/manual/submit" \
-  -H "Authorization: Bearer USER_JWT_TOKEN" \
-  -F "quantity=5" \
-  -F "currency=naira" \
-  -F "paymentMethod=bank_transfer" \
-  -F "bankName=First Bank" \
-  -F "accountName=John Doe" \
-  -F "reference=FBN123456789" \
-  -F "paymentProof=@/path/to/receipt.jpg"
-
-# 2. Get admin manual transactions
-curl -X GET "https://api.afrimobile.com/cofounder/admin/manual/transactions?status=pending" \
-  -H "Authorization: Bearer ADMIN_JWT_TOKEN"
-
-# 3. Approve payment
-curl -X POST "https://api.afrimobile.com/cofounder/admin/manual/verify" \
-  -H "Authorization: Bearer ADMIN_JWT_TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "transactionId": "CFD-A1B2-123456",
-    "approved": true,
-    "adminNote": "Payment verified"
-  }'
-
-# 4. Check payment proof
-curl -X GET "https://api.afrimobile.com/cofounder/payment-proof/CFD-A1B2-123456" \
-  -H "Authorization: Bearer USER_JWT_TOKEN" \
-  --output payment-proof.jpg
-
-# 5. Emergency fix (preview first)
-curl -X POST "https://api.afrimobile.com/cofounder/admin/emergency/fix-payment-methods" \
-  -H "Authorization: Bearer ADMIN_JWT_TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{"dryRun": true}'
-
-JAVASCRIPT EXAMPLES:
-
-// Submit manual payment
-const formData = new FormData();
-formData.append('quantity', '5');
-formData.append('currency', 'naira');
-formData.append('paymentMethod', 'bank_transfer');
-formData.append('bankName', 'First Bank');
-formData.append('accountName', 'John Doe');
-formData.append('reference', 'FBN123456789');
-formData.append('paymentProof', fileInput.files[0]);
-
-fetch('/cofounder/manual/submit', {
-  method: 'POST',
-  headers: { 'Authorization': 'Bearer ' + token },
-  body: formData
-});
-
-// Get admin transactions
-fetch('/cofounder/admin/manual/transactions?status=pending', {
-  headers: { 'Authorization': 'Bearer ' + adminToken }
-})
-.then(response => response.json())
-.then(data => console.log('Pending transactions:', data.transactions));
-
-// Approve payment
-fetch('/cofounder/admin/manual/verify', {
-  method: 'POST',
-  headers: {
-    'Authorization': 'Bearer ' + adminToken,
-    'Content-Type': 'application/json'
-  },
-  body: JSON.stringify({
-    transactionId: 'CFD-A1B2-123456',
-    approved: true,
-    adminNote: 'Payment verified'
-  })
-});
-
-*/

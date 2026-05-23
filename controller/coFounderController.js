@@ -23,297 +23,6 @@ const generateTransactionId = () => {
 };
 
 
-// ===================================================================
-// PERCENTAGE-BASED ALLOCATION (merged from coFounderShareController)
-// ===================================================================
-
-/**
- * Get co-founder share configuration and allocation summary
- */
-const getCoFounderShareConfig = async (req, res) => {
-  try {
-    let coFounderShare = await CoFounderShare.findOne();
-
-    if (!coFounderShare) {
-      coFounderShare = new CoFounderShare();
-      await coFounderShare.save();
-    }
-
-    const allocationSummary = coFounderShare.getAllocationSummary();
-
-    res.status(200).json({
-      success: true,
-      data: {
-        totalShares: coFounderShare.totalShares,
-        shareToRegularRatio: coFounderShare.shareToRegularRatio,
-        disabled: coFounderShare.disabled,
-        pricing: coFounderShare.pricing,
-        allocations: allocationSummary
-      }
-    });
-  } catch (error) {
-    console.error('Error fetching co-founder share config:', error);
-    res.status(500).json({ success: false, message: error.message });
-  }
-};
-
-/**
- * Admin: Allocate shares by percentage
- *
- * Body:
- * {
- *   "allocations": [
- *     { "name": "allocation_1", "percentage": 33.33 },
- *     { "name": "allocation_2", "percentage": 33.33 },
- *     { "name": "allocation_3", "percentage": 33.34 }
- *   ]
- * }
- */
-const adminAllocateSharesByPercentage = async (req, res) => {
-  try {
-    const { allocations } = req.body;
-    const adminId = req.user?.id || req.user?._id;
-
-    const admin = await User.findById(adminId);
-    if (!admin || !admin.isAdmin) {
-      return res.status(403).json({ success: false, message: 'Admin access required' });
-    }
-
-    if (!Array.isArray(allocations) || allocations.length === 0) {
-      return res.status(400).json({
-        success: false,
-        message: 'Allocations array is required and must not be empty'
-      });
-    }
-
-    for (const allocation of allocations) {
-      if (!allocation.name || allocation.percentage === undefined) {
-        return res.status(400).json({
-          success: false,
-          message: 'Each allocation must have "name" and "percentage" fields'
-        });
-      }
-      if (typeof allocation.percentage !== 'number' || allocation.percentage < 0 || allocation.percentage > 100) {
-        return res.status(400).json({
-          success: false,
-          message: `Percentage for "${allocation.name}" must be between 0 and 100`
-        });
-      }
-    }
-
-    const totalPercentage = allocations.reduce((sum, a) => sum + a.percentage, 0);
-    if (Math.abs(totalPercentage - 100) > 0.01) {
-      return res.status(400).json({
-        success: false,
-        message: `Total percentage must equal 100%. Current: ${totalPercentage.toFixed(2)}%`
-      });
-    }
-
-    let coFounderShare = await CoFounderShare.findOne();
-    if (!coFounderShare) {
-      coFounderShare = new CoFounderShare();
-    }
-
-    const newAllocationMap = new Map();
-    allocations.forEach(allocation => {
-      const shares = Math.floor((allocation.percentage / 100) * coFounderShare.totalShares);
-      newAllocationMap.set(allocation.name, {
-        percentage: parseFloat(allocation.percentage.toFixed(2)),
-        shares: shares,
-        sold: 0
-      });
-    });
-
-    coFounderShare.shareAllocation = newAllocationMap;
-    await coFounderShare.save();
-
-    const allocationSummary = coFounderShare.getAllocationSummary();
-
-    res.status(200).json({
-      success: true,
-      message: 'Share allocations updated successfully',
-      data: {
-        totalShares: coFounderShare.totalShares,
-        allocations: allocationSummary,
-        validationSummary: {
-          totalPercentage: totalPercentage.toFixed(2),
-          totalSharesAllocated: Object.values(allocationSummary).reduce((sum, a) => sum + a.shares, 0)
-        }
-      }
-    });
-  } catch (error) {
-    console.error('Error allocating shares by percentage:', error);
-    res.status(500).json({ success: false, message: error.message });
-  }
-};
-
-/**
- * Admin: Update allocation sold count for an allocation
- */
-const adminUpdateAllocationSold = async (req, res) => {
-  try {
-    const { allocationName, sold } = req.body;
-    const adminId = req.user?.id || req.user?._id;
-
-    const admin = await User.findById(adminId);
-    if (!admin || !admin.isAdmin) {
-      return res.status(403).json({ success: false, message: 'Admin access required' });
-    }
-
-    if (!allocationName || sold === undefined || typeof sold !== 'number' || sold < 0) {
-      return res.status(400).json({
-        success: false,
-        message: 'Allocation name and non-negative sold count required'
-      });
-    }
-
-    let coFounderShare = await CoFounderShare.findOne();
-    if (!coFounderShare) {
-      return res.status(404).json({ success: false, message: 'CoFounderShare not found' });
-    }
-
-    const allocation = coFounderShare.shareAllocation.get(allocationName);
-    if (!allocation) {
-      return res.status(404).json({
-        success: false,
-        message: `Allocation "${allocationName}" not found`
-      });
-    }
-
-    if (sold > allocation.shares) {
-      return res.status(400).json({
-        success: false,
-        message: `Cannot mark ${sold} sold - only ${allocation.shares} shares available in this allocation`
-      });
-    }
-
-    allocation.sold = sold;
-    await coFounderShare.save();
-
-    const allocationSummary = coFounderShare.getAllocationSummary();
-
-    res.status(200).json({
-      success: true,
-      message: 'Allocation sold count updated',
-      data: { allocations: allocationSummary }
-    });
-  } catch (error) {
-    console.error('Error updating allocation sold:', error);
-    res.status(500).json({ success: false, message: error.message });
-  }
-};
-
-/**
- * Admin: Get allocation statistics
- */
-const adminGetAllocationStats = async (req, res) => {
-  try {
-    const coFounderShare = await CoFounderShare.findOne();
-
-    if (!coFounderShare) {
-      return res.status(404).json({ success: false, message: 'CoFounderShare not found' });
-    }
-
-    const allocationSummary = coFounderShare.getAllocationSummary();
-
-    let totalSharesAllocated = 0;
-    let totalSharesSold = 0;
-    let totalPercentage = 0;
-
-    Object.values(allocationSummary).forEach(allocation => {
-      totalSharesAllocated += allocation.shares;
-      totalSharesSold += allocation.sold;
-      totalPercentage += allocation.percentage;
-    });
-
-    res.status(200).json({
-      success: true,
-      data: {
-        allocations: allocationSummary,
-        statistics: {
-          totalShares: coFounderShare.totalShares,
-          totalSharesAllocated,
-          totalSharesSold,
-          totalSharesAvailable: totalSharesAllocated - totalSharesSold,
-          totalPercentageAllocated: parseFloat(totalPercentage.toFixed(2)),
-          disabled: coFounderShare.disabled,
-          pricing: coFounderShare.pricing
-        }
-      }
-    });
-  } catch (error) {
-    console.error('Error getting allocation stats:', error);
-    res.status(500).json({ success: false, message: error.message });
-  }
-};
-
-/**
- * Admin: Disable/Enable co-founder programme (toggle)
- */
-const adminToggleProgram = async (req, res) => {
-  try {
-    const { disabled } = req.body;
-    const adminId = req.user?.id || req.user?._id;
-
-    const admin = await User.findById(adminId);
-    if (!admin || !admin.isAdmin) {
-      return res.status(403).json({ success: false, message: 'Admin access required' });
-    }
-
-    let coFounderShare = await CoFounderShare.findOne();
-    if (!coFounderShare) {
-      coFounderShare = new CoFounderShare();
-    }
-
-    coFounderShare.disabled = Boolean(disabled);
-    await coFounderShare.save();
-
-    res.status(200).json({
-      success: true,
-      message: `Co-founder programme ${disabled ? 'disabled' : 'enabled'}`,
-      data: { disabled: coFounderShare.disabled }
-    });
-  } catch (error) {
-    console.error('Error toggling programme:', error);
-    res.status(500).json({ success: false, message: error.message });
-  }
-};
-
-/**
- * Admin: Update co-founder pricing
- * REPLACES: updateCoFounderSharePricing
- */
-const adminUpdatePricing = async (req, res) => {
-  try {
-    const { priceNaira, priceUSDT } = req.body;
-    const adminId = req.user?.id || req.user?._id;
-
-    const admin = await User.findById(adminId);
-    if (!admin || !admin.isAdmin) {
-      return res.status(403).json({ success: false, message: 'Admin access required' });
-    }
-
-    let coFounderShare = await CoFounderShare.findOne();
-    if (!coFounderShare) {
-      coFounderShare = new CoFounderShare();
-    }
-
-    if (priceNaira !== undefined) coFounderShare.pricing.priceNaira = priceNaira;
-    if (priceUSDT !== undefined) coFounderShare.pricing.priceUSDT = priceUSDT;
-
-    await coFounderShare.save();
-
-    res.status(200).json({
-      success: true,
-      message: 'Pricing updated successfully',
-      data: { pricing: coFounderShare.pricing }
-    });
-  } catch (error) {
-    console.error('Error updating pricing:', error);
-    res.status(500).json({ success: false, message: error.message });
-  }
-};
-
 
 // ===================================================================
 // SHARE INFO & PURCHASE
@@ -322,67 +31,46 @@ const adminUpdatePricing = async (req, res) => {
 // Get current co-founder share information
 const getCoFounderShareInfo = async (req, res) => {
     try {
-        let coFounderShare = await CoFounderShare.findOne();
-        
-        if (!coFounderShare) {
-            coFounderShare = new CoFounderShare();
-            await coFounderShare.save();
-        }
-        
-        const response = {
-            success: true,
-            shareToRegularRatio: coFounderShare.shareToRegularRatio || 29,
-            pricing: {
-                priceNaira: coFounderShare.pricing.priceNaira,
-                priceUSDT: coFounderShare.pricing.priceUSDT
-            },
-            availability: {
-                totalCoFounderShares: coFounderShare.totalShares,
-                coFounderSharesSold: coFounderShare.sharesSold,
-                coFounderSharesRemaining: coFounderShare.totalShares - coFounderShare.sharesSold,
-                equivalentRegularSharesRepresented: coFounderShare.sharesSold * (coFounderShare.shareToRegularRatio || 29)
-            },
-            explanation: `1 Co-Founder Share = ${coFounderShare.shareToRegularRatio || 29} Regular Shares`
-        };
-        
-        res.status(200).json(response);
+      const SharePackage = require('../models/SharePackage');
+      const packages = await SharePackage.find({ type: 'co-founder', active: true }).sort({ priceNaira: 1 });
+      res.json({ success: true, packages });
     } catch (error) {
-        console.error('Error fetching co-founder share info:', error);
-        res.status(500).json({
-            success: false,
-            message: 'Failed to fetch co-founder share information',
-            error: process.env.NODE_ENV === 'development' ? error.message : undefined
-        });
+      res.status(500).json({ success: false, message: error.message });
     }
-};
+  };
+
 
 // Calculate purchase details before payment
 const calculateCoFounderPurchase = async (req, res) => {
-    try {
-        const { quantity, currency, tier } = req.body;
-        
-        if (!quantity || !currency || !['naira', 'usdt'].includes(currency)) {
-            return res.status(400).json({
-                success: false,
-                message: 'Invalid request. Please provide valid quantity and currency (naira or usdt).'
-            });
-        }
-        
-        const purchaseDetails = await Share.calculatePurchase(parseInt(quantity), currency, tier || 'elite');
-        
-        if (!purchaseDetails.success) {
-            return res.status(400).json(purchaseDetails);
-        }
-        
-        res.status(200).json({ success: true, purchaseDetails });
-    } catch (error) {
-        console.error('Error calculating co-founder purchase:', error);
-        res.status(500).json({
-            success: false,
-            message: 'Failed to calculate purchase details',
-            error: process.env.NODE_ENV === 'development' ? error.message : undefined
-        });
+  try {
+    const SharePackage = require('../models/SharePackage');
+    const { packageId, currency } = req.body;
+
+    if (!packageId || !currency) {
+      return res.status(400).json({ success: false, message: 'packageId and currency are required' });
     }
+
+    const pkg = await SharePackage.findById(packageId);
+    if (!pkg || !pkg.active || pkg.type !== 'co-founder') {
+      return res.status(400).json({ success: false, message: 'Invalid co-founder package' });
+    }
+
+    const price = currency === 'naira' ? pkg.priceNaira : pkg.priceUSDT;
+    if (!price) {
+      return res.status(400).json({ success: false, message: `Package not available in ${currency}` });
+    }
+
+    res.json({
+      success: true,
+      packageLabel: pkg.label,
+      price,
+      currency,
+      ownershipPct: pkg.ownershipPct,
+      earningKobo: pkg.earningKobo
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
 };
 
 // Get payment configuration for co-founder shares
@@ -409,397 +97,6 @@ const getPaymentConfig = async (req, res) => {
 };
 
 
-// ===================================================================
-// PAYSTACK PAYMENT
-// ===================================================================
-
-const initiateCoFounderPaystackPayment = async (req, res) => {
-    try {
-        const { quantity, email } = req.body;
-        const userId = req.user.id;
-        
-        if (!quantity || !email) {
-            return res.status(400).json({ success: false, message: 'Please provide quantity and email' });
-        }
-        
-        const parsedQuantity = parseInt(quantity);
-        const coFounderShare = await CoFounderShare.findOne();
-        
-        if (!coFounderShare) {
-            return res.status(400).json({ success: false, message: 'Co-founder share configuration not found' });
-        }
-        
-        if (coFounderShare.sharesSold + parsedQuantity > coFounderShare.totalShares) {
-            return res.status(400).json({
-                success: false,
-                message: 'Insufficient shares available',
-                availableShares: coFounderShare.totalShares - coFounderShare.sharesSold
-            });
-        }
-        
-        const pricePerShare = coFounderShare.pricing.priceNaira;
-        const totalPrice = parsedQuantity * pricePerShare;
-        const transactionId = generateTransactionId();
-        
-        const paystackRequest = {
-            email,
-            amount: totalPrice * 100,
-            reference: transactionId,
-            callback_url: `${process.env.FRONTEND_URL}/cofounder/payment/verify?txref=${transactionId}`,
-            metadata: { userId, shares: parsedQuantity, transactionId }
-        };
-        
-        const paystackResponse = await axios.post(
-            'https://api.paystack.co/transaction/initialize',
-            paystackRequest,
-            {
-                headers: {
-                    'Authorization': `Bearer ${process.env.PAYSTACK_SECRET_KEY}`,
-                    'Content-Type': 'application/json'
-                }
-            }
-        );
-        
-        if (!paystackResponse.data.status) {
-            throw new Error('PayStack initialization failed');
-        }
-        
-        await PaymentTransaction.create({
-            userId,
-            type: 'co-founder',
-            amount: totalPrice,
-            currency: 'naira',
-            shares: parsedQuantity,
-            status: 'pending',
-            reference: transactionId,
-            paymentMethod: 'paystack'
-        });
-        
-        res.status(200).json({
-            success: true,
-            message: 'Payment initialized successfully',
-            data: {
-                authorization_url: paystackResponse.data.data.authorization_url,
-                reference: transactionId,
-                amount: totalPrice
-            }
-        });
-    } catch (error) {
-        console.error('Error initiating PayStack payment:', error);
-        res.status(500).json({
-            success: false,
-            message: 'Failed to initiate payment',
-            error: process.env.NODE_ENV === 'development' ? error.message : undefined
-        });
-    }
-};
-
-const verifyCoFounderPaystackPayment = async (req, res) => {
-    try {
-        const { reference } = req.params;
-        
-        if (!reference) {
-            return res.status(400).json({ success: false, message: 'Transaction reference is required' });
-        }
-        
-        const transaction = await PaymentTransaction.findOne({ transactionId: reference, type: 'co-founder' });
-        
-        if (!transaction) {
-            return res.status(404).json({ success: false, message: 'Transaction not found' });
-        }
-        
-        const verification = await axios.get(
-            `https://api.paystack.co/transaction/verify/${reference}`,
-            { headers: { 'Authorization': `Bearer ${process.env.PAYSTACK_SECRET_KEY}` } }
-        );
-        
-        if (!verification.data.status || verification.data.data.status !== 'success') {
-            transaction.status = 'failed';
-            await transaction.save();
-            return res.status(400).json({
-                success: false,
-                message: 'Payment verification failed',
-                status: verification.data.data.status
-            });
-        }
-        
-        const coFounderShare = await CoFounderShare.findOne();
-        const shareToRegularRatio = coFounderShare?.shareToRegularRatio || 29;
-        
-        coFounderShare.sharesSold += transaction.shares;
-        await coFounderShare.save();
-        
-        await UserShare.addCoFounderShares(transaction.userId, transaction.shares, {
-            transactionId: transaction._id,
-            shares: transaction.shares,
-            coFounderShares: transaction.shares,
-            equivalentRegularShares: transaction.shares * shareToRegularRatio,
-            shareToRegularRatio: shareToRegularRatio,
-            pricePerShare: transaction.amount / transaction.shares,
-            currency: 'naira',
-            totalAmount: transaction.amount,
-            paymentMethod: 'co-founder',
-            status: 'completed',
-            tierBreakdown: { tier1: 0, tier2: 0, tier3: 0 }
-        });
-        
-        transaction.status = 'completed';
-        await transaction.save();
-        
-        try {
-            if (transaction.status === 'completed') {
-                const referralResult = await handleCofounderPurchase(
-                    transaction.userId, transaction.amount, transaction.shares, transaction._id
-                );
-                console.log('Co-founder referral commission process result:', referralResult);
-                if (referralResult.success) console.log('Commissions distributed:', referralResult.commissions);
-            }
-        } catch (referralError) {
-            console.error('Error processing co-founder referral commissions:', referralError);
-        }
-        
-        const user = await User.findById(transaction.userId);
-        if (user && user.email) {
-            try {
-                await sendEmail({
-                    email: user.email,
-                    subject: 'Co-Founder Shares Purchase Confirmation',
-                    html: `
-                        <h2>Co-Founder Shares Purchase Successful</h2>
-                        <p>Dear ${user.name},</p>
-                        <p>You have successfully purchased ${transaction.shares} co-founder share(s).</p>
-                        <p>This is equivalent to ${transaction.shares * shareToRegularRatio} regular shares.</p>
-                        <p>Total Amount: ₦${transaction.amount}</p>
-                        <p>Transaction ID: ${transaction._id}</p>
-                        <p>Thank you for your investment!</p>
-                    `
-                });
-            } catch (emailError) {
-                console.error('Failed to send purchase confirmation email:', emailError);
-            }
-        }
-        
-        res.status(200).json({
-            success: true,
-            message: 'Payment verified successfully',
-            coFounderShares: transaction.shares,
-            equivalentRegularShares: transaction.shares * shareToRegularRatio,
-            amount: transaction.amount
-        });
-    } catch (error) {
-        console.error('Error verifying PayStack payment:', error);
-        res.status(500).json({
-            success: false,
-            message: 'Failed to verify payment',
-            error: process.env.NODE_ENV === 'development' ? error.message : undefined
-        });
-    }
-};
-
-
-// ===================================================================
-// WEB3 / CRYPTO PAYMENT
-// ===================================================================
-
-const verifyWeb3Transaction = async (req, res) => {
-    try {
-        const { transactionHash, amount, currency, shares } = req.body;
-        const userId = req.user.id;
-        
-        if (!transactionHash || !amount || !currency || !shares) {
-            return res.status(400).json({
-                success: false,
-                message: 'Please provide transaction hash, amount, currency, and shares'
-            });
-        }
-        
-        const transactionId = generateTransactionId();
-        
-        const transaction = await PaymentTransaction.create({
-            userId,
-            type: 'co-founder',
-            amount: parseFloat(amount),
-            currency: currency.toLowerCase(),
-            shares: parseInt(shares),
-            status: 'pending',
-            transactionId,
-            transactionHash,
-            paymentMethod: 'crypto'
-        });
-        
-        const admins = await User.find({ isAdmin: true });
-        if (admins.length > 0) {
-            try {
-                for (const admin of admins) {
-                    if (admin.email) {
-                        await sendEmail({
-                            email: admin.email,
-                            subject: 'New Co-Founder Share Transaction',
-                            html: `
-                                <h2>New Co-Founder Share Transaction</h2>
-                                <p>A new web3 transaction requires verification:</p>
-                                <p>Transaction ID: ${transaction._id}</p>
-                                <p>User ID: ${userId}</p>
-                                <p>Shares: ${shares}</p>
-                                <p>Amount: ${currency === 'naira' ? '₦' : '$'}${amount}</p>
-                                <p>Transaction Hash: ${transactionHash}</p>
-                                <p>Please verify this transaction in the admin dashboard.</p>
-                            `
-                        });
-                    }
-                }
-            } catch (emailError) {
-                console.error('Failed to send admin notification:', emailError);
-            }
-        }
-        
-        res.status(200).json({
-            success: true,
-            message: 'Transaction submitted for verification',
-            transaction: { id: transaction._id, status: transaction.status, shares }
-        });
-    } catch (error) {
-        console.error('Error submitting web3 transaction:', error);
-        res.status(500).json({
-            success: false,
-            message: 'Failed to submit transaction',
-            error: process.env.NODE_ENV === 'development' ? error.message : undefined
-        });
-    }
-};
-
-const adminVerifyWeb3Transaction = async (req, res) => {
-    try {
-        const { transactionId, status, adminNotes } = req.body;
-        const adminId = req.user.id;
-        
-        const admin = await User.findById(adminId);
-        if (!admin || !admin.isAdmin) {
-            return res.status(403).json({ success: false, message: 'Unauthorized: Admin access required' });
-        }
-        
-        const transaction = await PaymentTransaction.findById(transactionId);
-        if (!transaction) {
-            return res.status(404).json({ success: false, message: 'Transaction not found' });
-        }
-        
-        const oldStatus = transaction.status;
-        transaction.status = status;
-        transaction.adminNotes = adminNotes;
-        transaction.verifiedBy = adminId;
-        await transaction.save();
-        
-        if (status === 'completed' && oldStatus !== 'completed') {
-            const coFounderShare = await CoFounderShare.findOne();
-            coFounderShare.sharesSold += transaction.shares;
-            await coFounderShare.save();
-            
-            await UserShare.addShares(transaction.userId, transaction.shares, {
-                transactionId: transaction._id,
-                shares: transaction.shares,
-                pricePerShare: transaction.amount / transaction.shares,
-                currency: transaction.currency,
-                totalAmount: transaction.amount,
-                paymentMethod: 'co-founder',
-                status: 'completed',
-                tierBreakdown: { tier1: 0, tier2: 0, tier3: 0 },
-                adminAction: true,
-                adminNote: adminNotes
-            });
-            
-            try {
-                const updatedTransaction = await PaymentTransaction.findById(transactionId);
-                if (updatedTransaction.status === 'completed') {
-                    const referralResult = await handleCofounderPurchase(
-                        transaction.userId, transaction.amount, transaction.shares, transaction._id
-                    );
-                    console.log('Co-founder referral commission process result:', referralResult);
-                    if (referralResult.success) console.log('Commissions distributed:', referralResult.commissions);
-                }
-            } catch (referralError) {
-                console.error('Error processing co-founder referral commissions:', referralError);
-            }
-            
-            const user = await User.findById(transaction.userId);
-            if (user && user.email) {
-                try {
-                    await sendEmail({
-                        email: user.email,
-                        subject: 'Co-Founder Shares Transaction Verified',
-                        html: `
-                            <h2>Co-Founder Shares Transaction Verified</h2>
-                            <p>Dear ${user.name},</p>
-                            <p>Your co-founder shares transaction has been verified.</p>
-                            <p>Shares: ${transaction.shares}</p>
-                            <p>Amount: ${transaction.currency === 'naira' ? '₦' : '$'}${transaction.amount}</p>
-                            <p>Status: ${status}</p>
-                            ${adminNotes ? `<p>Admin Notes: ${adminNotes}</p>` : ''}
-                        `
-                    });
-                } catch (emailError) {
-                    console.error('Failed to send verification email:', emailError);
-                }
-            }
-        }
-        
-        res.status(200).json({
-            success: true,
-            message: 'Transaction verified successfully',
-            transaction: {
-                id: transaction._id,
-                status: transaction.status,
-                shares: transaction.shares,
-                amount: transaction.amount
-            }
-        });
-    } catch (error) {
-        console.error('Error verifying web3 transaction:', error);
-        res.status(500).json({
-            success: false,
-            message: 'Failed to verify transaction',
-            error: process.env.NODE_ENV === 'development' ? error.message : undefined
-        });
-    }
-};
-
-const adminGetWeb3Transactions = async (req, res) => {
-    try {
-        const { status, page = 1, limit = 20 } = req.query;
-        const adminId = req.user.id;
-        
-        const admin = await User.findById(adminId);
-        if (!admin || !admin.isAdmin) {
-            return res.status(403).json({ success: false, message: 'Unauthorized: Admin access required' });
-        }
-        
-        const query = { type: 'co-founder', paymentMethod: 'crypto' };
-        if (status) query.status = status;
-        
-        const transactions = await PaymentTransaction.find(query)
-            .skip((page - 1) * limit).limit(Number(limit))
-            .populate('userId', 'name email');
-        
-        const totalCount = await PaymentTransaction.countDocuments(query);
-        
-        res.status(200).json({
-            success: true,
-            transactions,
-            pagination: {
-                currentPage: Number(page),
-                totalPages: Math.ceil(totalCount / limit),
-                totalCount
-            }
-        });
-    } catch (error) {
-        console.error('Error fetching web3 transactions:', error);
-        res.status(500).json({
-            success: false,
-            message: 'Failed to fetch transactions',
-            error: process.env.NODE_ENV === 'development' ? error.message : undefined
-        });
-    }
-};
-
 
 // ===================================================================
 // MANUAL PAYMENT
@@ -812,180 +109,115 @@ const adminGetWeb3Transactions = async (req, res) => {
  */
 const submitCoFounderManualPayment = async (req, res) => {
     try {
-      console.log('[COFOUNDER] Manual payment submission started');
-      console.log('[COFOUNDER] req.body:', req.body);
-      console.log('[COFOUNDER] req.file:', req.file ? {
-        path: req.file.path,
-        filename: req.file.filename,
-        originalname: req.file.originalname,
-        size: req.file.size
-      } : 'NO FILE');
-  
-      if (!req.user || !req.user.id) {
-        return res.status(401).json({
-          success: false,
-          message: 'Authentication required. Please log in.',
-          error: 'USER_NOT_AUTHENTICATED'
-        });
-      }
-  
+      const { packageId, currency, paymentMethod, bankName, accountName, reference } = req.body;
       const userId = req.user.id;
-      const { quantity, paymentMethod, bankName, accountName, reference, currency } = req.body;
   
-      if (!quantity || !paymentMethod || !currency) {
-        return res.status(400).json({
-          success: false,
-          message: 'Please provide quantity, payment method, and currency',
-          received: { quantity: !!quantity, paymentMethod: !!paymentMethod, currency: !!currency }
-        });
-      }
-  
-      if (!['naira', 'usdt'].includes(currency.toLowerCase())) {
-        return res.status(400).json({ success: false, message: 'Invalid currency. Must be "naira" or "usdt".' });
-      }
-  
-      const requestedShares = parseInt(quantity);
-      if (isNaN(requestedShares) || requestedShares < 1) {
-        return res.status(400).json({ success: false, message: 'Invalid quantity.' });
+      if (!userId) {
+        return res.status(401).json({ success: false, message: 'Authentication required' });
       }
   
       if (!req.file || !req.file.path) {
-        console.error('[COFOUNDER] No Cloudinary file on req.file:', req.file);
-        return res.status(400).json({
-          success: false,
-          message: 'Payment proof image is required. Please upload a valid image file.',
-          error: 'MISSING_PAYMENT_PROOF',
-          debug: process.env.NODE_ENV === 'development' ? {
-            hasFile: !!req.file,
-            fileKeys: req.file ? Object.keys(req.file) : [],
-            bodyKeys: Object.keys(req.body)
-          } : undefined
-        });
+        return res.status(400).json({ success: false, message: 'Payment proof is required' });
       }
   
-      const coFounderShare = await CoFounderShare.findOne();
-      if (!coFounderShare) {
-        return res.status(400).json({ success: false, message: 'Co-founder share configuration not found.' });
+      const SharePackage = require('../models/SharePackage');
+      const pkg = await SharePackage.findById(packageId);
+      if (!pkg || !pkg.active || pkg.type !== 'co-founder') {
+        return res.status(400).json({ success: false, message: 'Invalid co-founder package' });
       }
   
-      if (coFounderShare.sharesSold + requestedShares > coFounderShare.totalShares) {
-        return res.status(400).json({
-          success: false,
-          message: 'Insufficient co-founder shares available.',
-          availableShares: coFounderShare.totalShares - coFounderShare.sharesSold
-        });
+      const priceAmount = currency === 'naira' ? pkg.priceNaira : pkg.priceUSDT;
+      if (!priceAmount) {
+        return res.status(400).json({ success: false, message: `Package not available in ${currency}` });
       }
   
-      const existingPending = await PaymentTransaction.findOne({
+      // Check for existing pending
+      const existing = await PaymentTransaction.findOne({
         userId,
         type: 'co-founder',
-        paymentMethod: { $regex: '^manual_' },
         status: 'pending'
       });
-  
-      if (existingPending) {
+      if (existing) {
         return res.status(400).json({
           success: false,
-          message: 'You already have a pending co-founder payment awaiting approval.',
+          message: 'You already have a pending co-founder payment awaiting approval',
           pendingTransaction: {
-            transactionId: existingPending.transactionId,
-            amount: existingPending.amount,
-            shares: existingPending.shares,
-            date: existingPending.createdAt
+            transactionId: existing.transactionId,
+            amount: existing.amount,
+            packageLabel: existing.packageLabel,
+            date: existing.createdAt
           }
         });
       }
   
-      const price = currency.toLowerCase() === 'naira'
-        ? coFounderShare.pricing.priceNaira
-        : coFounderShare.pricing.priceUSDT;
-      const totalPrice = requestedShares * price;
-  
-      const fileInfo = {
-        cloudinaryUrl: req.file.path,
-        cloudinaryId: req.file.filename,
-        originalname: req.file.originalname || 'payment-proof',
-        size: req.file.size,
-        mimetype: req.file.mimetype,
-        format: req.file.format
-      };
-  
-      console.log('[COFOUNDER] Cloudinary file info:', fileInfo);
-  
       const transactionId = `CFD-${crypto.randomBytes(4).toString('hex').toUpperCase()}-${Date.now().toString().slice(-6)}`;
   
-      const paymentTransaction = new PaymentTransaction({
-        userId,
+      const txData = {
         transactionId,
         type: 'co-founder',
-        shares: requestedShares,
-        amount: totalPrice,
-        currency: currency.toLowerCase(),
+        packageId: pkg._id,
+        packageLabel: pkg.label,
+        ownershipPct: pkg.ownershipPct,
+        earningKobo: pkg.earningKobo,
+        amount: priceAmount,
+        currency,
         paymentMethod: `manual_${paymentMethod}`,
         status: 'pending',
-        manualPaymentDetails: {
-          bankName: bankName || null,
-          accountName: accountName || null,
-          reference: reference || null
-        },
-        paymentProofPath: fileInfo.cloudinaryUrl,
-        paymentProofOriginalName: fileInfo.originalname,
-        paymentProofFilename: fileInfo.cloudinaryId,
-        paymentProofCloudinaryUrl: fileInfo.cloudinaryUrl,
-        paymentProofCloudinaryId: fileInfo.cloudinaryId,
-        paymentProofFileSize: fileInfo.size,
-        paymentProofFormat: fileInfo.format
-      });
+        manualPaymentDetails: { bankName, accountName, reference },
+        paymentProofPath: req.file.path,
+        paymentProofCloudinaryUrl: req.file.path,
+        paymentProofCloudinaryId: req.file.filename,
+        paymentProofOriginalName: req.file.originalname,
+        paymentProofFileSize: req.file.size
+      };
   
-      await paymentTransaction.save();
-      console.log('[COFOUNDER] PaymentTransaction created:', transactionId);
+      // Save to PaymentTransaction
+      await PaymentTransaction.create({ userId, ...txData });
   
+      // Save to UserShare (pending — totals not updated yet)
+      await UserShare.addTransaction(userId, txData);
+  
+      // Notify admins
       try {
         const user = await User.findById(userId);
         const admins = await User.find({ isAdmin: true, email: { $exists: true } });
         for (const admin of admins) {
           await sendEmail({
             email: admin.email,
-            subject: 'New Co-Founder Manual Payment Submitted',
+            subject: 'New Co-Founder Payment Submitted',
             html: `
-              <h2>New Co-Founder Manual Payment Requires Review</h2>
+              <h2>New Co-Founder Payment Requires Review</h2>
               <p><strong>User:</strong> ${user?.name} (${user?.email})</p>
               <p><strong>Transaction ID:</strong> ${transactionId}</p>
-              <p><strong>Co-Founder Shares:</strong> ${requestedShares}</p>
-              <p><strong>Amount:</strong> ${currency === 'naira' ? '₦' : '$'}${totalPrice}</p>
-              <p><strong>Payment Method:</strong> ${paymentMethod}</p>
-              <p><strong>Payment Proof:</strong> <a href="${fileInfo.cloudinaryUrl}">View Proof</a></p>
-              <p>Please review in the admin dashboard.</p>
+              <p><strong>Package:</strong> ${pkg.label}</p>
+              <p><strong>Amount:</strong> ₦${priceAmount.toLocaleString()}</p>
+              <p><strong>Ownership:</strong> ${pkg.ownershipPct}%</p>
+              <p><strong>Proof:</strong> <a href="${req.file.path}">View Proof</a></p>
             `
           });
         }
       } catch (emailErr) {
-        console.error('[COFOUNDER] Admin notification email failed:', emailErr.message);
+        console.error('Admin email failed:', emailErr.message);
       }
   
-      return res.status(200).json({
+      res.json({
         success: true,
-        message: 'Co-founder payment proof submitted successfully. Awaiting admin verification.',
+        message: 'Co-founder payment submitted successfully. Awaiting admin verification.',
         data: {
           transactionId,
-          shares: requestedShares,
-          amount: totalPrice,
-          currency: currency.toLowerCase(),
-          status: 'pending',
-          paymentMethod: `manual_${paymentMethod}`,
-          paymentProofUrl: fileInfo.cloudinaryUrl
+          packageLabel: pkg.label,
+          ownershipPct: pkg.ownershipPct,
+          amount: priceAmount,
+          currency,
+          status: 'pending'
         }
       });
   
     } catch (error) {
-      console.error('[COFOUNDER] submitCoFounderManualPayment error:', error);
-      return res.status(500).json({
-        success: false,
-        message: 'Failed to submit co-founder manual payment. Please try again.',
-        error: process.env.NODE_ENV === 'development' ? error.message : undefined
-      });
+      console.error('submitCoFounderManualPayment error:', error);
+      res.status(500).json({ success: false, message: error.message });
     }
-};
+  };
 
 /**
  * @desc    Get co-founder payment proof from Cloudinary
@@ -1084,61 +316,50 @@ const getCoFounderPaymentProofDirect = async (req, res) => {
 
 const getUserCoFounderShares = async (req, res) => {
     try {
-        const userId = req.user.id;
-        
-        const userShares = await UserShare.findOne({ user: userId });
-        const transactions = await PaymentTransaction.find({ 
-            userId,
-            type: 'co-founder',
-            status: 'completed'
-        }).sort({ createdAt: -1 });
-        
-        const coFounderConfig = await CoFounderShare.findOne();
-        const shareToRegularRatio = coFounderConfig?.shareToRegularRatio || 29;
-        
-        const totalCoFounderShares = transactions.reduce((sum, t) => sum + (t.shares || 0), 0);
-        const totalEquivalentRegularShares = totalCoFounderShares * shareToRegularRatio;
-        
-        const shareBreakdown = userShares ? userShares.getShareBreakdown() : {
-            totalShares: 0,
-            regularShares: 0,
-            coFounderShares: 0,
-            equivalentRegularShares: 0,
-            shareBreakdown: { direct: 0, fromCoFounder: 0 }
-        };
-        
-        res.status(200).json({
-            success: true,
-            coFounderShares: totalCoFounderShares,
-            equivalentRegularShares: totalEquivalentRegularShares,
-            shareToRegularRatio,
-            shareBreakdown,
-            transactions: transactions.map(t => {
-                let cleanPaymentMethod = 'unknown';
-                if (t.paymentMethod && typeof t.paymentMethod === 'string') {
-                    cleanPaymentMethod = t.paymentMethod.replace('manual_', '');
-                }
-                return {
-                    transactionId: t.transactionId || 'No ID',
-                    coFounderShares: t.shares || 0,
-                    equivalentRegularShares: (t.shares || 0) * shareToRegularRatio,
-                    amount: t.amount || 0,
-                    currency: t.currency || 'unknown',
-                    paymentMethod: cleanPaymentMethod,
-                    status: t.status || 'unknown',
-                    date: t.createdAt
-                };
-            })
+      const userId = req.user.id;
+      const record = await UserShare.findOne({ user: userId });
+  
+      if (!record) {
+        return res.json({
+          success: true,
+          totalOwnershipPct: 0,
+          cofounderOwnershipPct: 0,
+          totalEarningKobo: 0,
+          transactions: []
         });
+      }
+  
+      // Filter only co-founder transactions
+      const cofounderTxs = record.transactions.filter(t => t.type === 'co-founder');
+      const cofounderOwnershipPct = cofounderTxs
+        .filter(t => t.status === 'completed')
+        .reduce((sum, t) => sum + t.ownershipPct, 0);
+  
+      res.json({
+        success: true,
+        totalOwnershipPct: record.totalOwnershipPct,      // ALL ownership (shares + cofounder)
+        cofounderOwnershipPct,                             // just cofounder portion
+        totalEarningKobo: record.totalEarningKobo,
+        formattedOwnership: record.totalOwnershipPct.toFixed(7) + '%',
+        transactions: cofounderTxs
+          .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
+          .map(t => ({
+            transactionId: t.transactionId,
+            packageLabel: t.packageLabel,
+            ownershipPct: t.ownershipPct,
+            earningKobo: t.earningKobo,
+            amount: t.amount,
+            currency: t.currency,
+            paymentMethod: t.paymentMethod?.replace('manual_', ''),
+            status: t.status,
+            date: t.createdAt
+          }))
+      });
+  
     } catch (error) {
-        console.error('Error fetching user co-founder shares:', error);
-        res.status(500).json({
-            success: false,
-            message: 'Failed to fetch co-founder shares',
-            error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
-        });
+      res.status(500).json({ success: false, message: error.message });
     }
-};
+  };
 
 
 // ===================================================================
@@ -1152,287 +373,203 @@ const getUserCoFounderShares = async (req, res) => {
  */
 const adminGetCoFounderManualTransactions = async (req, res) => {
     try {
-        const { status, page = 1, limit = 20, fromDate, toDate } = req.query;
-        const adminId = req.user.id;
-        
-        const admin = await User.findById(adminId);
-        if (!admin || !admin.isAdmin) {
-            return res.status(403).json({ success: false, message: 'Unauthorized: Admin access required' });
+      const admin = await User.findById(req.user.id);
+      if (!admin?.isAdmin) {
+        return res.status(403).json({ success: false, message: 'Admin required' });
+      }
+  
+      const { status, page = 1, limit = 20, fromDate, toDate } = req.query;
+  
+      const query = {
+        type: 'co-founder',
+        paymentMethod: { $regex: /^manual_/i }
+      };
+  
+      if (status) query.status = status;
+      if (fromDate || toDate) {
+        query.createdAt = {};
+        if (fromDate) query.createdAt.$gte = new Date(fromDate);
+        if (toDate) query.createdAt.$lte = new Date(toDate);
+      }
+  
+      const transactions = await PaymentTransaction.find(query)
+        .populate('userId', 'name email phone username')
+        .sort({ createdAt: -1 })
+        .skip((parseInt(page) - 1) * parseInt(limit))
+        .limit(parseInt(limit));
+  
+      const totalCount = await PaymentTransaction.countDocuments(query);
+  
+      const formatted = transactions.map(tx => ({
+        id: tx._id,
+        transactionId: tx.transactionId,
+        user: {
+          id: tx.userId._id,
+          name: tx.userId.name,
+          email: tx.userId.email,
+          phone: tx.userId.phone
+        },
+        packageLabel: tx.packageLabel,
+        ownershipPct: tx.ownershipPct,
+        earningKobo: tx.earningKobo,
+        amount: tx.amount,
+        currency: tx.currency,
+        paymentMethod: tx.paymentMethod?.replace('manual_', ''),
+        status: tx.status,
+        date: tx.createdAt,
+        paymentProof: tx.paymentProofCloudinaryUrl ? {
+          directUrl: tx.paymentProofCloudinaryUrl,
+          originalName: tx.paymentProofOriginalName
+        } : null,
+        manualPaymentDetails: tx.manualPaymentDetails || {},
+        adminNote: tx.adminNotes
+      }));
+  
+      res.json({
+        success: true,
+        transactions: formatted,
+        pagination: {
+          currentPage: parseInt(page),
+          totalPages: Math.ceil(totalCount / parseInt(limit)),
+          totalCount
         }
-        
-        const query = {
-            type: 'co-founder',
-            paymentMethod: { $regex: /^manual_/i }
-        };
-        
-        if (status && ['pending', 'completed', 'failed'].includes(status)) {
-            query.status = status;
-        }
-        
-        if (fromDate || toDate) {
-            query.createdAt = {};
-            if (fromDate) query.createdAt.$gte = new Date(fromDate);
-            if (toDate) query.createdAt.$lte = new Date(toDate);
-        }
-        
-        const transactions = await PaymentTransaction.find(query)
-            .populate('userId', 'name email phone username')
-            .sort({ createdAt: -1 })
-            .skip((page - 1) * limit)
-            .limit(parseInt(limit));
-
-        const formattedTransactions = transactions.map(transaction => {
-            let cloudinaryUrl = transaction.paymentProofCloudinaryUrl || transaction.paymentProofPath || null;
-
-            let paymentProofData = null;
-            if (cloudinaryUrl) {
-                paymentProofData = {
-                    directUrl: cloudinaryUrl,
-                    apiUrl: `/api/cofounder/payment-proof/${transaction.transactionId}`,
-                    viewUrl: `/api/cofounder/payment-proof/${transaction.transactionId}?redirect=true`,
-                    adminDirectUrl: `/api/cofounder/admin/payment-proof/${transaction.transactionId}`,
-                    originalName: transaction.paymentProofOriginalName,
-                    fileSize: transaction.paymentProofFileSize,
-                    format: transaction.paymentProofFormat,
-                    publicId: transaction.paymentProofCloudinaryId
-                };
-            }
-
-            return {
-                id: transaction._id,
-                transactionId: transaction.transactionId,
-                user: {
-                    id: transaction.userId._id,
-                    name: transaction.userId.name,
-                    username: transaction.userId.username,
-                    email: transaction.userId.email,
-                    phone: transaction.userId.phone
-                },
-                shares: transaction.shares,
-                pricePerShare: transaction.amount / transaction.shares,
-                currency: transaction.currency,
-                totalAmount: transaction.amount,
-                paymentMethod: transaction.paymentMethod.replace('manual_', ''),
-                status: transaction.status,
-                date: transaction.createdAt,
-                paymentProof: paymentProofData,
-                paymentProofUrl: paymentProofData ? paymentProofData.apiUrl : null,
-                cloudinaryPublicId: transaction.paymentProofCloudinaryId,
-                manualPaymentDetails: transaction.manualPaymentDetails || {},
-                adminNote: transaction.adminNotes,
-                verifiedBy: transaction.verifiedBy
-            };
-        });
-
-        const totalCount = await PaymentTransaction.countDocuments(query);
-        
-        res.status(200).json({
-            success: true,
-            transactions: formattedTransactions,
-            pagination: {
-                currentPage: parseInt(page),
-                totalPages: Math.ceil(totalCount / parseInt(limit)),
-                totalCount
-            },
-            cloudinaryInfo: {
-                cdnEnabled: true,
-                message: "Use paymentProof.directUrl for Cloudinary access"
-            }
-        });
-        
+      });
+  
     } catch (error) {
-        console.error('Error in adminGetCoFounderManualTransactions:', error);
-        res.status(500).json({
-            success: false,
-            message: 'Failed to fetch co-founder manual transactions',
-            error: process.env.NODE_ENV === 'development' ? error.message : undefined
-        });
+      res.status(500).json({ success: false, message: error.message });
     }
-};
+  };
+
 
 const adminVerifyCoFounderManualPayment = async (req, res) => {
     try {
-        const { transactionId, approved, adminNote } = req.body;
-        const adminId = req.user.id;
-        
-        const admin = await User.findById(adminId);
-        if (!admin || !admin.isAdmin) {
-            return res.status(403).json({ success: false, message: 'Unauthorized: Admin access required' });
+      const { transactionId, approved, adminNote } = req.body;
+  
+      const admin = await User.findById(req.user.id);
+      if (!admin?.isAdmin) {
+        return res.status(403).json({ success: false, message: 'Admin required' });
+      }
+  
+      const tx = await PaymentTransaction.findOne({ transactionId, type: 'co-founder' });
+      if (!tx) {
+        return res.status(404).json({ success: false, message: 'Transaction not found' });
+      }
+      if (tx.status !== 'pending') {
+        return res.status(400).json({ success: false, message: `Transaction already ${tx.status}` });
+      }
+  
+      // Update PaymentTransaction
+      tx.status = approved ? 'completed' : 'failed';
+      tx.adminNotes = adminNote;
+      tx.verifiedBy = req.user.id;
+      tx.verifiedAt = new Date();
+      await tx.save();
+  
+      // Update UserShare totals — counts alongside regular shares
+      if (approved) {
+        await UserShare.approveTransaction(tx.userId, transactionId);
+        try {
+          await handleCofounderPurchase(tx.userId, tx.amount, tx.ownershipPct, tx._id);
+        } catch (e) {
+          console.error('Referral error:', e.message);
         }
-        
-        const transaction = await PaymentTransaction.findOne({
-            transactionId,
-            type: 'co-founder',
-            paymentMethod: { $regex: /^manual_/i }
-        });
-        
-        if (!transaction) {
-            return res.status(404).json({ success: false, message: 'Manual transaction not found' });
+      } else {
+        await UserShare.rejectTransaction(tx.userId, transactionId, 'failed');
+      }
+  
+      // Notify user
+      const user = await User.findById(tx.userId);
+      if (user?.email) {
+        try {
+          await sendEmail({
+            email: user.email,
+            subject: `Co-Founder Payment ${approved ? 'Approved' : 'Declined'}`,
+            html: `
+              <h2>Payment ${approved ? 'Approved ✅' : 'Declined ❌'}</h2>
+              <p>Dear ${user.name},</p>
+              <p>Your co-founder payment of ₦${tx.amount.toLocaleString()} 
+              for <strong>${tx.packageLabel}</strong> has been ${approved ? 'approved' : 'declined'}.</p>
+              ${approved ? `<p>Ownership added: <strong>+${tx.ownershipPct}%</strong></p>` : ''}
+              ${adminNote ? `<p>Note: ${adminNote}</p>` : ''}
+            `
+          });
+        } catch (e) {
+          console.error('Email error:', e.message);
         }
-        
-        if (transaction.status !== 'pending') {
-            return res.status(400).json({ success: false, message: `Transaction already ${transaction.status}` });
-        }
-        
-        const newStatus = approved ? 'completed' : 'failed';
-        transaction.status = newStatus;
-        transaction.adminNotes = adminNote;
-        transaction.verifiedBy = adminId;
-        await transaction.save();
-        
-        if (approved) {
-            const coFounderShare = await CoFounderShare.findOne();
-            const shareToRegularRatio = coFounderShare?.shareToRegularRatio || 29;
-            
-            coFounderShare.sharesSold += transaction.shares;
-            await coFounderShare.save();
-            
-            await UserShare.addCoFounderShares(transaction.userId, transaction.shares, {
-                transactionId: transaction._id,
-                shares: transaction.shares,
-                coFounderShares: transaction.shares,
-                equivalentRegularShares: transaction.shares * shareToRegularRatio,
-                shareToRegularRatio,
-                pricePerShare: transaction.amount / transaction.shares,
-                currency: transaction.currency,
-                totalAmount: transaction.amount,
-                paymentMethod: 'co-founder',
-                status: 'completed',
-                tierBreakdown: { tier1: 0, tier2: 0, tier3: 0 },
-                adminAction: true,
-                adminNote
-            });
-            
-            try {
-                const referralResult = await handleCofounderPurchase(
-                    transaction.userId, transaction.amount, transaction.shares, transaction._id
-                );
-                console.log('Co-founder referral commission process result:', referralResult);
-                if (referralResult.success) console.log('Commissions distributed:', referralResult.commissions);
-            } catch (referralError) {
-                console.error('Error processing co-founder referral commissions:', referralError);
-            }
-        }
-        
-        const user = await User.findById(transaction.userId);
-        if (user && user.email) {
-            try {
-                const coFounderConfig = await CoFounderShare.findOne();
-                const shareToRegularRatio = coFounderConfig?.shareToRegularRatio || 29;
-                
-                await sendEmail({
-                    email: user.email,
-                    subject: `AfriMobile - Co-Founder Manual Payment ${approved ? 'Approved' : 'Declined'}`,
-                    html: `
-                        <h2>Co-Founder Share Purchase ${approved ? 'Confirmation' : 'Update'}</h2>
-                        <p>Dear ${user.name},</p>
-                        <p>Your purchase of ${transaction.shares} co-founder shares for ${transaction.currency === 'naira' ? '₦' : '$'}${transaction.amount} has been ${approved ? 'verified and completed' : 'declined'}.</p>
-                        ${approved ? `<p>This is equivalent to ${transaction.shares * shareToRegularRatio} regular shares.</p>` : ''}
-                        <p>Transaction Reference: ${transactionId}</p>
-                        ${approved ? `<p>Thank you for your investment in AfriMobile!</p>` : `<p>Please contact support if you have any questions.</p>`}
-                        ${adminNote ? `<p>Note: ${adminNote}</p>` : ''}
-                    `
-                });
-            } catch (emailError) {
-                console.error('Failed to send manual payment notification email:', emailError);
-            }
-        }
-        
-        res.status(200).json({
-            success: true,
-            message: `Manual payment ${approved ? 'approved' : 'declined'} successfully`,
-            status: newStatus
-        });
+      }
+  
+      res.json({
+        success: true,
+        message: `Payment ${approved ? 'approved' : 'declined'} successfully`,
+        status: tx.status
+      });
+  
     } catch (error) {
-        console.error('Error verifying co-founder manual payment:', error);
-        res.status(500).json({
-            success: false,
-            message: 'Failed to verify manual payment',
-            error: process.env.NODE_ENV === 'development' ? error.message : undefined
-        });
+      res.status(500).json({ success: false, message: error.message });
     }
-};
+  };
+
 
 const adminCancelCoFounderManualPayment = async (req, res) => {
-    try {
-        const { transactionId, cancelReason } = req.body;
-        const adminId = req.user.id;
-        
-        const admin = await User.findById(adminId);
-        if (!admin || !admin.isAdmin) {
-            return res.status(403).json({ success: false, message: 'Unauthorized: Admin access required' });
-        }
-        
-        const transaction = await PaymentTransaction.findOne({
-            transactionId,
-            type: 'co-founder',
-            paymentMethod: { $regex: '^manual_' }
-        });
-        
-        if (!transaction) {
-            return res.status(404).json({ success: false, message: 'Manual transaction not found' });
-        }
-        
-        if (transaction.status !== 'completed') {
-            return res.status(400).json({
-                success: false,
-                message: `Cannot cancel a transaction that is not completed. Current status: ${transaction.status}`
-            });
-        }
-        
-        const coFounderShare = await CoFounderShare.findOne();
-        coFounderShare.sharesSold -= transaction.shares;
-        await coFounderShare.save();
-        
-        try {
-            const rollbackResult = await rollbackReferralCommission(
-                transaction.userId, transaction._id, transaction.amount,
-                transaction.currency, 'cofounder', 'PaymentTransaction'
-            );
-            console.log('Referral commission rollback result:', rollbackResult);
-        } catch (referralError) {
-            console.error('Error rolling back referral commissions:', referralError);
-        }
-        
-        transaction.status = 'pending';
-        transaction.adminNotes = `CANCELLATION: ${cancelReason || 'Approved payment canceled by admin'}`;
-        await transaction.save();
+  try {
+    const { transactionId, cancelReason } = req.body;
 
-        const user = await User.findById(transaction.userId);
-        if (user && user.email) {
-            try {
-                await sendEmail({
-                    email: user.email,
-                    subject: 'Co-Founder Payment Approval Canceled',
-                    html: `
-                        <h2>Co-Founder Share Purchase Update</h2>
-                        <p>Dear ${user.name},</p>
-                        <p>We need to inform you that your previously approved purchase of ${transaction.shares} co-founder shares 
-                        for ${transaction.currency === 'naira' ? '₦' : '$'}${transaction.amount} has been temporarily placed back into pending status.</p>
-                        <p>Transaction Reference: ${transactionId}</p>
-                        <p>Reason: ${cancelReason || 'Administrative review required'}</p>
-                        <p>Our team will contact you shortly to resolve this matter. We apologize for any inconvenience.</p>
-                        <p>If you have any questions, please contact our support team.</p>
-                    `
-                });
-            } catch (emailError) {
-                console.error('Failed to send cancellation notification email:', emailError);
-            }
-        }
-        
-        res.status(200).json({
-            success: true,
-            message: 'Payment approval successfully canceled and returned to pending status',
-            status: 'pending'
-        });
-    } catch (error) {
-        console.error('Error canceling co-founder approved payment:', error);
-        res.status(500).json({
-            success: false,
-            message: 'Failed to cancel payment approval',
-            error: process.env.NODE_ENV === 'development' ? error.message : undefined
-        });
+    const admin = await User.findById(req.user.id);
+    if (!admin?.isAdmin) {
+      return res.status(403).json({ success: false, message: 'Admin required' });
     }
+
+    const tx = await PaymentTransaction.findOne({ transactionId, type: 'co-founder' });
+    if (!tx) {
+      return res.status(404).json({ success: false, message: 'Transaction not found' });
+    }
+    if (tx.status !== 'completed') {
+      return res.status(400).json({ success: false, message: 'Can only cancel completed transactions' });
+    }
+
+    // Roll back UserShare totals
+    await UserShare.rejectTransaction(tx.userId, transactionId, 'pending');
+
+    // Roll back referral if any
+    try {
+      await rollbackReferralCommission(
+        tx.userId, transactionId, tx.amount,
+        tx.currency, 'cofounder', 'PaymentTransaction'
+      );
+    } catch (e) {
+      console.error('Referral rollback error:', e.message);
+    }
+
+    // Update PaymentTransaction
+    tx.status = 'pending';
+    tx.adminNotes = `CANCELLED: ${cancelReason || 'Admin cancelled'}`;
+    await tx.save();
+
+    // Notify user
+    const user = await User.findById(tx.userId);
+    if (user?.email) {
+      try {
+        await sendEmail({
+          email: user.email,
+          subject: 'Co-Founder Payment Approval Cancelled',
+          html: `
+            <p>Dear ${user.name},</p>
+            <p>Your co-founder payment approval for <strong>${tx.packageLabel}</strong> 
+            has been temporarily reversed.</p>
+            <p>Reason: ${cancelReason || 'Administrative review required'}</p>
+            <p>Please contact support for more information.</p>
+          `
+        });
+      } catch (e) {
+        console.error('Email error:', e.message);
+      }
+    }
+
+    res.json({ success: true, message: 'Payment approval cancelled', status: 'pending' });
+
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
 };
 
 /**
@@ -1482,7 +619,7 @@ const adminDeleteCoFounderManualPayment = async (req, res) => {
             try {
                 const rollbackResult = await rollbackReferralCommission(
                     transaction.userId, transaction._id, transaction.amount,
-                    transaction.currency, 'cofounder', 'PaymentTransaction'
+                    transaction.currency, 'co-founder', 'PaymentTransaction'
                 );
                 console.log('Co-founder referral commission rollback result:', rollbackResult);
             } catch (referralError) {
@@ -1759,38 +896,7 @@ const disableCoFounderProgramme = async (req, res) => {
     }
 };
 
-const updateCompanyWallet = async (req, res) => {
-    try {
-        const { walletAddress } = req.body;
-        const adminId = req.user.id;
-        
-        const admin = await User.findById(adminId);
-        if (!admin || !admin.isAdmin) {
-            return res.status(403).json({ success: false, message: 'Unauthorized: Admin access required' });
-        }
-        
-        if (!ethers.utils.isAddress(walletAddress)) {
-            return res.status(400).json({ success: false, message: 'Invalid wallet address' });
-        }
-        
-        const paymentConfig = await PaymentConfig.getCurrentConfig();
-        paymentConfig.companyWalletAddress = walletAddress;
-        await paymentConfig.save();
-        
-        res.status(200).json({
-            success: true,
-            message: 'Company wallet address updated successfully',
-            walletAddress
-        });
-    } catch (error) {
-        console.error('Error updating company wallet:', error);
-        res.status(500).json({
-            success: false,
-            message: 'Failed to update company wallet',
-            error: process.env.NODE_ENV === 'development' ? error.message : undefined
-        });
-    }
-};
+
 
 
 // ===================================================================
@@ -1935,137 +1041,9 @@ const getCoFounderShareStatistics = async (req, res) => {
     }
 };
 
-const debugManualTransactions = async (req, res) => {
-    try {
-        const adminId = req.user.id;
-        
-        const admin = await User.findById(adminId);
-        if (!admin || !admin.isAdmin) {
-            return res.status(403).json({ success: false, message: 'Unauthorized: Admin access required' });
-        }
-        
-        const allCoFounderTransactions = await PaymentTransaction.find({ type: 'co-founder' })
-            .select('transactionId paymentMethod status paymentProofPath manualPaymentDetails createdAt userId')
-            .populate('userId', 'name email')
-            .sort({ createdAt: -1 });
-        
-        const paymentMethods = [...new Set(allCoFounderTransactions.map(t => t.paymentMethod))];
-        const manualTransactions = allCoFounderTransactions.filter(t => t.paymentMethod?.toString().includes('manual'));
-        const transactionsWithProof = allCoFounderTransactions.filter(t => t.paymentProofPath);
-        
-        const fs = require('fs');
-        const path = require('path');
-        const fileCheckResults = [];
-        
-        for (const tx of transactionsWithProof.slice(0, 5)) {
-            const possiblePaths = [tx.paymentProofPath, path.join(process.cwd(), tx.paymentProofPath)];
-            let fileExists = false;
-            let existingPath = null;
-            for (const testPath of possiblePaths) {
-                try {
-                    if (fs.existsSync(testPath)) { fileExists = true; existingPath = testPath; break; }
-                } catch (err) {}
-            }
-            fileCheckResults.push({ transactionId: tx.transactionId, paymentProofPath: tx.paymentProofPath, fileExists, existingPath });
-        }
-        
-        res.status(200).json({
-            success: true,
-            debug: {
-                totalCoFounderTransactions: allCoFounderTransactions.length,
-                uniquePaymentMethods: paymentMethods,
-                manualTransactionsCount: manualTransactions.length,
-                transactionsWithProofCount: transactionsWithProof.length,
-                sampleAllTransactions: allCoFounderTransactions.slice(0, 3).map(t => ({
-                    transactionId: t.transactionId,
-                    paymentMethod: t.paymentMethod,
-                    status: t.status,
-                    hasProofPath: !!t.paymentProofPath,
-                    user: t.userId ? t.userId.name : 'Unknown'
-                })),
-                sampleManualTransactions: manualTransactions.slice(0, 3).map(t => ({
-                    transactionId: t.transactionId,
-                    paymentMethod: t.paymentMethod,
-                    status: t.status,
-                    paymentProofPath: t.paymentProofPath,
-                    user: t.userId ? t.userId.name : 'Unknown'
-                })),
-                fileCheckResults
-            }
-        });
-    } catch (error) {
-        console.error('Error in debug endpoint:', error);
-        res.status(500).json({ success: false, message: 'Debug failed', error: error.message });
-    }
-};
 
 
-// ===================================================================
-// MANUAL PAYMENT - USER & ADMIN HELPERS
-// ===================================================================
 
-const initiateCoFounderManualPayment = async (req, res) => {
-    try {
-        const { quantity, currency, paymentMethod } = req.body;
-        const userId = req.user.id;
-        
-        if (!quantity || !currency || !paymentMethod) {
-            return res.status(400).json({
-                success: false,
-                message: 'Please provide quantity, currency, and payment method'
-            });
-        }
-        
-        if (!['naira', 'usdt'].includes(currency)) {
-            return res.status(400).json({ success: false, message: 'Please provide a valid currency (naira or usdt)' });
-        }
-        
-        const coFounderShare = await CoFounderShare.findOne();
-        if (!coFounderShare) {
-            return res.status(400).json({ success: false, message: 'Co-founder share configuration not found' });
-        }
-        
-        if (coFounderShare.sharesSold + parseInt(quantity) > coFounderShare.totalShares) {
-            return res.status(400).json({
-                success: false,
-                message: 'Insufficient shares available',
-                availableShares: coFounderShare.totalShares - coFounderShare.sharesSold
-            });
-        }
-        
-        const price = currency === 'naira' ? coFounderShare.pricing.priceNaira : coFounderShare.pricing.priceUSDT;
-        const totalPrice = parseInt(quantity) * price;
-        const transactionId = generateTransactionId();
-        
-        res.status(200).json({
-            success: true,
-            message: 'Manual payment initiated. Please upload payment proof.',
-            data: {
-                transactionId,
-                quantity: parseInt(quantity),
-                pricePerShare: price,
-                totalPrice,
-                currency,
-                paymentMethod,
-                instructions: 'Please make payment and upload proof using the upload endpoint'
-            }
-        });
-    } catch (error) {
-        console.error('Error initiating co-founder manual payment:', error);
-        res.status(500).json({
-            success: false,
-            message: 'Failed to initiate manual payment',
-            error: process.env.NODE_ENV === 'development' ? error.message : undefined
-        });
-    }
-};
-
-const uploadCoFounderPaymentProof = async (req, res) => {
-    res.status(200).json({
-        success: true,
-        message: 'Please use the manual payment submission endpoint with payment proof'
-    });
-};
 
 const getCoFounderManualPaymentStatus = async (req, res) => {
     try {
@@ -2491,36 +1469,12 @@ const adminAddCoFounderSharesFlexible = async (req, res) => {
 // ===================================================================
 
 module.exports = {
-    // Percentage-based allocation (NEW)
-    getCoFounderShareConfig,
-    adminAllocateSharesByPercentage,
-    adminUpdateAllocationSold,
-    adminGetAllocationStats,
-    adminToggleProgram,
-    adminUpdatePricing,           // replaces updateCoFounderSharePricing
-
-    // Share info & purchase
     getCoFounderShareInfo,
     calculateCoFounderPurchase,
     getPaymentConfig,
-
-    // Paystack
-    initiateCoFounderPaystackPayment,
-    verifyCoFounderPaystackPayment,
-
-    // Web3 / Crypto
-    verifyWeb3Transaction,
-    adminVerifyWeb3Transaction,
-    adminGetWeb3Transactions,
-
-    // Manual payment (user)
-    initiateCoFounderManualPayment,
     submitCoFounderManualPayment,
-    uploadCoFounderPaymentProof,
     getCoFounderManualPaymentStatus,
     getCoFounderPaymentProof,
-
-    // Manual payment (admin)
     getCoFounderPendingManualPayments,
     approveCoFounderManualPayment,
     rejectCoFounderManualPayment,
@@ -2530,24 +1484,12 @@ module.exports = {
     adminCancelCoFounderManualPayment,
     adminDeleteCoFounderManualPayment,
     getCoFounderPaymentProofDirect,
-
-    // User shares
     getUserCoFounderShares,
-
-    // Admin share management
     adminAddCoFounderShares,
     adminAddCoFounderSharesFlexible,
-    updateShareToRegularRatio,
     disableCoFounderProgramme,
-    adminToggleProgram,
-    updateCompanyWallet,
-
-    // Admin stats & transactions
     getAllCoFounderTransactions,
     getCoFounderShareStatistics,
-    debugManualTransactions,
-
-    // Admin user overview
     adminGetUserCoFounderOverview,
     resolveUserIdentifier
-};
+  };

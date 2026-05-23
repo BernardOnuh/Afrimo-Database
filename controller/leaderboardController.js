@@ -212,7 +212,7 @@ const getTimeFilteredLeaderboard = async (timeFrame, categoryFilter = 'registrat
       sortField = { totalSpent: -1 };
       matchCriteria.totalSpent = { $gt: 0 };
       break;
-    case 'cofounder':
+    case 'co-founder':
       sortField = { 'totalCofounderShares': -1 };
       matchCriteria['totalCofounderShares'] = { $gt: 0 };
       break;
@@ -1497,7 +1497,7 @@ exports.getCofounderLeaderboard = async (req, res) => {
         hasPrev: false,
         limit: limit
       },
-      filter: 'cofounder',
+      filter: 'co-founder',
       shareToRegularRatio,
       ...(process.env.NODE_ENV === 'development' && { debug: debugInfo })
     });
@@ -2788,7 +2788,7 @@ exports.getLeaderboardByShares = async (filters) => {
     offset = 0,
     period = 'all_time',
     sortOrder = 'desc',
-    shareType = 'all' // 'all', 'regular', 'cofounder'
+    shareType = 'all' // 'all', 'share', 'co-founder'
   } = filters;
 
   // Build shares filter

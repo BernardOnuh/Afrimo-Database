@@ -128,7 +128,7 @@ async function calculateExpectedEarnings(userId, commissionRates) {
                 expectedStats.generation1.earnings += commission;
                 expectedEarnings += commission;
                 expectedStats.generation1.transactions.push({
-                    type: 'cofounder',
+                    type: 'co-founder',
                     referredUser: gen1User.userName,
                     amount: tx.amount,
                     shares: tx.shares,
@@ -177,7 +177,7 @@ async function calculateExpectedEarnings(userId, commissionRates) {
                     expectedStats.generation2.earnings += commission;
                     expectedEarnings += commission;
                     expectedStats.generation2.transactions.push({
-                        type: 'cofounder',
+                        type: 'co-founder',
                         referredUser: gen2User.userName,
                         amount: tx.amount,
                         shares: tx.shares,
@@ -226,7 +226,7 @@ async function calculateExpectedEarnings(userId, commissionRates) {
                         expectedStats.generation3.earnings += commission;
                         expectedEarnings += commission;
                         expectedStats.generation3.transactions.push({
-                            type: 'cofounder',
+                            type: 'co-founder',
                             referredUser: gen3User.userName,
                             amount: tx.amount,
                             shares: tx.shares,

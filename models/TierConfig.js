@@ -6,7 +6,7 @@ const tierConfigSchema = new mongoose.Schema({
     type: Map,
     of: {
       name: { type: String, required: true },
-      type: { type: String, enum: ['regular', 'cofounder'], required: true },
+      type: { type: String, enum: ['share', 'co-founder'], required: true },
       priceUSD: { type: Number, required: true },
       priceNGN: { type: Number, required: true },
       percentPerShare: { type: Number, required: true },

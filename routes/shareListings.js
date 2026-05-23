@@ -51,7 +51,7 @@ const { sharePaymentUpload } = require('../config/cloudinary');
  *         name: shareType
  *         schema:
  *           type: string
- *           enum: ['regular', 'cofounder']
+ *           enum: ['share', 'co-founder']
  *         description: Filter by share type
  *       - in: query
  *         name: minPrice
@@ -152,7 +152,7 @@ router.get('/listings/:listingId', shareListingController.getShareListing);
  *                 example: 100
  *               shareType:
  *                 type: string
- *                 enum: ['regular', 'cofounder']
+ *                 enum: ['share', 'co-founder']
  *                 example: regular
  *               pricePerShare:
  *                 type: number

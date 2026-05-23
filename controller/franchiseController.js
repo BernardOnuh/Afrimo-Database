@@ -278,7 +278,7 @@ exports.validatePayment = async (req, res) => {
     }
 
     const sharesCount = tx.quantity * (tierConfig.sharesIncluded || 1);
-    const isCofounder = tierConfig.type === 'cofounder';
+    const isCofounder = tierConfig.type === 'co-founder';
 
     userShare.transactions.push({
       transactionId: tx.transactionId,
@@ -717,7 +717,7 @@ exports.adminResolveDispute = async (req, res) => {
           if (!userShare) userShare = new UserShare({ user: tx.buyer, transactions: [], totalShares: 0, coFounderShares: 0 });
 
           const sharesCount = tx.quantity * (tierConfig?.sharesIncluded || 1);
-          const isCofounder = tierConfig?.type === 'cofounder';
+          const isCofounder = tierConfig?.type === 'co-founder';
 
           userShare.transactions.push({
             transactionId: tx.transactionId,

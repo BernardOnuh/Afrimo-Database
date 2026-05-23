@@ -282,7 +282,7 @@ class UserReferralAnalyzer {
       for (const tx of coFounderTxs) {
         transactions.push({
           id: tx._id,
-          type: 'cofounder',
+          type: 'co-founder',
           amount: tx.amount,
           currency: tx.currency || 'naira',
           status: tx.status,
@@ -657,7 +657,7 @@ class UserReferralAnalyzer {
       console.log(`• Total Transaction Amount: ₦${totalTransactionAmount.toLocaleString()}`);
       
       const shareTransactions = this.analysisResults.completedTransactions.filter(tx => tx.type === 'share');
-      const coFounderTransactions = this.analysisResults.completedTransactions.filter(tx => tx.type === 'cofounder');
+      const coFounderTransactions = this.analysisResults.completedTransactions.filter(tx => tx.type === 'co-founder');
       
       console.log(`• Share Purchases: ${shareTransactions.length}`);
       console.log(`• Co-founder Purchases: ${coFounderTransactions.length}`);

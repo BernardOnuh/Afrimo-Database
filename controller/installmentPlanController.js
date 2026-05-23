@@ -14,12 +14,12 @@ const generateTransactionId = () => {
 };
 
 const TIER_CONFIG = {
-  basic:    { type: 'regular',   priceNGN: 30000,   sharesIncluded: 1 },
-  standard: { type: 'regular',   priceNGN: 50000,   sharesIncluded: 1 },
-  premium:  { type: 'regular',   priceNGN: 100000,  sharesIncluded: 1 },
-  elite:    { type: 'cofounder', priceNGN: 1000000,  sharesIncluded: 22 },
-  platinum: { type: 'cofounder', priceNGN: 2500000,  sharesIncluded: 27 },
-  supreme:  { type: 'cofounder', priceNGN: 5000000,  sharesIncluded: 60 },
+  basic:    { type: 'share',   priceNGN: 30000,   sharesIncluded: 1 },
+  standard: { type: 'share',   priceNGN: 50000,   sharesIncluded: 1 },
+  premium:  { type: 'share',   priceNGN: 100000,  sharesIncluded: 1 },
+  elite:    { type: 'co-founder', priceNGN: 1000000,  sharesIncluded: 22 },
+  platinum: { type: 'co-founder', priceNGN: 2500000,  sharesIncluded: 27 },
+  supreme:  { type: 'co-founder', priceNGN: 5000000,  sharesIncluded: 60 },
 };
 
 // POST /api/installments/create
@@ -420,7 +420,7 @@ async function completePlan(plan) {
     const transaction = await PaymentTransaction.create({
       transactionId,
       userId: plan.user,
-      type: plan.tierType === 'cofounder' ? 'cofounder' : 'share',
+      type: plan.tierType === 'co-founder' ? 'co-founder' : 'share',
       tier: plan.tier,
       shares,
       amount: plan.totalPrice,
@@ -473,7 +473,7 @@ async function completePlan(plan) {
 
     // Process referral commission
     try {
-      await processReferralCommission(plan.user, plan.totalPrice, plan.tierType === 'cofounder' ? 'cofounder' : 'share', transactionId);
+      await processReferralCommission(plan.user, plan.totalPrice, plan.tierType === 'co-founder' ? 'co-founder' : 'share', transactionId);
     } catch (e) { console.error('Referral error:', e.message); }
 
     plan.shareRecordId = userShare._id;
