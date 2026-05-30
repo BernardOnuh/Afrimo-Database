@@ -22,7 +22,6 @@ const mongoose = require('mongoose');
 
 // Tier configuration constants
 const SHARE_TIERS = {
-  // Regular share tiers
   basic: {
     name: 'Basic',
     type: 'share',
@@ -30,7 +29,7 @@ const SHARE_TIERS = {
     priceNGN: 30000,
     percentPerShare: 0.00001,
     earningPerPhone: 6000,
-    earningInKobo: 6000,
+    earningInKobo: 6,          // was 6000
     sharesIncluded: 1
   },
   standard: {
@@ -40,7 +39,7 @@ const SHARE_TIERS = {
     priceNGN: 50000,
     percentPerShare: 0.000021,
     earningPerPhone: 14000,
-    earningInKobo: 14000,
+    earningInKobo: 14,         // was 14000
     sharesIncluded: 1
   },
   premium: {
@@ -50,10 +49,9 @@ const SHARE_TIERS = {
     priceNGN: 100000,
     percentPerShare: 0.00005,
     earningPerPhone: 30000,
-    earningInKobo: 30000,
+    earningInKobo: 30,         // was 30000
     sharesIncluded: 1
   },
-  // Co-Founder tiers
   elite: {
     name: 'Elite',
     type: 'co-founder',
@@ -61,7 +59,7 @@ const SHARE_TIERS = {
     priceNGN: 1000000,
     percentPerShare: 0.000021,
     earningPerPhone: 14000,
-    earningInKobo: 14000,
+    earningInKobo: 14,         // was 14000
     sharesIncluded: 22
   },
   platinum: {
@@ -70,8 +68,8 @@ const SHARE_TIERS = {
     priceUSD: 2500,
     priceNGN: 2500000,
     percentPerShare: 0.00005,
-    earningPerPhone: null,
-    earningInKobo: null,
+    earningPerPhone: 30000,    // was null
+    earningInKobo: 30,         // was null
     sharesIncluded: 27
   },
   supreme: {
@@ -80,8 +78,8 @@ const SHARE_TIERS = {
     priceUSD: 5000,
     priceNGN: 5000000,
     percentPerShare: 0.00005,
-    earningPerPhone: null,
-    earningInKobo: null,
+    earningPerPhone: 30000,    // was null
+    earningInKobo: 30,         // was null
     sharesIncluded: 60
   }
 };

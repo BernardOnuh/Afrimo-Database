@@ -10,12 +10,17 @@ const { protect, adminProtect } = require('../middleware/auth');
  *   description: Project statistics and analytics endpoints
  */
 
+// ─── /project/stats ───────────────────────────────────────────────────────────
+
 /**
  * @swagger
  * /project/stats:
  *   get:
  *     summary: Get overall project statistics
- *     description: Retrieve comprehensive project statistics including share sales, user counts, and financial data
+ *     description: >
+ *       Retrieve project-wide statistics.
+ *       All share data is expressed as **ownership percentage** (up to 7 decimal places),
+ *       not raw share counts.
  *     tags: [Project]
  *     responses:
  *       200:
@@ -35,169 +40,122 @@ const { protect, adminProtect } = require('../middleware/auth');
  *                       type: object
  *                       properties:
  *                         total:
- *                           type: number
- *                           description: Total number of registered users
+ *                           type: integer
+ *                           description: Total registered users
  *                           example: 1250
- *                         totalShareHolders:
- *                           type: number
- *                           description: Users who own any type of shares
+ *                         totalShareholders:
+ *                           type: integer
+ *                           description: Users holding any completed ownership
  *                           example: 320
- *                         regularShareHolders:
- *                           type: number
- *                           description: Users who own regular shares
+ *                         regularShareholders:
+ *                           type: integer
+ *                           description: Users with completed regular-share purchases
  *                           example: 280
- *                         cofounderShareHolders:
- *                           type: number
- *                           description: Users who own co-founder shares
+ *                         cofounderShareholders:
+ *                           type: integer
+ *                           description: Users with completed co-founder purchases
  *                           example: 45
- *                     regularShares:
+ *                     ownership:
  *                       type: object
  *                       properties:
- *                         directSold:
+ *                         totalSold:
  *                           type: number
- *                           description: Direct regular shares sold
- *                           example: 139
- *                         available:
+ *                           format: float
+ *                           description: Total ownership % sold (regular + co-founder)
+ *                           example: 12.3456789
+ *                         totalAvailable:
  *                           type: number
- *                           description: Regular shares available for purchase (after co-founder allocation)
- *                           example: 1455
- *                         total:
+ *                           format: float
+ *                           description: Remaining ownership % (100 - totalSold)
+ *                           example: 87.6543211
+ *                         regularSharesSold:
  *                           type: number
- *                           description: Total regular shares in system
- *                           example: 10000
- *                         tierSales:
- *                           type: object
- *                           properties:
- *                             tier1Sold:
- *                               type: number
- *                               example: 139
- *                             tier2Sold:
- *                               type: number
- *                               example: 0
- *                             tier3Sold:
- *                               type: number
- *                               example: 0
- *                         tierAvailability:
- *                           type: object
- *                           properties:
- *                             tier1:
- *                               type: number
- *                               example: 1455
- *                             tier2:
- *                               type: number
- *                               example: 3000
- *                             tier3:
- *                               type: number
- *                               example: 5000
- *                     cofounderShares:
- *                       type: object
- *                       properties:
- *                         sold:
+ *                           format: float
+ *                           description: Ownership % from regular-share purchases
+ *                           example: 8.1234567
+ *                         cofounderSharesSold:
  *                           type: number
- *                           description: Co-founder shares sold
- *                           example: 14
- *                         available:
- *                           type: number
- *                           description: Co-founder shares available
- *                           example: 486
- *                         total:
- *                           type: number
- *                           description: Total co-founder shares
- *                           example: 500
- *                         equivalentRegularShares:
- *                           type: number
- *                           description: Regular share equivalent of sold co-founder shares (14 x 29)
- *                           example: 406
- *                         shareToRegularRatio:
- *                           type: number
- *                           description: Co-founder to regular share ratio
- *                           example: 29
- *                     combinedAnalysis:
- *                       type: object
- *                       properties:
- *                         totalEffectiveSharesSold:
- *                           type: number
- *                           description: Total effective shares sold (regular + co-founder equivalent)
- *                           example: 545
- *                         totalEffectiveSharesAvailable:
- *                           type: number
- *                           description: Total effective shares available
- *                           example: 9455
- *                         percentageSold:
+ *                           format: float
+ *                           description: Ownership % from co-founder purchases
+ *                           example: 4.2222222
+ *                         totalSoldFormatted:
  *                           type: string
- *                           description: Percentage of total shares sold
- *                           example: "5.45"
- *                         cofounderAllocation:
- *                           type: object
- *                           description: How co-founder equivalent shares are allocated across tiers
- *                           properties:
- *                             tier1:
- *                               type: number
- *                               example: 406
- *                             tier2:
- *                               type: number
- *                               example: 0
- *                             tier3:
- *                               type: number
- *                               example: 0
+ *                           example: "12.3456789%"
+ *                         totalAvailableFormatted:
+ *                           type: string
+ *                           example: "87.6543211%"
+ *                     earnings:
+ *                       type: object
+ *                       properties:
+ *                         totalEarningKobo:
+ *                           type: integer
+ *                           description: Total projected earnings in kobo across all shareholders
+ *                           example: 500000000
+ *                         regularEarningKobo:
+ *                           type: integer
+ *                           example: 300000000
+ *                         cofounderEarningKobo:
+ *                           type: integer
+ *                           example: 200000000
+ *                         totalEarningNaira:
+ *                           type: string
+ *                           description: Human-readable Naira equivalent (kobo ÷ 100)
+ *                           example: "5000000.00"
+ *                     transactions:
+ *                       type: object
+ *                       properties:
+ *                         regularCount:
+ *                           type: integer
+ *                           example: 350
+ *                         cofounderCount:
+ *                           type: integer
+ *                           example: 60
+ *                         totalCount:
+ *                           type: integer
+ *                           example: 410
  *                     totalValues:
  *                       type: object
  *                       properties:
  *                         naira:
  *                           type: object
  *                           properties:
- *                             regularShares:
+ *                             regular:
  *                               type: number
- *                               description: Total value of regular shares in Naira
- *                               example: 6950000
- *                             cofounderShares:
+ *                               example: 17500000
+ *                             cofounder:
  *                               type: number
- *                               description: Total value of co-founder shares in Naira
- *                               example: 14000000
+ *                               example: 6000000
  *                             total:
  *                               type: number
- *                               description: Total value in Naira
- *                               example: 20950000
+ *                               example: 23500000
  *                         usdt:
  *                           type: object
  *                           properties:
- *                             regularShares:
+ *                             regular:
  *                               type: number
- *                               description: Total value of regular shares in USDT
- *                               example: 6950
- *                             cofounderShares:
+ *                               example: 17500
+ *                             cofounder:
  *                               type: number
- *                               description: Total value of co-founder shares in USDT
- *                               example: 14000
+ *                               example: 6000
  *                             total:
  *                               type: number
- *                               description: Total value in USDT
- *                               example: 20950
+ *                               example: 23500
  *       500:
- *         description: Server error
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 success:
- *                   type: boolean
- *                   example: false
- *                 message:
- *                   type: string
- *                   example: "Failed to fetch project statistics"
- *                 error:
- *                   type: string
- *                   description: Detailed error information (development mode only)
+ *         $ref: '#/components/responses/ServerError'
  */
 router.get('/stats', projectController.getProjectStats);
+
+// ─── /project/user-stats ─────────────────────────────────────────────────────
 
 /**
  * @swagger
  * /project/user-stats:
  *   get:
- *     summary: Get user-specific project statistics
- *     description: Retrieve detailed statistics for the authenticated user including their shares, investments, and referrals
+ *     summary: Get the authenticated user's project statistics
+ *     description: >
+ *       Returns the user's ownership breakdown in **percentage** form,
+ *       projected earnings in kobo, transaction counts, investment totals,
+ *       and referral stats.
  *     tags: [Project]
  *     security:
  *       - bearerAuth: []
@@ -215,84 +173,96 @@ router.get('/stats', projectController.getProjectStats);
  *                 stats:
  *                   type: object
  *                   properties:
- *                     shares:
+ *                     ownership:
  *                       type: object
  *                       properties:
- *                         direct:
+ *                         totalOwnershipPct:
  *                           type: number
- *                           description: Direct regular shares owned
- *                           example: 50
- *                         cofounder:
+ *                           format: float
+ *                           description: Total confirmed ownership % (regular + co-founder)
+ *                           example: 0.0035000
+ *                         regularOwnershipPct:
  *                           type: number
- *                           description: Co-founder shares owned
- *                           example: 2
- *                         equivalentFromCofounder:
+ *                           format: float
+ *                           description: Ownership % from regular-share purchases
+ *                           example: 0.0020000
+ *                         cofounderOwnershipPct:
  *                           type: number
- *                           description: Regular share equivalent from co-founder shares
- *                           example: 58
- *                         totalEffective:
+ *                           format: float
+ *                           description: Ownership % from co-founder purchases
+ *                           example: 0.0015000
+ *                         pendingOwnershipPct:
  *                           type: number
- *                           description: Total effective shares owned
- *                           example: 108
- *                         cofounderEquivalence:
- *                           type: object
- *                           properties:
- *                             equivalentCoFounderShares:
- *                               type: number
- *                               description: Co-founder share equivalent of total shares
- *                               example: 3
- *                             remainingRegularShares:
- *                               type: number
- *                               description: Remaining regular shares after co-founder conversion
- *                               example: 21
- *                             shareToRegularRatio:
- *                               type: number
- *                               example: 29
- *                             explanation:
- *                               type: string
- *                               example: "Your 108 total shares = 3 co-founder equivalents + 21 regular"
+ *                           format: float
+ *                           description: Ownership % from transactions still awaiting admin approval
+ *                           example: 0.0005000
+ *                         formattedOwnership:
+ *                           type: string
+ *                           example: "0.0035000%"
+ *                         formattedPending:
+ *                           type: string
+ *                           example: "0.0005000%"
+ *                     earnings:
+ *                       type: object
+ *                       properties:
+ *                         totalEarningKobo:
+ *                           type: integer
+ *                           description: Total projected earnings in kobo
+ *                           example: 350000
+ *                         regularEarningKobo:
+ *                           type: integer
+ *                           example: 200000
+ *                         cofounderEarningKobo:
+ *                           type: integer
+ *                           example: 150000
+ *                         totalEarningNaira:
+ *                           type: string
+ *                           description: Naira equivalent (kobo ÷ 100)
+ *                           example: "3500.00"
  *                     transactions:
  *                       type: object
  *                       properties:
  *                         regular:
- *                           type: number
- *                           description: Number of completed regular share transactions
- *                           example: 2
+ *                           type: integer
+ *                           example: 3
  *                         cofounder:
- *                           type: number
- *                           description: Number of completed co-founder share transactions
+ *                           type: integer
  *                           example: 1
  *                         total:
- *                           type: number
- *                           description: Total number of completed transactions
+ *                           type: integer
+ *                           example: 4
+ *                         completed:
+ *                           type: integer
  *                           example: 3
+ *                         pending:
+ *                           type: integer
+ *                           example: 1
+ *                         failed:
+ *                           type: integer
+ *                           example: 0
  *                     investment:
  *                       type: object
  *                       properties:
  *                         totalNaira:
  *                           type: number
- *                           description: Total investment in Naira
- *                           example: 4500000
+ *                           example: 450000
  *                         totalUSDT:
  *                           type: number
- *                           description: Total investment in USDT
- *                           example: 2000
+ *                           example: 200
  *                     referrals:
  *                       type: object
  *                       properties:
  *                         totalReferred:
- *                           type: number
- *                           description: Total users referred
+ *                           type: integer
  *                           example: 8
  *                         totalEarnings:
  *                           type: number
- *                           description: Total referral earnings
  *                           example: 125000
  *                         generation1:
  *                           type: object
  *                           properties:
  *                             count:
- *                               type: number
+ *                               type: integer
  *                               example: 5
  *                             earnings:
  *                               type: number
@@ -301,7 +271,7 @@ router.get('/stats', projectController.getProjectStats);
  *                           type: object
  *                           properties:
  *                             count:
- *                               type: number
+ *                               type: integer
  *                               example: 2
  *                             earnings:
  *                               type: number
@@ -310,55 +280,51 @@ router.get('/stats', projectController.getProjectStats);
  *                           type: object
  *                           properties:
  *                             count:
- *                               type: number
+ *                               type: integer
  *                               example: 1
  *                             earnings:
  *                               type: number
  *                               example: 20000
+ *                     summary:
+ *                       type: object
+ *                       description: Human-readable summary strings
+ *                       properties:
+ *                         ownership:
+ *                           type: string
+ *                           example: "0.0035000% total (0.0020000% regular + 0.0015000% co-founder)"
+ *                         pendingOwnership:
+ *                           type: string
+ *                           nullable: true
+ *                           example: "0.0005000% pending verification"
+ *                         investmentSummary:
+ *                           type: string
+ *                           example: "₦450,000 + $200"
+ *                         statusBreakdown:
+ *                           type: string
+ *                           example: "3 completed, 1 pending, 0 failed"
  *       401:
- *         description: Unauthorized
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 success:
- *                   type: boolean
- *                   example: false
- *                 message:
- *                   type: string
- *                   example: "Not authorized, token failed"
+ *         $ref: '#/components/responses/UnauthorizedError'
  *       500:
- *         description: Server error
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 success:
- *                   type: boolean
- *                   example: false
- *                 message:
- *                   type: string
- *                   example: "Failed to fetch user project statistics"
- *                 error:
- *                   type: string
- *                   description: Detailed error information (development mode only)
+ *         $ref: '#/components/responses/ServerError'
  */
 router.get('/user-stats', protect, projectController.getUserProjectStats);
+
+// ─── /project/analytics ──────────────────────────────────────────────────────
 
 /**
  * @swagger
  * /project/analytics:
  *   get:
  *     summary: Get detailed project analytics (Admin only)
- *     description: Retrieve comprehensive project analytics including payment methods, user growth, and detailed statistics
+ *     description: >
+ *       Payment-method breakdown of ownership %, top shareholders,
+ *       and monthly user-growth data for the last 12 months.
  *     tags: [Project]
  *     security:
  *       - bearerAuth: []
  *     responses:
  *       200:
- *         description: Project analytics retrieved successfully
+ *         description: Analytics retrieved successfully
  *         content:
  *           application/json:
  *             schema:
@@ -370,59 +336,34 @@ router.get('/user-stats', protect, projectController.getUserProjectStats);
  *                 analytics:
  *                   type: object
  *                   properties:
- *                     shareStats:
- *                       type: object
- *                       description: Comprehensive share statistics from Share.getComprehensiveStats()
- *                       properties:
- *                         totalShares:
- *                           type: number
- *                           example: 10000
- *                         directRegularSharesSold:
- *                           type: number
- *                           example: 139
- *                         coFounderSharesSold:
- *                           type: number
- *                           example: 14
- *                         equivalentRegularSharesFromCoFounder:
- *                           type: number
- *                           example: 406
- *                         totalEffectiveSharesSold:
- *                           type: number
- *                           example: 545
- *                         totalEffectiveSharesRemaining:
- *                           type: number
- *                           example: 9455
- *                         shareToRegularRatio:
- *                           type: number
- *                           example: 29
  *                     paymentMethods:
  *                       type: object
  *                       properties:
  *                         regular:
  *                           type: array
- *                           description: Payment method breakdown for regular shares
+ *                           description: Ownership % grouped by payment method for regular shares
  *                           items:
  *                             type: object
  *                             properties:
  *                               _id:
  *                                 type: string
- *                                 description: Payment method name
  *                                 example: "paystack"
  *                               count:
- *                                 type: number
- *                                 description: Number of transactions
+ *                                 type: integer
  *                                 example: 45
+ *                               totalOwnershipPct:
+ *                                 type: number
+ *                                 format: float
+ *                                 example: 4.5000000
+ *                               totalEarningKobo:
+ *                                 type: integer
+ *                                 example: 45000000
  *                               totalAmount:
  *                                 type: number
- *                                 description: Total amount for this payment method
  *                                 example: 2250000
- *                               totalShares:
- *                                 type: number
- *                                 description: Total shares purchased via this method
- *                                 example: 45
  *                         cofounder:
  *                           type: array
- *                           description: Payment method breakdown for co-founder shares
+ *                           description: Ownership % grouped by payment method for co-founder shares
  *                           items:
  *                             type: object
  *                             properties:
@@ -430,17 +371,51 @@ router.get('/user-stats', protect, projectController.getUserProjectStats);
  *                                 type: string
  *                                 example: "manual_bank_transfer"
  *                               count:
- *                                 type: number
+ *                                 type: integer
  *                                 example: 8
+ *                               totalOwnershipPct:
+ *                                 type: number
+ *                                 format: float
+ *                                 example: 2.4000000
+ *                               totalEarningKobo:
+ *                                 type: integer
+ *                                 example: 24000000
  *                               totalAmount:
  *                                 type: number
  *                                 example: 8000000
- *                               totalShares:
- *                                 type: number
- *                                 example: 8
+ *                     topHolders:
+ *                       type: array
+ *                       description: Top 10 shareholders by ownership percentage
+ *                       items:
+ *                         type: object
+ *                         properties:
+ *                           user:
+ *                             type: object
+ *                             properties:
+ *                               _id:
+ *                                 type: string
+ *                               name:
+ *                                 type: string
+ *                                 example: "John Doe"
+ *                               email:
+ *                                 type: string
+ *                                 example: "john@example.com"
+ *                               username:
+ *                                 type: string
+ *                                 example: "johndoe"
+ *                           ownershipPct:
+ *                             type: number
+ *                             format: float
+ *                             example: 1.5000000
+ *                           formatted:
+ *                             type: string
+ *                             example: "1.5000000%"
+ *                           earningNaira:
+ *                             type: string
+ *                             example: "150000.00"
  *                     userGrowth:
  *                       type: array
- *                       description: User registration growth over the last 12 months
+ *                       description: Monthly user registrations over the last 12 months
  *                       items:
  *                         type: object
  *                         properties:
@@ -448,58 +423,21 @@ router.get('/user-stats', protect, projectController.getUserProjectStats);
  *                             type: object
  *                             properties:
  *                               year:
- *                                 type: number
- *                                 example: 2024
+ *                                 type: integer
+ *                                 example: 2025
  *                               month:
- *                                 type: number
- *                                 example: 12
+ *                                 type: integer
+ *                                 example: 4
  *                           count:
- *                             type: number
- *                             description: Number of users registered in this month
+ *                             type: integer
  *                             example: 125
  *       403:
- *         description: Forbidden - Admin access required
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 success:
- *                   type: boolean
- *                   example: false
- *                 message:
- *                   type: string
- *                   example: "Unauthorized: Admin access required"
+ *         $ref: '#/components/responses/ForbiddenError'
  *       401:
- *         description: Unauthorized
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 success:
- *                   type: boolean
- *                   example: false
- *                 message:
- *                   type: string
- *                   example: "Not authorized, token failed"
+ *         $ref: '#/components/responses/UnauthorizedError'
  *       500:
- *         description: Server error
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 success:
- *                   type: boolean
- *                   example: false
- *                 message:
- *                   type: string
- *                   example: "Failed to fetch project analytics"
- *                 error:
- *                   type: string
- *                   description: Detailed error information (development mode only)
+ *         $ref: '#/components/responses/ServerError'
  */
-router.get('/analytics', protect, projectController.getProjectAnalytics);
+router.get('/analytics', protect, adminProtect, projectController.getProjectAnalytics);
 
 module.exports = router;

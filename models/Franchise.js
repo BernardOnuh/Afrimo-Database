@@ -1,90 +1,100 @@
+/**
+ * Franchise Model - Reseller/Distributor System
+ *
+ * How it works (recharge-card model):
+ * - User purchases a franchise package (e.g. ₦800k) → gets ₦1M credit to distribute
+ * - Credit is spent when franchise approves share purchases for buyers (or themselves)
+ * - Buyers pay the franchise directly, upload proof → franchise approves → shares released
+ * - Franchise sells at COMPANY PRICES only — no custom pricing
+ * - Franchise earns the margin (bought ₦800k, distributes ₦1M worth = ₦200k profit)
+ * - NO referral commissions on franchise sales
+ */
+
 const mongoose = require('mongoose');
 
-const franchisePackageSchema = new mongoose.Schema({
-  name: { type: String, required: true },
-  description: { type: String },
-  // What the franchise charges the buyer
-  priceNGN: { type: Number, required: true },
-  priceUSD: { type: Number },
-  // How many shares (ownership units) included
-  sharesIncluded: { type: Number, required: true, default: 1 },
-  // Which tier these shares come from
-  tier: { type: String, required: true },
-  isActive: { type: Boolean, default: true },
-  createdAt: { type: Date, default: Date.now },
-});
+// ─── Franchise Packages (the "recharge cards") ───────────────────────────────
+// These are the packages a user buys TO BECOME / RELOAD a franchise.
+// costNaira = what they pay the company
+// creditNaira = how much share value they can distribute to buyers
+const FRANCHISE_PACKAGES = {
+  starter:    { label: 'Starter',    costNaira: 800_000,   creditNaira: 1_000_000 },
+  standard:   { label: 'Standard',   costNaira: 1_500_000, creditNaira: 2_000_000 },
+  pro:        { label: 'Pro',        costNaira: 2_000_000, creditNaira: 3_000_000 },
+  enterprise: { label: 'Enterprise', costNaira: 5_000_000, creditNaira: 8_000_000 },
+};
 
 const franchiseSchema = new mongoose.Schema({
-  // The user who owns this franchise
-  user: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true, unique: true },
+  user: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User',
+    required: true,
+    unique: true,   // one franchise per user
+  },
 
-  // Franchise status
-  status: { type: String, enum: ['pending', 'active', 'suspended', 'revoked'], default: 'pending' },
-  approvedAt: { type: Date },
+  status: {
+    type: String,
+    enum: ['pending', 'active', 'suspended', 'revoked'],
+    default: 'pending',
+  },
+
+  businessName: { type: String, required: true, trim: true },
+  businessDescription: { type: String, trim: true },
+
+  bankDetails: {
+    bankName:      { type: String, trim: true },
+    accountNumber: { type: String, trim: true },
+    accountName:   { type: String, trim: true },
+  },
+
+  approvedAt: Date,
   approvedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
 
-  // Business details
-  businessName: { type: String, required: true },
-  businessDescription: { type: String },
+  // ─── Credit / Wallet ────────────────────────────────────────────────────────
+  // creditBalance = how much (in Naira) the franchise can still distribute
+  // totalCreditPurchased = lifetime total credit bought
+  // totalCreditUsed = lifetime total credit spent approving sales
+  creditBalance:         { type: Number, default: 0, min: 0 },
+  totalCreditPurchased:  { type: Number, default: 0 },
+  totalCreditUsed:       { type: Number, default: 0 },
 
-  // Bank details for buyers to pay
-  bankDetails: {
-    bankName: { type: String },
-    accountNumber: { type: String },
-    accountName: { type: String },
-  },
-
-  // Inventory — shares purchased in bulk from company
-  inventory: {
-    totalSharesPurchased: { type: Number, default: 0 },
-    totalSharesSold: { type: Number, default: 0 },
-    availableShares: { type: Number, default: 0 },
-    // Track by tier
-    tierInventory: {
-      type: Map,
-      of: new mongoose.Schema({
-        purchased: { type: Number, default: 0 },
-        sold: { type: Number, default: 0 },
-        available: { type: Number, default: 0 },
-      }, { _id: false }),
-      default: {},
-    },
-  },
-
-  // Bulk purchase history (buying from company at discount)
-  bulkPurchases: [{
-    transactionId: { type: String },
-    tier: { type: String },
-    quantity: { type: Number },
-    originalPrice: { type: Number }, // full price
-    discountedPrice: { type: Number }, // what they paid (30% off)
-    discountPercent: { type: Number, default: 30 },
-    paymentMethod: { type: String },
-    paymentProof: { type: String },
-    paymentProofCloudinaryId: { type: String },
-    status: { type: String, enum: ['pending', 'approved', 'rejected'], default: 'pending' },
-    approvedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
-    approvedAt: { type: Date },
-    createdAt: { type: Date, default: Date.now },
-  }],
-
-  // Custom packages the franchise created for resale
-  packages: [franchisePackageSchema],
-
-  // Franchise forfeits referral bonuses
-  referralBonusForfeited: { type: Boolean, default: true },
-
-  // Stats
-  totalRevenue: { type: Number, default: 0 },
-  totalSales: { type: Number, default: 0 },
+  // ─── Stats ──────────────────────────────────────────────────────────────────
+  totalSales:   { type: Number, default: 0 },   // number of approved transactions
   disputeCount: { type: Number, default: 0 },
 
-  createdAt: { type: Date, default: Date.now },
-  updatedAt: { type: Date, default: Date.now },
-}, { timestamps: true });
+  // ─── Credit Purchase History (buying franchise packages) ────────────────────
+  creditPurchases: [{
+    transactionId: String,
+    packageKey:    String,   // 'starter' | 'standard' | 'pro' | 'enterprise'
+    packageLabel:  String,
+    costNaira:     Number,   // what they paid
+    creditNaira:   Number,   // credit received
+    paymentMethod: String,
+    paymentProofPath:       String,
+    paymentProofCloudinaryUrl: String,
+    paymentProofCloudinaryId:  String,
+    paymentProofOriginalName:  String,
+    paymentProofFileSize:      Number,
+    status: {
+      type: String,
+      enum: ['pending', 'approved', 'rejected'],
+      default: 'pending',
+    },
+    adminNote:  String,
+    approvedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+    approvedAt: Date,
+    createdAt:  { type: Date, default: Date.now },
+  }],
+}, {
+  timestamps: true,
+});
 
-// Minimum bulk purchase amount
-franchiseSchema.statics.MIN_BULK_AMOUNT = 500000; // ₦500k
-franchiseSchema.statics.DISCOUNT_PERCENT = 30;
+// ─── Static: get package config ──────────────────────────────────────────────
+franchiseSchema.statics.getPackages = function () {
+  return FRANCHISE_PACKAGES;
+};
+
+franchiseSchema.statics.getPackage = function (key) {
+  return FRANCHISE_PACKAGES[key] || null;
+};
 
 module.exports = mongoose.model('Franchise', franchiseSchema);

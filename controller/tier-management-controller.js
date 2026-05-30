@@ -530,7 +530,7 @@ exports.getTierChangeHistory = async (req, res) => {
 
 /**
  * @desc    Create new investment package
- * @route   POST /api/shares/admin/packages/create
+ * @route   POST /shares/admin/packages/create
  * @access  Private (Admin)
  */
 exports.createPackage = async (req, res) => {
@@ -717,7 +717,7 @@ exports.createPackage = async (req, res) => {
 
 /**
  * @desc    Get all packages
- * @route   GET /api/shares/admin/packages
+ * @route   GET /shares/admin/packages
  * @access  Private (Admin)
  */
 exports.getAllPackages = async (req, res) => {
@@ -773,7 +773,7 @@ exports.getAllPackages = async (req, res) => {
 
 /**
  * @desc    Edit existing package
- * @route   PUT /api/shares/admin/packages/:packageId/edit
+ * @route   PUT /shares/admin/packages/:packageId/edit
  * @access  Private (Admin)
  */
 exports.editPackage = async (req, res) => {
@@ -829,7 +829,7 @@ exports.editPackage = async (req, res) => {
 
 /**
  * @desc    Delete package
- * @route   DELETE /api/shares/admin/packages/:packageId/delete
+ * @route   DELETE /shares/admin/packages/:packageId/delete
  * @access  Private (Admin)
  */
 exports.deletePackage = async (req, res) => {

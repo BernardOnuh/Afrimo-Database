@@ -5,7 +5,6 @@ const transactionSchema = new mongoose.Schema({
   transactionId: {
     type: String,
     required: true,
-    index: true
   },
   type: {
     type: String,
@@ -14,8 +13,8 @@ const transactionSchema = new mongoose.Schema({
   },
   // Package reference (new system)
   packageId: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'SharePackage'
+    type: String,  // Changed from ObjectId to String to support tier keys like "basic"
+    default: null
   },
   packageLabel: String,
   
@@ -261,15 +260,15 @@ userShareSchema.statics.getUserBreakdown = async function(userId) {
     t => t.status === 'completed' && t.type === 'share'
   );
   
-  const cofoundenCompleted = record.transactions.filter(
+  const cofounderCompleted = record.transactions.filter(
     t => t.status === 'completed' && t.type === 'co-founder'
   );
   
   const regularOwnership = regularCompleted.reduce((sum, t) => sum + t.ownershipPct, 0);
   const regularEarning = regularCompleted.reduce((sum, t) => sum + t.earningKobo, 0);
   
-  const cofoundenOwnership = cofoundenCompleted.reduce((sum, t) => sum + t.ownershipPct, 0);
-  const cofoundenEarning = cofoundenCompleted.reduce((sum, t) => sum + t.earningKobo, 0);
+  const cofounderOwnership = cofounderCompleted.reduce((sum, t) => sum + t.ownershipPct, 0);
+  const cofounderEarning = cofounderCompleted.reduce((sum, t) => sum + t.earningKobo, 0);
   
   return {
     totalOwnershipPct: record.totalOwnershipPct,
@@ -282,12 +281,117 @@ userShareSchema.statics.getUserBreakdown = async function(userId) {
       formattedOwnership: regularOwnership.toFixed(7) + '%'
     },
     cofounder: {
-      ownershipPct: cofoundenOwnership,
-      earningKobo: cofoundenEarning,
-      transactions: cofoundenCompleted.length,
-      formattedOwnership: cofoundenOwnership.toFixed(7) + '%'
+      ownershipPct: cofounderOwnership,
+      earningKobo: cofounderEarning,
+      transactions: cofounderCompleted.length,
+      formattedOwnership: cofounderOwnership.toFixed(7) + '%'
     }
   };
+};
+
+// ============================================================================
+// ADMIN METHODS FOR ADDING SHARES
+// ============================================================================
+
+/**
+ * Add regular shares to user (Admin action)
+ */
+userShareSchema.statics.addShares = async function(userId, shares, txData) {
+  let record = await this.findOne({ user: userId });
+  
+  if (!record) {
+    record = new this({
+      user: userId,
+      totalOwnershipPct: 0,
+      totalEarningKobo: 0,
+      transactions: []
+    });
+  }
+  
+  // Create transaction object with regular share type
+  const transaction = {
+    transactionId: txData.transactionId,
+    type: 'share',
+    packageId: txData.packageId,
+    packageLabel: txData.packageLabel,
+    shares: shares,
+    ownershipPct: txData.ownershipPct || 0,
+    earningKobo: txData.earningKobo || 0,
+    amount: txData.totalAmount,
+    currency: txData.currency || 'naira',
+    paymentMethod: txData.paymentMethod,
+    status: txData.status || 'completed',
+    adminAction: true,
+    adminNote: txData.adminNote,
+    tierBreakdown: txData.tierBreakdown || { tier1: shares, tier2: 0, tier3: 0 }
+  };
+  
+  record.transactions.push(transaction);
+  
+  // Update totals if status is completed
+  if (transaction.status === 'completed') {
+    record.totalOwnershipPct = parseFloat(
+      (record.totalOwnershipPct + transaction.ownershipPct).toFixed(10)
+    );
+    record.totalEarningKobo += transaction.earningKobo;
+  }
+  
+  await record.save();
+  
+  console.log(`✅ Admin added ${shares} regular shares to user ${userId}`);
+  return record;
+};
+
+/**
+ * Add co-founder shares to user (Admin action)
+ */
+userShareSchema.statics.addCoFounderShares = async function(userId, shares, txData) {
+  let record = await this.findOne({ user: userId });
+  
+  if (!record) {
+    record = new this({
+      user: userId,
+      totalOwnershipPct: 0,
+      totalEarningKobo: 0,
+      transactions: []
+    });
+  }
+  
+  // Create transaction object with co-founder type
+  const transaction = {
+    transactionId: txData.transactionId,
+    type: 'co-founder',
+    packageId: txData.packageId,
+    packageLabel: txData.packageLabel,
+    shares: shares,
+    coFounderShares: shares,
+    ownershipPct: txData.ownershipPct,
+    earningKobo: txData.earningKobo,
+    amount: txData.totalAmount,
+    currency: txData.currency || 'naira',
+    paymentMethod: txData.paymentMethod,
+    status: 'completed',
+    adminAction: true,
+    adminNote: txData.adminNote,
+    equivalentRegularShares: txData.equivalentRegularShares,
+    shareToRegularRatio: txData.shareToRegularRatio
+  };
+  
+  record.transactions.push(transaction);
+  
+  // Update totals
+  record.totalOwnershipPct = parseFloat(
+    (record.totalOwnershipPct + txData.ownershipPct).toFixed(10)
+  );
+  record.totalEarningKobo += txData.earningKobo;
+  
+  await record.save();
+  
+  console.log(`✅ Admin added ${shares} co-founder shares to user ${userId}`);
+  console.log(`   Ownership: +${txData.ownershipPct}% (total: ${record.totalOwnershipPct}%)`);
+  console.log(`   Earning: +${txData.earningKobo} kobo (total: ${record.totalEarningKobo})`);
+  
+  return record;
 };
 
 // ============================================================================
@@ -330,6 +434,76 @@ userShareSchema.methods.getOwnershipSummary = function() {
         .filter(t => t.type === 'co-founder')
         .reduce((sum, t) => sum + t.ownershipPct, 0)
     }
+  };
+};
+
+/**
+ * Get detailed share breakdown (ADD THIS METHOD)
+ */
+userShareSchema.methods.getShareBreakdown = function() {
+  let regularShares = 0;
+  let coFounderShares = 0;
+  let regularOwnershipPct = 0;
+  let coFounderOwnershipPct = 0;
+  let regularEarningKobo = 0;
+  let coFounderEarningKobo = 0;
+  let regularTransactions = 0;
+  let coFounderTransactions = 0;
+  
+  // Process completed transactions only
+  this.transactions.forEach(tx => {
+    if (tx.status === 'completed') {
+      if (tx.type === 'co-founder') {
+        coFounderShares += tx.shares || 1;
+        coFounderOwnershipPct += tx.ownershipPct || 0;
+        coFounderEarningKobo += tx.earningKobo || 0;
+        coFounderTransactions++;
+      } else {
+        regularShares += tx.shares || 1;
+        regularOwnershipPct += tx.ownershipPct || 0;
+        regularEarningKobo += tx.earningKobo || 0;
+        regularTransactions++;
+      }
+    }
+  });
+  
+  const totalShares = regularShares + coFounderShares;
+  const totalOwnershipPct = regularOwnershipPct + coFounderOwnershipPct;
+  const totalEarningKobo = regularEarningKobo + coFounderEarningKobo;
+  
+  return {
+    // Regular shares breakdown
+    regular: {
+      shares: regularShares,
+      ownershipPct: regularOwnershipPct,
+      earningKobo: regularEarningKobo,
+      formattedOwnership: `${(regularOwnershipPct * 100).toFixed(7)}%`,
+      formattedEarning: `₦${(regularEarningKobo / 100).toLocaleString()}`,
+      transactions: regularTransactions
+    },
+    // Co-founder shares breakdown
+    cofounder: {
+      shares: coFounderShares,
+      ownershipPct: coFounderOwnershipPct,
+      earningKobo: coFounderEarningKobo,
+      formattedOwnership: `${(coFounderOwnershipPct * 100).toFixed(7)}%`,
+      formattedEarning: `₦${(coFounderEarningKobo / 100).toLocaleString()}`,
+      transactions: coFounderTransactions
+    },
+    // Combined totals
+    total: {
+      shares: totalShares,
+      ownershipPct: totalOwnershipPct,
+      earningKobo: totalEarningKobo,
+      formattedOwnership: `${(totalOwnershipPct * 100).toFixed(7)}%`,
+      formattedEarning: `₦${(totalEarningKobo / 100).toLocaleString()}`,
+      transactions: regularTransactions + coFounderTransactions
+    },
+    // Legacy fields for backward compatibility
+    totalOwnershipPct: totalOwnershipPct,
+    totalEarningKobo: totalEarningKobo,
+    regularShares: regularShares,
+    coFounderShares: coFounderShares
   };
 };
 

@@ -21,9 +21,9 @@ const TransactionSchema = new mongoose.Schema({
   },
 
   // Package info (replaces shares/tiers system)
+  // FIXED: Changed to Mixed type to accept both ObjectId and String
   packageId: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'SharePackage',
+    type: mongoose.Schema.Types.Mixed,  // Accepts both ObjectId and String
     required: false
   },
   packageLabel: {
@@ -54,7 +54,12 @@ const TransactionSchema = new mongoose.Schema({
     enum: [
       'manual_bank_transfer',
       'manual_cash',
-      'manual_other'
+      'manual_other',
+      'centiiv',
+      'web3',
+      'crypto',
+      'franchise',        // ← add this
+      'franchise_credit', // ← add this (used by self-purchase)
     ],
     required: true
   },
@@ -126,6 +131,12 @@ TransactionSchema.methods.getPaymentProofUrl = function () {
   return `${base}/payment-proof/${this.transactionId}`;
 };
 
+// FIXED: Add method to check if packageId is a valid ObjectId
+TransactionSchema.methods.isObjectIdPackage = function () {
+  return mongoose.Types.ObjectId.isValid(this.packageId) && 
+         typeof this.packageId !== 'string';
+};
+
 // ── Static methods ────────────────────────────────────────────────────────────
 TransactionSchema.statics.findPendingManual = function (type = null) {
   const query = {
@@ -140,6 +151,11 @@ TransactionSchema.statics.findPendingManual = function (type = null) {
 
 TransactionSchema.statics.findByType = function (type, conditions = {}) {
   return this.find({ ...conditions, type });
+};
+
+// FIXED: Add static method to find transactions by packageId (string or ObjectId)
+TransactionSchema.statics.findByPackageId = function (packageId) {
+  return this.find({ packageId });
 };
 
 // ── Virtuals ──────────────────────────────────────────────────────────────────
@@ -160,10 +176,24 @@ TransactionSchema.virtual('statusDisplay').get(function () {
   }[this.status] || { text: this.status, color: 'gray' };
 });
 
+// FIXED: Add virtual for package display
+TransactionSchema.virtual('packageDisplay').get(function () {
+  if (this.packageLabel) return this.packageLabel;
+  if (typeof this.packageId === 'string') return this.packageId;
+  return 'Unknown Package';
+});
+
 // ── Serialization ─────────────────────────────────────────────────────────────
 TransactionSchema.set('toJSON', {
   virtuals: true,
-  transform: (doc, ret) => { delete ret.__v; return ret; }
+  transform: (doc, ret) => { 
+    delete ret.__v; 
+    // Ensure packageId is always serialized properly
+    if (ret.packageId && typeof ret.packageId === 'object') {
+      ret.packageId = ret.packageId.toString();
+    }
+    return ret; 
+  }
 });
 TransactionSchema.set('toObject', { virtuals: true });
 
@@ -172,12 +202,29 @@ TransactionSchema.pre('validate', function (next) {
   if (this.isManualPayment() && !this.transactionId) {
     return next(new Error('Manual payments require a transaction ID'));
   }
+  
+  // Validate packageId presence
+  if (!this.packageId && !this.packageLabel) {
+    return next(new Error('Either packageId or packageLabel is required'));
+  }
+  
+  next();
+});
+
+// FIXED: Pre-save hook to handle packageId type consistency
+TransactionSchema.pre('save', function (next) {
+  // If packageId is a string that looks like an ObjectId, convert it
+  if (typeof this.packageId === 'string' && mongoose.Types.ObjectId.isValid(this.packageId)) {
+    // Keep as string since we're using Mixed type
+    // This prevents unnecessary conversion issues
+    this.packageId = this.packageId;
+  }
   next();
 });
 
 // ── Logging ───────────────────────────────────────────────────────────────────
 TransactionSchema.post('save', function (doc) {
-  console.log(`[Transaction] ${doc.type} | ${doc.transactionId} | ${doc.status} | ${doc.ownershipPct}%`);
+  console.log(`[Transaction] ${doc.type} | ${doc.transactionId || 'N/A'} | ${doc.status} | Package: ${doc.packageDisplay || 'N/A'} | ${doc.ownershipPct || 0}%`);
 });
 
 module.exports = mongoose.model('Transaction', TransactionSchema);

@@ -3,61 +3,105 @@ const Transaction = require('../models/Transaction');
 const Withdrawal = require('../models/Withdrawal');
 const UserShare = require('../models/UserShare');
 
+// controllers/adminAnalyticsController.js
+
 exports.getOverview = async (req, res) => {
   try {
     const { year, month } = req.query;
     
-    console.log('Filter params:', { year, month }); // Debug log
-    
-    // Function to get date range based on filter
+    console.log('Filter params:', { year, month });
+
     const getDateRangeForFilter = () => {
       if (!year && !month) return null;
       
       let startDate, endDate;
       
       if (year && month) {
-        // Specific month
         const y = parseInt(year);
         const m = parseInt(month) - 1;
         startDate = new Date(y, m, 1, 0, 0, 0);
         endDate = new Date(y, m + 1, 1, 0, 0, 0);
       } else if (year && !month) {
-        // Full year
         const y = parseInt(year);
         startDate = new Date(y, 0, 1, 0, 0, 0);
         endDate = new Date(y + 1, 0, 1, 0, 0, 0);
       }
       
-      console.log('Date range:', { startDate, endDate }); // Debug log
       return { startDate, endDate };
     };
     
     const filterRange = getDateRangeForFilter();
     
-    // Build stats for a specific date range
+    // Updated: Build stats using percent-based model
     const buildPeriodStats = async (startDate, endDate) => {
-      const [txAgg, newUsers, sharesAgg, wdAgg] = await Promise.all([
-        Transaction.aggregate([
-          { $match: { createdAt: { $gte: startDate, $lt: endDate }, status: 'completed' } },
-          { $group: { _id: null, count: { $sum: 1 }, amount: { $sum: '$amount' } } }
-        ]),
-        User.countDocuments({ createdAt: { $gte: startDate, $lt: endDate } }),
-        UserShare.aggregate([
-          { $unwind: '$transactions' },
-          { $match: { 'transactions.date': { $gte: startDate, $lt: endDate }, 'transactions.status': 'completed' } },
-          { $group: { _id: null, count: { $sum: '$transactions.shares' } } }
-        ]),
-        Withdrawal.aggregate([
-          { $match: { createdAt: { $gte: startDate, $lt: endDate }, status: { $in: ['completed', 'paid'] } } },
-          { $group: { _id: null, count: { $sum: 1 }, amount: { $sum: '$amount' } } }
-        ])
-      ]);
+      // Get completed transactions
+      const transactions = await Transaction.find({
+        createdAt: { $gte: startDate, $lt: endDate },
+        status: 'completed'
+      }).lean();
+      
+      const txCount = transactions.length;
+      const txAmount = transactions.reduce((sum, tx) => sum + (tx.amount || 0), 0);
+      
+      // Get new users
+      const newUsers = await User.countDocuments({ 
+        createdAt: { $gte: startDate, $lt: endDate } 
+      });
+      
+      // For shares sold - now using ownershipPct instead of share count
+      // Each transaction represents 1 "unit" (package purchase) with a certain ownership %
+      const sharesSold = transactions.length; // Each transaction = 1 share unit
+      
+      // For total ownership % calculation (optional - can be useful)
+      const totalOwnershipPct = transactions.reduce((sum, tx) => sum + (tx.ownershipPct || 0), 0);
+      
+      // Get completed withdrawals
+      const withdrawals = await Withdrawal.find({
+        createdAt: { $gte: startDate, $lt: endDate },
+        status: { $in: ['completed', 'paid'] }
+      }).lean();
+      
+      const wdCount = withdrawals.length;
+      const wdAmount = withdrawals.reduce((sum, wd) => sum + (wd.amount || 0), 0);
       
       return {
-        transactions: { count: txAgg[0]?.count || 0, amount: txAgg[0]?.amount || 0 },
+        transactions: { count: txCount, amount: txAmount },
         newUsers,
-        sharesSold: sharesAgg[0]?.count || 0,
-        withdrawals: { count: wdAgg[0]?.count || 0, amount: wdAgg[0]?.amount || 0 }
+        sharesSold,  // Now represents number of completed transactions/purchases
+        totalOwnershipPct,  // Added: total ownership percentage for the period
+        withdrawals: { count: wdCount, amount: wdAmount }
+      };
+    };
+    
+    // Updated: Build all-time stats
+    const buildAllTimeStats = async (startDate = null, endDate = null) => {
+      const matchCondition = {};
+      if (startDate && endDate) {
+        matchCondition.createdAt = { $gte: startDate, $lt: endDate };
+      }
+      
+      const transactions = await Transaction.find({
+        ...matchCondition,
+        status: 'completed'
+      }).lean();
+      
+      const withdrawals = await Withdrawal.find({
+        ...matchCondition,
+        status: { $in: ['completed', 'paid'] }
+      }).lean();
+      
+      const users = await User.find(matchCondition).lean();
+      
+      return {
+        totalUsers: users.length,
+        totalTransactions: transactions.length,
+        totalRevenue: transactions.reduce((sum, tx) => sum + (tx.amount || 0), 0),
+        totalSharesSold: transactions.length, // Each completed transaction = 1 share unit
+        totalOwnershipPct: transactions.reduce((sum, tx) => sum + (tx.ownershipPct || 0), 0),
+        totalWithdrawals: {
+          count: withdrawals.length,
+          amount: withdrawals.reduce((sum, wd) => sum + (wd.amount || 0), 0)
+        }
       };
     };
     
@@ -67,39 +111,12 @@ exports.getOverview = async (req, res) => {
     let recentUsers;
     
     if (filterRange) {
-      // FILTERED VIEW - All periods show the same filtered data
+      // FILTERED VIEW
       const { startDate, endDate } = filterRange;
       const periodStats = await buildPeriodStats(startDate, endDate);
       daily = weekly = monthly = yearly = periodStats;
       
-      // All time stats within filter range
-      const [totalUsers, totalTxAgg, totalSharesAgg, totalWdAgg] = await Promise.all([
-        User.countDocuments({ createdAt: { $gte: startDate, $lt: endDate } }),
-        Transaction.aggregate([
-          { $match: { createdAt: { $gte: startDate, $lt: endDate }, status: 'completed' } },
-          { $group: { _id: null, count: { $sum: 1 }, amount: { $sum: '$amount' } } }
-        ]),
-        UserShare.aggregate([
-          { $unwind: '$transactions' },
-          { $match: { 'transactions.date': { $gte: startDate, $lt: endDate }, 'transactions.status': 'completed' } },
-          { $group: { _id: null, count: { $sum: '$transactions.shares' } } }
-        ]),
-        Withdrawal.aggregate([
-          { $match: { createdAt: { $gte: startDate, $lt: endDate }, status: { $in: ['completed', 'paid'] } } },
-          { $group: { _id: null, count: { $sum: 1 }, amount: { $sum: '$amount' } } }
-        ])
-      ]);
-      
-      allTimeStats = {
-        totalUsers,
-        totalTransactions: totalTxAgg[0]?.count || 0,
-        totalRevenue: totalTxAgg[0]?.amount || 0,
-        totalSharesSold: totalSharesAgg[0]?.count || 0,
-        totalWithdrawals: {
-          count: totalWdAgg[0]?.count || 0,
-          amount: totalWdAgg[0]?.amount || 0
-        }
-      };
+      allTimeStats = await buildAllTimeStats(startDate, endDate);
       
       // Filtered recent activity
       const [rawTransactions, rawWithdrawals] = await Promise.all([
@@ -118,18 +135,24 @@ exports.getOverview = async (req, res) => {
           .lean()
       ]);
       
-      const taggedTransactions = rawTransactions.map(tx => ({ ...tx, activityType: 'transaction' }));
+      const taggedTransactions = rawTransactions.map(tx => ({ 
+        ...tx, 
+        activityType: 'transaction',
+        // Map userId to consistent field
+        userId: tx.userId
+      }));
+      
       const taggedWithdrawals = rawWithdrawals.map(wd => ({ 
         ...wd, 
         activityType: 'withdrawal',
-        userId: wd.user
+        userId: wd.user,
+        withdrawalType: wd.withdrawalType || (wd.paymentDetails ? 'bank' : 'crypto')
       }));
       
       recentActivity = [...taggedTransactions, ...taggedWithdrawals]
         .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
         .slice(0, 40);
       
-      // Filtered recent users
       recentUsers = await User.find({ createdAt: { $gte: startDate, $lt: endDate } })
         .sort({ createdAt: -1 })
         .limit(10)
@@ -144,8 +167,8 @@ exports.getOverview = async (req, res) => {
       const currentDate = now.getDate();
       
       const dailyRange = {
-        start: new Date(currentYear, currentMonth, currentDate),
-        end: new Date(currentYear, currentMonth, currentDate + 1)
+        start: new Date(currentYear, currentMonth, currentDate, 0, 0, 0),
+        end: new Date(currentYear, currentMonth, currentDate + 1, 0, 0, 0)
       };
       
       const weeklyStart = new Date(now);
@@ -173,61 +196,41 @@ exports.getOverview = async (req, res) => {
         buildPeriodStats(yearlyRange.start, yearlyRange.end)
       ]);
       
-      // All-time stats (no filter)
-      const [totalUsers, totalTxAgg, totalSharesAgg, totalWdAgg] = await Promise.all([
-        User.countDocuments(),
-        Transaction.aggregate([
-          { $match: { status: 'completed' } },
-          { $group: { _id: null, count: { $sum: 1 }, amount: { $sum: '$amount' } } }
-        ]),
-        UserShare.aggregate([
-          { $unwind: '$transactions' },
-          { $match: { 'transactions.status': 'completed' } },
-          { $group: { _id: null, count: { $sum: '$transactions.shares' } } }
-        ]),
-        Withdrawal.aggregate([
-          { $match: { status: { $in: ['completed', 'paid'] } } },
-          { $group: { _id: null, count: { $sum: 1 }, amount: { $sum: '$amount' } } }
-        ])
-      ]);
+      allTimeStats = await buildAllTimeStats();
       
-      allTimeStats = {
-        totalUsers,
-        totalTransactions: totalTxAgg[0]?.count || 0,
-        totalRevenue: totalTxAgg[0]?.amount || 0,
-        totalSharesSold: totalSharesAgg[0]?.count || 0,
-        totalWithdrawals: {
-          count: totalWdAgg[0]?.count || 0,
-          amount: totalWdAgg[0]?.amount || 0
-        }
-      };
-      
-      // Recent activity (last 40)
+      // Recent activity (last 40 overall)
       const [rawTransactions, rawWithdrawals] = await Promise.all([
         Transaction.find()
           .sort({ createdAt: -1 })
           .limit(40)
           .populate('userId', 'name email userName')
           .lean(),
-        Withdrawal.find({ status: { $in: ['completed', 'paid', 'pending', 'processing', 'failed', 'rejected'] } })
+        Withdrawal.find({ 
+          status: { $in: ['completed', 'paid', 'pending', 'processing', 'failed', 'rejected'] }
+        })
           .sort({ createdAt: -1 })
           .limit(40)
           .populate('user', 'name email userName')
           .lean()
       ]);
       
-      const taggedTransactions = rawTransactions.map(tx => ({ ...tx, activityType: 'transaction' }));
+      const taggedTransactions = rawTransactions.map(tx => ({ 
+        ...tx, 
+        activityType: 'transaction',
+        userId: tx.userId
+      }));
+      
       const taggedWithdrawals = rawWithdrawals.map(wd => ({ 
         ...wd, 
         activityType: 'withdrawal',
-        userId: wd.user
+        userId: wd.user,
+        withdrawalType: wd.withdrawalType || (wd.paymentDetails ? 'bank' : 'crypto')
       }));
       
       recentActivity = [...taggedTransactions, ...taggedWithdrawals]
         .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
         .slice(0, 40);
       
-      // Recent users
       recentUsers = await User.find()
         .sort({ createdAt: -1 })
         .limit(10)
@@ -245,9 +248,10 @@ exports.getOverview = async (req, res) => {
         allTime: allTimeStats,
         recentActivity,
         recentUsers,
-        filterApplied: filterRange ? { year, month } : null // Helpful for debugging
+        filterApplied: filterRange ? { year, month } : null
       }
     });
+    
   } catch (error) {
     console.error('Admin analytics overview error:', error);
     res.status(500).json({ 
@@ -257,6 +261,110 @@ exports.getOverview = async (req, res) => {
     });
   }
 };
+
+// getTransactionDetail remains the same - it already handles percent-based data correctly
+exports.getTransactionDetail = async (req, res) => {
+  try {
+    const { transactionId } = req.params;
+
+    const transaction = await Transaction.findOne({ transactionId })
+      .populate('userId', 'name email phone userName referralCode referredBy createdAt onboardingAgreed')
+      .lean();
+
+    if (!transaction) {
+      const txById = await Transaction.findById(transactionId)
+        .populate('userId', 'name email phone userName referralCode referredBy createdAt onboardingAgreed')
+        .lean();
+      if (!txById) {
+        return res.status(404).json({ success: false, message: 'Transaction not found' });
+      }
+      return await buildDetailResponse(res, txById);
+    }
+
+    return await buildDetailResponse(res, transaction);
+  } catch (error) {
+    console.error('Transaction detail error:', error);
+    res.status(500).json({ success: false, message: 'Failed to fetch transaction detail', error: error.message });
+  }
+};
+
+async function buildDetailResponse(res, transaction) {
+  const user = transaction.userId;
+  
+  let referrer = null;
+  if (user?.referredBy) {
+    referrer = await User.findById(user.referredBy).select('_id name email phone userName').lean();
+  }
+
+  let userShareData = null;
+  if (user?._id) {
+    const userShare = await UserShare.findOne({ user: user._id }).lean();
+    if (userShare) {
+      const matchingTx = userShare.transactions?.find(t => t.transactionId === transaction.transactionId);
+      userShareData = {
+        totalOwnershipPct: userShare.totalOwnershipPct,
+        coFounderOwnershipPct: userShare.coFounderOwnershipPct,
+        matchingTransaction: matchingTx || null
+      };
+    }
+  }
+
+  // Log the actual values for debugging
+  console.log('Transaction data:', {
+    transactionId: transaction.transactionId,
+    status: transaction.status,
+    ownershipPct: transaction.ownershipPct,
+    earningKobo: transaction.earningKobo,
+    tier: transaction.tier,
+    amount: transaction.amount
+  });
+
+  res.json({
+    success: true,
+    data: {
+      transaction: {
+        transactionId: transaction.transactionId,
+        type: transaction.type,
+        amount: transaction.amount,
+        currency: transaction.currency,
+        status: transaction.status,
+        paymentMethod: transaction.paymentMethod,
+        paymentProof: transaction.paymentProof || transaction.paymentProofCloudinaryUrl || null,
+        paymentProofCloudinaryId: transaction.paymentProofCloudinaryId,
+        tier: transaction.tier,
+        // Return whatever is in the database, even if 0 or null
+        ownershipPct: transaction.ownershipPct !== undefined && transaction.ownershipPct !== null 
+          ? transaction.ownershipPct 
+          : null,
+        earningKobo: transaction.earningKobo !== undefined && transaction.earningKobo !== null 
+          ? transaction.earningKobo 
+          : null,
+        tierBreakdown: transaction.tierBreakdown,
+        reference: transaction.reference,
+        createdAt: transaction.createdAt,
+        updatedAt: transaction.updatedAt,
+      },
+      user: user ? {
+        _id: user._id,
+        name: user.name,
+        email: user.email,
+        phone: user.phone,
+        userName: user.userName,
+        referralCode: user.referralCode,
+        onboardingAgreed: user.onboardingAgreed,
+        joinedAt: user.createdAt,
+      } : null,
+      referrer: referrer ? {
+        _id: referrer._id,
+        name: referrer.name,
+        email: referrer.email,
+        phone: referrer.phone,
+        userName: referrer.userName,
+      } : null,
+      userShareData,
+    }
+  });
+}
 
 
 
