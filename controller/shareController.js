@@ -2019,192 +2019,223 @@ exports.getSharePurchaseReport = async (req, res) => {
 };
 
 // ==================== ADMIN USER OVERVIEW ====================
-
 exports.adminGetUserOverview = async (req, res) => {
   try {
     const { identifier } = req.params;
     const adminId = req.user.id;
-    
+
     const admin = await User.findById(adminId);
     if (!admin || !admin.isAdmin) {
-      return res.status(403).json({
-        success: false,
-        message: 'Unauthorized: Admin access required'
-      });
+      return res.status(403).json({ success: false, message: 'Unauthorized: Admin access required' });
     }
-    
+
     const user = await resolveUserIdentifier(identifier);
     if (!user) {
-      return res.status(404).json({
-        success: false,
-        message: 'User not found',
-        searchedFor: identifier
-      });
+      return res.status(404).json({ success: false, message: 'User not found', searchedFor: identifier });
     }
-    
-    const allCompletedTransactions = await PaymentTransaction.find({
-      userId: user._id,
-      status: 'completed'
-    });
-    
-    const pendingTransactions = await PaymentTransaction.find({
-      userId: user._id,
-      status: 'pending'
-    });
-    
-    let totalOwnershipPct = 0;
-    let totalEarningKobo = 0;
-    let totalSpentNaira = 0;
-    let totalSpentUSDT = 0;
-    let regularCount = 0;
-    let cofounderCount = 0;
-    let regularOwnershipPct = 0;
-    let cofounderOwnershipPct = 0;
-    let regularEarningKobo = 0;
-    let cofounderEarningKobo = 0;
-    
-    for (const tx of allCompletedTransactions) {
-      totalOwnershipPct += tx.ownershipPct || 0;
-      totalEarningKobo += tx.earningKobo || 0;
-      
-      if (tx.currency === 'naira') {
-        totalSpentNaira += tx.amount || 0;
-      } else if (tx.currency === 'usdt') {
-        totalSpentUSDT += tx.amount || 0;
+
+    const tierConfig = await TierConfig.getCurrentConfig();
+
+    // ── fetch from both sources, same as getUserProjectStats ─────────────────
+    const [allPTxs, userShare] = await Promise.all([
+      PaymentTransaction.find({ userId: user._id }).lean(),
+      UserShare.findOne({ user: user._id }).lean()
+    ]);
+
+    // Deduplicate: legacy = UserShare txs not already in PaymentTransaction
+    const ptxIds = new Set(allPTxs.map(t => t.transactionId));
+    const legacyTxs = (userShare?.transactions || []).filter(
+      t => t.transactionId && !ptxIds.has(t.transactionId)
+    );
+
+    // Combine all transactions into one unified list
+    const allTxs = [...allPTxs, ...legacyTxs];
+
+    // ── resolveAmount: same logic as getUserProjectStats ─────────────────────
+    const resolveAmount = (tx) => {
+      let amt = parseFloat(tx.amount ?? tx.totalAmount ?? 0) || 0;
+      if (amt === 0 && tx.tierKey) {
+        const tier = tierConfig.tiers.get(tx.tierKey);
+        if (tier) {
+          const currency = (tx.currency || 'naira').toLowerCase();
+          const price    = currency === 'usdt' ? tier.priceUSD : tier.priceNGN;
+          const shares   = parseFloat(tx.shares) || 1;
+          amt = (price || 0) * shares;
+        }
       }
-      
-      if (tx.type === 'co-founder') {
-        cofounderCount++;
-        cofounderOwnershipPct += tx.ownershipPct || 0;
-        cofounderEarningKobo += tx.earningKobo || 0;
-      } else {
-        regularCount++;
-        regularOwnershipPct += tx.ownershipPct || 0;
-        regularEarningKobo += tx.earningKobo || 0;
-      }
-    }
-    
+      return amt;
+    };
+
+    // ── accumulators ──────────────────────────────────────────────────────────
+    let totalOwnershipPct = 0, regularOwnershipPct = 0, cofounderOwnershipPct = 0;
     let pendingOwnershipPct = 0;
-    let pendingEarningKobo = 0;
-    
-    for (const tx of pendingTransactions) {
-      pendingOwnershipPct += tx.ownershipPct || 0;
-      pendingEarningKobo += tx.earningKobo || 0;
+    let totalEarningKobo = 0, regularEarningKobo = 0, cofounderEarningKobo = 0;
+    let regularCount = 0, cofounderCount = 0;
+    let completedCount = 0, pendingCount = 0;
+    let totalSpentNaira = 0, totalSpentUSDT = 0;
+    let completedNaira = 0, completedUSDT = 0;
+    let pendingNaira = 0, pendingUSDT = 0;
+
+    for (const tx of allTxs) {
+      const isCofounder = tx.type === 'co-founder' ||
+                          tx.paymentMethod === 'co-founder';
+      const status   = tx.status;
+      const pct      = parseFloat(tx.ownershipPct) || 0;
+      const earn     = parseFloat(tx.earningKobo)  || 0;
+      const amt      = resolveAmount(tx);
+      const currency = (tx.currency || 'naira').toLowerCase();
+
+      // Always count money committed
+      if (currency === 'naira') totalSpentNaira += amt;
+      else if (currency === 'usdt') totalSpentUSDT += amt;
+
+      if (status === 'completed') {
+        completedCount++;
+        totalOwnershipPct  += pct;
+        totalEarningKobo   += earn;
+
+        if (currency === 'naira') completedNaira += amt;
+        else if (currency === 'usdt') completedUSDT += amt;
+
+        if (isCofounder) {
+          cofounderCount++;
+          cofounderOwnershipPct += pct;
+          cofounderEarningKobo  += earn;
+        } else {
+          regularCount++;
+          regularOwnershipPct += pct;
+          regularEarningKobo  += earn;
+        }
+
+      } else if (status === 'pending') {
+        pendingCount++;
+        pendingOwnershipPct += pct;
+
+        if (currency === 'naira') pendingNaira += amt;
+        else if (currency === 'usdt') pendingUSDT += amt;
+
+        // still count type for pending
+        if (isCofounder) cofounderCount++;
+        else regularCount++;
+      }
+      // failed: count nothing
     }
-    
-    const recentTransactions = [...allCompletedTransactions, ...pendingTransactions]
+
+    // ── recent transactions — merge both sources ───────────────────────────
+    const recentTransactions = allTxs
       .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
       .slice(0, 10)
       .map(t => ({
-        transactionId: t.transactionId,
-        type: t.type,
-        tierKey: t.tierKey,
-        packageLabel: t.packageLabel,
-        ownershipPct: t.ownershipPct,
-        earningKobo: t.earningKobo,
-        amount: t.amount,
-        currency: t.currency,
-        paymentMethod: t.paymentMethod?.replace('manual_', '').replace('admin_override', 'admin'),
-        status: t.status,
-        date: t.createdAt,
-        hasPaymentProof: !!t.paymentProofCloudinaryUrl
+        transactionId  : t.transactionId,
+        type           : t.type,
+        tierKey        : t.tierKey,
+        packageLabel   : t.packageLabel,
+        ownershipPct   : t.ownershipPct,
+        earningKobo    : t.earningKobo,
+        amount         : resolveAmount(t),
+        currency       : t.currency,
+        paymentMethod  : (t.paymentMethod || '').replace('manual_', '').replace('admin_override', 'admin'),
+        status         : t.status,
+        date           : t.createdAt,
+        hasPaymentProof: !!t.paymentProofCloudinaryUrl,
+        source         : ptxIds.has(t.transactionId) ? 'PaymentTransaction' : 'UserShare'
       }));
-    
+
+    // ── referral lookup (unchanged) ───────────────────────────────────────────
     let referredByUser = null;
-    
     if (user.referralInfo?.codeUsed) {
-      referredByUser = await User.findOne({ 
+      referredByUser = await User.findOne({
         userName: { $regex: new RegExp(`^${user.referralInfo.codeUsed}$`, 'i') }
       }).select('_id name userName email phone');
     }
-    
     if (!referredByUser && user.referralInfo?.referredBy) {
       referredByUser = await User.findById(user.referralInfo.referredBy)
         .select('_id name userName email phone');
     }
-    
     if (!referredByUser) {
-      const referralTx = await ReferralTransaction.findOne({ 
+      const referralTx = await ReferralTransaction.findOne({
         referredUser: user._id,
         status: 'completed'
       }).populate('beneficiary', '_id name userName email phone');
-      
-      if (referralTx?.beneficiary) {
-        referredByUser = referralTx.beneficiary;
-      }
+      if (referralTx?.beneficiary) referredByUser = referralTx.beneficiary;
     }
-    
+
     res.status(200).json({
       success: true,
       user: {
-        id: user._id,
-        name: user.name,
-        username: user.username,
-        email: user.email,
-        phone: user.phone,
-        walletAddress: user.walletAddress,
-        isAdmin: user.isAdmin || false,
-        isEmailVerified: user.isEmailVerified || false,
+        id              : user._id,
+        name            : user.name,
+        username        : user.username,
+        email           : user.email,
+        phone           : user.phone,
+        walletAddress   : user.walletAddress,
+        isAdmin         : user.isAdmin         || false,
+        isEmailVerified : user.isEmailVerified  || false,
         registrationDate: user.createdAt,
-        lastLogin: user.lastLogin
+        lastLogin       : user.lastLogin
       },
       sharesSummary: {
-        totalOwnershipPct: totalOwnershipPct,
-        formattedOwnershipPct: `${(totalOwnershipPct * 100).toFixed(7)}%`,
-        totalEarningKobo: totalEarningKobo,
-        formattedEarning: `₦${(totalEarningKobo / 100).toLocaleString()}`,
+        totalOwnershipPct,
+        formattedOwnershipPct : totalOwnershipPct.toFixed(7) + '%',
+        totalEarningKobo,
+        formattedEarning      : `₦${(totalEarningKobo / 100).toLocaleString()}`,
         breakdown: {
           regular: {
-            count: regularCount,
-            ownershipPct: regularOwnershipPct,
-            formattedOwnershipPct: `${(regularOwnershipPct * 100).toFixed(7)}%`,
-            earningKobo: regularEarningKobo,
-            formattedEarning: `₦${(regularEarningKobo / 100).toLocaleString()}`
+            count              : regularCount,
+            ownershipPct       : +regularOwnershipPct.toFixed(7),
+            formattedOwnershipPct: regularOwnershipPct.toFixed(7) + '%',
+            earningKobo        : regularEarningKobo,
+            formattedEarning   : `₦${(regularEarningKobo / 100).toLocaleString()}`
           },
           cofounder: {
-            count: cofounderCount,
-            ownershipPct: cofounderOwnershipPct,
-            formattedOwnershipPct: `${(cofounderOwnershipPct * 100).toFixed(7)}%`,
-            earningKobo: cofounderEarningKobo,
-            formattedEarning: `₦${(cofounderEarningKobo / 100).toLocaleString()}`
+            count              : cofounderCount,
+            ownershipPct       : +cofounderOwnershipPct.toFixed(7),
+            formattedOwnershipPct: cofounderOwnershipPct.toFixed(7) + '%',
+            earningKobo        : cofounderEarningKobo,
+            formattedEarning   : `₦${(cofounderEarningKobo / 100).toLocaleString()}`
           }
         },
         pending: {
-          count: pendingTransactions.length,
-          ownershipPct: pendingOwnershipPct,
-          formattedOwnershipPct: `${(pendingOwnershipPct * 100).toFixed(7)}%`,
-          earningKobo: pendingEarningKobo,
-          formattedEarning: `₦${(pendingEarningKobo / 100).toLocaleString()}`
+          count              : pendingCount,
+          ownershipPct       : +pendingOwnershipPct.toFixed(7),
+          formattedOwnershipPct: pendingOwnershipPct.toFixed(7) + '%'
         }
       },
       financialSummary: {
-        totalSpentNaira: totalSpentNaira,
-        totalSpentUSDT: totalSpentUSDT,
-        formattedTotalSpent: `₦${totalSpentNaira.toLocaleString()} / $${totalSpentUSDT.toLocaleString()}`
+        // Total money ever submitted (all statuses)
+        totalSpentNaira,
+        totalSpentUSDT,
+        formattedTotalSpent : `₦${totalSpentNaira.toLocaleString()} / $${totalSpentUSDT.toLocaleString()}`,
+        // Breakdown by status
+        completedNaira,
+        completedUSDT,
+        pendingNaira,
+        pendingUSDT,
+        formattedBreakdown  : `₦${completedNaira.toLocaleString()} confirmed + ₦${pendingNaira.toLocaleString()} pending`
       },
       transactions: {
-        recent: recentTransactions,
+        recent : recentTransactions,
         summary: {
-          lastTransaction: recentTransactions[0]?.date || null,
-          totalTransactions: allCompletedTransactions.length + pendingTransactions.length,
-          completedTransactions: allCompletedTransactions.length,
-          pendingTransactions: pendingTransactions.length
+          lastTransaction      : recentTransactions[0]?.date || null,
+          totalTransactions    : completedCount + pendingCount,
+          completedTransactions: completedCount,
+          pendingTransactions  : pendingCount
         }
       },
       referralInfo: {
-        hasReferralCode: !!user.referralInfo?.code,
-        referralCode: user.referralInfo?.code || null,
-        codeUsed: user.referralInfo?.codeUsed || null,
-        wasReferred: !!referredByUser,
-        referredBy: referredByUser ? {
-          _id: referredByUser._id,
-          name: referredByUser.name,
+        hasReferralCode : !!user.referralInfo?.code,
+        referralCode    : user.referralInfo?.code    || null,
+        codeUsed        : user.referralInfo?.codeUsed || null,
+        wasReferred     : !!referredByUser,
+        referredBy      : referredByUser ? {
+          _id     : referredByUser._id,
+          name    : referredByUser.name,
           userName: referredByUser.userName,
           username: referredByUser.userName,
-          email: referredByUser.email,
-          phone: referredByUser.phone || null
+          email   : referredByUser.email,
+          phone   : referredByUser.phone || null
         } : null,
-        totalReferrals: user.referralInfo?.totalReferrals || 0,
+        totalReferrals : user.referralInfo?.totalReferrals  || 0,
         activeReferrals: user.referralInfo?.activeReferrals || 0
       },
       searchInfo: {
@@ -2212,18 +2243,14 @@ exports.adminGetUserOverview = async (req, res) => {
         resolvedBy: /^[0-9a-fA-F]{24}$/.test(identifier) ? 'id' : 'username/email'
       },
       systemInfo: {
-        type: 'percentage-based',
+        type       : 'percentage-based',
         explanation: 'All shares are measured by ownership percentage. Each transaction adds ownershipPct% and earningKobo per phone.'
       }
     });
-    
+
   } catch (error) {
     console.error('Error getting user overview:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Failed to get user overview',
-      error: process.env.NODE_ENV === 'development' ? error.message : undefined
-    });
+    res.status(500).json({ success: false, message: 'Failed to get user overview', error: process.env.NODE_ENV === 'development' ? error.message : undefined });
   }
 };
 
