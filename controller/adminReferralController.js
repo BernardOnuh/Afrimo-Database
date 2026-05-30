@@ -2194,12 +2194,297 @@ const syncUserReferralData = async (req, res) => {
   }
 };
 
-// Export all functions
+// Get performance report
+const getPerformanceReport = async (req, res) => {
+  try {
+    const adminId = req.user.id;
+    
+    const admin = await User.findById(adminId);
+    if (!admin || !admin.isAdmin) {
+      return res.status(403).json({
+        success: false,
+        message: 'Unauthorized: Admin access required'
+      });
+    }
+
+    const { period = 'month' } = req.query;
+    
+    // Calculate date range
+    const now = new Date();
+    let startDate;
+    
+    switch (period) {
+      case 'week':
+        startDate = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+        break;
+      case 'month':
+        startDate = new Date(now.getFullYear(), now.getMonth(), 1);
+        break;
+      case 'quarter':
+        const quarterStart = Math.floor(now.getMonth() / 3) * 3;
+        startDate = new Date(now.getFullYear(), quarterStart, 1);
+        break;
+      case 'year':
+        startDate = new Date(now.getFullYear(), 0, 1);
+        break;
+      default:
+        startDate = new Date(now.getFullYear(), now.getMonth(), 1);
+    }
+
+    // Get performance metrics
+    const performance = await ReferralTransaction.aggregate([
+      { 
+        $match: { 
+          createdAt: { $gte: startDate },
+          status: 'completed'
+        }
+      },
+      {
+        $group: {
+          _id: null,
+          totalCommissions: { $sum: '$amount' },
+          totalTransactions: { $sum: 1 },
+          avgCommission: { $avg: '$amount' },
+          uniqueEarners: { $addToSet: '$beneficiary' }
+        }
+      }
+    ]);
+
+    // Get daily performance trends
+    const dailyPerformance = await ReferralTransaction.aggregate([
+      { 
+        $match: { 
+          createdAt: { $gte: startDate },
+          status: 'completed'
+        }
+      },
+      {
+        $group: {
+          _id: {
+            $dateToString: { format: "%Y-%m-%d", date: "$createdAt" }
+          },
+          dailyCommissions: { $sum: '$amount' },
+          dailyTransactions: { $sum: 1 }
+        }
+      },
+      { $sort: { _id: 1 } }
+    ]);
+
+    // Get generation performance
+    const generationPerformance = await ReferralTransaction.aggregate([
+      { 
+        $match: { 
+          createdAt: { $gte: startDate },
+          status: 'completed'
+        }
+      },
+      {
+        $group: {
+          _id: '$generation',
+          totalAmount: { $sum: '$amount' },
+          totalTransactions: { $sum: 1 },
+          avgAmount: { $avg: '$amount' }
+        }
+      },
+      { $sort: { _id: 1 } }
+    ]);
+
+    const performanceData = performance[0] || {
+      totalCommissions: 0,
+      totalTransactions: 0,
+      avgCommission: 0,
+      uniqueEarners: []
+    };
+
+    res.status(200).json({
+      success: true,
+      report: {
+        period,
+        summary: {
+          totalCommissions: Math.round(performanceData.totalCommissions * 100) / 100,
+          totalTransactions: performanceData.totalTransactions,
+          avgCommission: Math.round(performanceData.avgCommission * 100) / 100,
+          activeEarners: performanceData.uniqueEarners.length
+        },
+        dailyTrends: dailyPerformance.map(day => ({
+          date: day._id,
+          commissions: Math.round(day.dailyCommissions * 100) / 100,
+          transactions: day.dailyTransactions
+        })),
+        generationBreakdown: generationPerformance.map(gen => ({
+          generation: gen._id,
+          totalAmount: Math.round(gen.totalAmount * 100) / 100,
+          totalTransactions: gen.totalTransactions,
+          avgAmount: Math.round(gen.avgAmount * 100) / 100
+        }))
+      }
+    });
+
+  } catch (error) {
+    console.error('Error getting performance report:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to get performance report',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+};
+
+// Get commission breakdown
+const getCommissionBreakdown = async (req, res) => {
+  try {
+    const adminId = req.user.id;
+    
+    const admin = await User.findById(adminId);
+    if (!admin || !admin.isAdmin) {
+      return res.status(403).json({
+        success: false,
+        message: 'Unauthorized: Admin access required'
+      });
+    }
+
+    const { groupBy = 'generation', fromDate, toDate } = req.query;
+
+    // Build date filter
+    let dateFilter = { status: 'completed' };
+    if (fromDate || toDate) {
+      dateFilter.createdAt = {};
+      if (fromDate) dateFilter.createdAt.$gte = new Date(fromDate);
+      if (toDate) dateFilter.createdAt.$lte = new Date(toDate);
+    }
+
+    let breakdown = {};
+
+    switch (groupBy) {
+      case 'generation':
+        const generationData = await ReferralTransaction.aggregate([
+          { $match: dateFilter },
+          {
+            $group: {
+              _id: '$generation',
+              totalAmount: { $sum: '$amount' },
+              totalTransactions: { $sum: 1 },
+              avgAmount: { $avg: '$amount' }
+            }
+          },
+          { $sort: { _id: 1 } }
+        ]);
+
+        breakdown = {
+          byGeneration: generationData.map(gen => ({
+            generation: gen._id,
+            amount: Math.round(gen.totalAmount * 100) / 100,
+            transactions: gen.totalTransactions,
+            average: Math.round(gen.avgAmount * 100) / 100
+          }))
+        };
+        break;
+
+      case 'purchaseType':
+        const purchaseTypeData = await ReferralTransaction.aggregate([
+          { $match: dateFilter },
+          {
+            $group: {
+              _id: '$purchaseType',
+              totalAmount: { $sum: '$amount' },
+              totalTransactions: { $sum: 1 },
+              avgAmount: { $avg: '$amount' }
+            }
+          },
+          { $sort: { _id: 1 } }
+        ]);
+
+        breakdown = {
+          byPurchaseType: purchaseTypeData.map(type => ({
+            type: type._id,
+            amount: Math.round(type.totalAmount * 100) / 100,
+            transactions: type.totalTransactions,
+            average: Math.round(type.avgAmount * 100) / 100
+          }))
+        };
+        break;
+
+      case 'month':
+        const monthlyData = await ReferralTransaction.aggregate([
+          { $match: dateFilter },
+          {
+            $group: {
+              _id: {
+                year: { $year: '$createdAt' },
+                month: { $month: '$createdAt' }
+              },
+              totalAmount: { $sum: '$amount' },
+              totalTransactions: { $sum: 1 }
+            }
+          },
+          { $sort: { '_id.year': 1, '_id.month': 1 } }
+        ]);
+
+        breakdown = {
+          byMonth: monthlyData.map(month => ({
+            year: month._id.year,
+            month: month._id.month,
+            amount: Math.round(month.totalAmount * 100) / 100,
+            transactions: month.totalTransactions
+          }))
+        };
+        break;
+
+      default:
+        return res.status(400).json({
+          success: false,
+          message: 'Invalid groupBy parameter'
+        });
+    }
+
+    // Get total summary
+    const totalSummary = await ReferralTransaction.aggregate([
+      { $match: dateFilter },
+      {
+        $group: {
+          _id: null,
+          totalAmount: { $sum: '$amount' },
+          totalTransactions: { $sum: 1 }
+        }
+      }
+    ]);
+
+    const summary = totalSummary[0] || { totalAmount: 0, totalTransactions: 0 };
+
+    res.status(200).json({
+      success: true,
+      breakdown: {
+        ...breakdown,
+        summary: {
+          totalAmount: Math.round(summary.totalAmount * 100) / 100,
+          totalTransactions: summary.totalTransactions,
+          averageAmount: summary.totalTransactions > 0 
+            ? Math.round((summary.totalAmount / summary.totalTransactions) * 100) / 100 
+            : 0
+        },
+        groupBy,
+        dateRange: {
+          fromDate: fromDate || 'all',
+          toDate: toDate || 'all'
+        }
+      }
+    });
+
+  } catch (error) {
+    console.error('Error getting commission breakdown:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to get commission breakdown',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+};
+
+// Make sure to export all functions
 module.exports = {
   getReferralDashboard,
   getAllUsersWithReferralData,
-    getUserReferralDetails,
-  bulkEditTransactions,
+  getUserReferralDetails,
   getAllReferralTransactions,
   adjustUserEarnings,
   adjustReferralTransaction,
@@ -2210,5 +2495,8 @@ module.exports = {
   getReferralSettings,
   updateReferralSettings,
   getAuditLog,
-  syncUserReferralData
+  bulkEditTransactions,
+  syncUserReferralData,
+  getPerformanceReport,
+  getCommissionBreakdown
 };
