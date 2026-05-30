@@ -99,8 +99,12 @@ const calculateCoFounderPurchase = async (req, res) => {
 
         const tier = config.tiers.get(tierKey);
 
-        if (tier.type !== 'co-founder') {
-            return res.status(400).json({ success: false, message: 'Specified tier is not a co-founder tier' });
+        // ✅ FIXED: Accept both 'co-founder' and 'cofounder'
+        if (tier.type !== 'co-founder' && tier.type !== 'cofounder') {
+            return res.status(400).json({ 
+                success: false, 
+                message: `Specified tier is not a co-founder tier. Found type: ${tier.type}` 
+            });
         }
 
         if (tier.active === false) {
@@ -124,6 +128,7 @@ const calculateCoFounderPurchase = async (req, res) => {
             sharesIncluded: tier.sharesIncluded || 1
         });
     } catch (error) {
+        console.error('Error in calculateCoFounderPurchase:', error);
         res.status(500).json({ success: false, message: error.message });
     }
 };

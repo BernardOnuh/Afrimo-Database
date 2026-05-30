@@ -560,6 +560,7 @@ app.use('/api', (req, res, next) => {
 // ============================================================================
 
 app.use('/api/users', require('./routes/userRoutes'));
+app.use('/api/shares/tiers', require('./routes/tierRoutes'));
 app.use('/api/shares', require('./routes/shareRoutes'));
 app.use('/api/cofounder', require('./routes/coFounderShareRoutes'));
 app.use('/api/project', require('./routes/projectRoutes'));
@@ -574,7 +575,7 @@ app.use('/api/management', require('./routes/managementRoutes'));
 app.use('/api/installments', require('./routes/installmentPlanRoutes'));
 app.use('/api/share-packages', require('./routes/sharePackageRoutes'));
 app.use('/api/admin/analytics', require('./routes/adminAnalyticsRoutes'));
-app.use('/api/shares/tiers', require('./routes/tierRoutes'));
+
 
 // Share Resale & OTC Marketplace Routes
 app.use('/api/shares', require('./routes/shareListings'));

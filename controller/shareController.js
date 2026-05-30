@@ -83,6 +83,11 @@ exports.getShareInfo = async (req, res) => {
   }
 };
 
+/**
+ * @desc    Calculate purchase amount (works for both regular shares and co-founder)
+ * @route   POST /api/shares/calculate
+ * @access  Public
+ */
 exports.calculatePurchase = async (req, res) => {
   try {
     const { tierKey, currency } = req.body;
@@ -103,9 +108,18 @@ exports.calculatePurchase = async (req, res) => {
 
     const tier = config.tiers.get(tierKey);
 
-    if (tier.type !== 'share') {
-      return res.status(400).json({ success: false, message: 'Specified tier is not a regular share tier' });
+    // ✅ FIXED: Accept 'share', 'regular', AND 'co-founder'/'cofounder'
+    const isValidShareType = ['share', 'regular', 'co-founder', 'cofounder'].includes(tier.type);
+    
+    if (!isValidShareType) {
+      return res.status(400).json({ 
+        success: false, 
+        message: `Specified tier is not a valid share tier. Found type: ${tier.type}` 
+      });
     }
+
+    // Determine if it's a co-founder tier
+    const isCoFounder = ['co-founder', 'cofounder'].includes(tier.type);
 
     if (tier.active === false) {
       return res.status(400).json({ success: false, message: 'This tier is not currently available' });
@@ -116,18 +130,24 @@ exports.calculatePurchase = async (req, res) => {
       return res.status(400).json({ success: false, message: `Tier not available in ${currency}` });
     }
 
+    // Determine tier type for response
+    const tierType = isCoFounder ? 'cofounder' : 'share';
+
     res.json({
       success: true,
       tierKey,
       tierName: tier.name,
-      tierType: tier.type,
+      tierType: tierType,
       price,
       currency,
       percentPerShare: tier.percentPerShare,
       earningPerPhone: tier.earningPerPhone,
-      sharesIncluded: tier.sharesIncluded || 1
+      sharesIncluded: tier.sharesIncluded || 1,
+      isCoFounder: isCoFounder,
+      equivalentRegularShares: isCoFounder ? (tier.sharesIncluded || 1) * (config.coFounderToRegularRatio || 22) : null
     });
   } catch (error) {
+    console.error('Error in calculatePurchase:', error);
     res.status(500).json({ success: false, message: error.message });
   }
 };
