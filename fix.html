@@ -1,0 +1,1073 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AfriMobile — Database Fix Preview</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Syne:wght@400;600;700;800&display=swap');
+
+  :root {
+    --bg: #0a0c0f;
+    --surface: #111318;
+    --surface2: #181c23;
+    --border: #1e2330;
+    --accent: #f0b429;
+    --accent2: #3dd68c;
+    --danger: #f75f5f;
+    --info: #5b9cf6;
+    --text: #e8eaf0;
+    --muted: #6b7280;
+    --mono: 'Space Mono', monospace;
+    --sans: 'Syne', sans-serif;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--sans);
+    min-height: 100vh;
+    padding: 2rem;
+  }
+
+  .page-header {
+    border-bottom: 1px solid var(--border);
+    padding-bottom: 1.5rem;
+    margin-bottom: 2rem;
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-end;
+    flex-wrap: wrap;
+    gap: 1rem;
+  }
+
+  .page-header h1 {
+    font-size: 2rem;
+    font-weight: 800;
+    letter-spacing: -0.03em;
+    color: var(--accent);
+  }
+
+  .page-header p {
+    color: var(--muted);
+    font-family: var(--mono);
+    font-size: 0.75rem;
+    margin-top: 0.25rem;
+  }
+
+  .badge {
+    font-family: var(--mono);
+    font-size: 0.65rem;
+    padding: 0.2rem 0.6rem;
+    border-radius: 3px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+  .badge-warn { background: #3a2a00; color: var(--accent); border: 1px solid #6b4a00; }
+  .badge-ok   { background: #0a2e1a; color: var(--accent2); border: 1px solid #1a5a35; }
+  .badge-err  { background: #2e0a0a; color: var(--danger); border: 1px solid #5a1a1a; }
+  .badge-info { background: #0a1a3a; color: var(--info); border: 1px solid #1a3a6a; }
+
+  /* Summary cards */
+  .summary-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 1rem;
+    margin-bottom: 1.5rem;
+  }
+
+  .summary-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1.25rem;
+    position: relative;
+    overflow: hidden;
+  }
+
+  .summary-card::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 2px;
+  }
+  .summary-card.red::before { background: var(--danger); }
+  .summary-card.yellow::before { background: var(--accent); }
+  .summary-card.blue::before { background: var(--info); }
+  .summary-card.green::before { background: var(--accent2); }
+  .summary-card.grey::before { background: var(--muted); }
+
+  .summary-card .label {
+    font-family: var(--mono);
+    font-size: 0.65rem;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    margin-bottom: 0.5rem;
+  }
+
+  .summary-card .value {
+    font-size: 2rem;
+    font-weight: 800;
+    letter-spacing: -0.04em;
+  }
+
+  .summary-card .sub {
+    font-family: var(--mono);
+    font-size: 0.7rem;
+    color: var(--muted);
+    margin-top: 0.25rem;
+  }
+
+  /* Stats bar */
+  .stats-bar {
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    gap: 0.75rem;
+    margin-bottom: 2.5rem;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1rem 1.25rem;
+  }
+
+  .stat-item {
+    text-align: center;
+  }
+
+  .stat-item .s-label {
+    font-family: var(--mono);
+    font-size: 0.6rem;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    margin-bottom: 0.3rem;
+  }
+
+  .stat-item .s-value {
+    font-family: var(--mono);
+    font-size: 1rem;
+    font-weight: 700;
+  }
+
+  .stat-divider {
+    width: 1px;
+    background: var(--border);
+    margin: 0 0.5rem;
+  }
+
+  /* Correction banner */
+  .correction-banner {
+    background: #0d1a10;
+    border: 1px solid #1a4025;
+    border-radius: 8px;
+    padding: 1rem 1.25rem;
+    margin-bottom: 2rem;
+    display: flex;
+    align-items: flex-start;
+    gap: 1rem;
+  }
+
+  .correction-banner .icon { font-size: 1.2rem; flex-shrink: 0; margin-top: 0.1rem; }
+
+  .correction-banner h3 {
+    font-size: 0.8rem;
+    color: var(--accent2);
+    margin-bottom: 0.5rem;
+    font-family: var(--mono);
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+  }
+
+  .kobo-table {
+    display: grid;
+    grid-template-columns: repeat(8, auto);
+    gap: 0.3rem 1.5rem;
+    font-family: var(--mono);
+    font-size: 0.7rem;
+    margin-top: 0.5rem;
+  }
+
+  .kobo-table .kh { color: var(--muted); font-size: 0.6rem; text-transform: uppercase; }
+  .kobo-table .kb { color: var(--danger); text-decoration: line-through; opacity: 0.7; }
+  .kobo-table .ka { color: var(--accent2); font-weight: 700; }
+  .kobo-table .kt { color: var(--accent); }
+
+  /* Tier reference */
+  .tier-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1rem;
+    margin-bottom: 2.5rem;
+  }
+
+  .tier-box {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1.25rem;
+  }
+
+  .tier-box h3 {
+    font-size: 0.7rem;
+    font-family: var(--mono);
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    color: var(--muted);
+    margin-bottom: 1rem;
+    padding-bottom: 0.5rem;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .tier-row {
+    display: grid;
+    grid-template-columns: 80px 1fr 1fr 1fr 1fr;
+    gap: 0.5rem;
+    font-family: var(--mono);
+    font-size: 0.72rem;
+    padding: 0.4rem 0;
+    border-bottom: 1px solid var(--border);
+    align-items: center;
+  }
+
+  .tier-row:last-child { border-bottom: none; }
+  .tier-row .tier-name { color: var(--accent); font-weight: 700; }
+  .tier-row .col-header { color: var(--muted); font-size: 0.62rem; }
+
+  /* Fix sections */
+  .fix-section {
+    margin-bottom: 2.5rem;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    overflow: hidden;
+  }
+
+  .fix-header {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    padding: 1rem 1.25rem;
+    border-bottom: 1px solid var(--border);
+    background: var(--surface2);
+    flex-wrap: wrap;
+  }
+
+  .fix-header .fix-num {
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: var(--mono);
+    font-size: 0.75rem;
+    font-weight: 700;
+    flex-shrink: 0;
+  }
+
+  .fix-header h2 { font-size: 1rem; font-weight: 700; }
+  .fix-header .count { margin-left: auto; font-family: var(--mono); font-size: 0.75rem; color: var(--muted); }
+
+  .fix-description {
+    padding: 1rem 1.25rem;
+    font-size: 0.85rem;
+    color: var(--muted);
+    line-height: 1.6;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .fix-description strong { color: var(--text); }
+
+  /* Table */
+  .fix-table-wrap {
+    overflow-x: auto;
+    max-height: 420px;
+    overflow-y: auto;
+  }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-family: var(--mono);
+    font-size: 0.68rem;
+  }
+
+  thead th {
+    background: var(--surface2);
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    padding: 0.6rem 0.75rem;
+    text-align: left;
+    font-size: 0.6rem;
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    border-bottom: 1px solid var(--border);
+    white-space: nowrap;
+  }
+
+  tbody tr {
+    border-bottom: 1px solid var(--border);
+    transition: background 0.1s;
+  }
+
+  tbody tr:hover { background: var(--surface2); }
+
+  td {
+    padding: 0.55rem 0.75rem;
+    vertical-align: middle;
+    white-space: nowrap;
+  }
+
+  .before { color: var(--danger); text-decoration: line-through; opacity: 0.7; }
+  .after  { color: var(--accent2); font-weight: 700; }
+  .arrow  { color: var(--muted); padding: 0 0.25rem; }
+  .unchanged { color: var(--muted); }
+  .txid { color: var(--info); max-width: 180px; overflow: hidden; text-overflow: ellipsis; }
+  .user-cell { color: var(--text); max-width: 140px; overflow: hidden; text-overflow: ellipsis; }
+  .date-cell { color: var(--muted); font-size: 0.62rem; }
+
+  /* Warning box */
+  .warning-box {
+    margin: 1.25rem;
+    padding: 0.85rem 1rem;
+    background: #1a1200;
+    border: 1px solid #4a3000;
+    border-radius: 6px;
+    font-size: 0.8rem;
+    color: var(--accent);
+    display: flex;
+    gap: 0.75rem;
+    align-items: flex-start;
+    line-height: 1.5;
+  }
+
+  .warning-box .icon { font-size: 1rem; flex-shrink: 0; margin-top: 0.1rem; }
+
+  /* Skip section */
+  .skip-section {
+    margin-bottom: 2.5rem;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    overflow: hidden;
+    opacity: 0.7;
+  }
+
+  /* Footer */
+  .footer-actions {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1rem;
+    margin-top: 2rem;
+    padding-top: 2rem;
+    border-top: 1px solid var(--border);
+  }
+
+  .action-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1.25rem;
+  }
+
+  .action-card h3 {
+    font-size: 0.85rem;
+    font-weight: 700;
+    margin-bottom: 0.75rem;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+
+  .action-card ol, .action-card ul {
+    padding-left: 1.2rem;
+    font-size: 0.8rem;
+    color: var(--muted);
+    line-height: 2;
+  }
+
+  .action-card li strong { color: var(--text); }
+
+  code {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    padding: 0.1rem 0.4rem;
+    border-radius: 3px;
+    font-family: var(--mono);
+    font-size: 0.7rem;
+    color: var(--accent2);
+  }
+
+  .pill {
+    display: inline-block;
+    padding: 0.1rem 0.5rem;
+    border-radius: 999px;
+    font-size: 0.62rem;
+    font-family: var(--mono);
+  }
+
+  .pill-green { background: #0a2e1a; color: var(--accent2); }
+  .pill-red   { background: #2e0a0a; color: var(--danger); }
+  .pill-yellow{ background: #2e1a00; color: var(--accent); }
+  .pill-blue  { background: #0a1a3a; color: var(--info); }
+
+  /* Toggle */
+  .toggle-btn {
+    background: none;
+    border: 1px solid var(--border);
+    color: var(--muted);
+    font-family: var(--mono);
+    font-size: 0.65rem;
+    padding: 0.3rem 0.75rem;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+  .toggle-btn:hover { border-color: var(--accent); color: var(--accent); }
+
+  .collapsible { display: none; }
+  .collapsible.open { display: block; }
+
+  /* Total row */
+  .totals-row {
+    background: var(--surface2);
+    border-top: 2px solid var(--border);
+    font-weight: 700;
+  }
+
+  .totals-row td { color: var(--accent); }
+
+  /* scrollbar */
+  ::-webkit-scrollbar { width: 6px; height: 6px; }
+  ::-webkit-scrollbar-track { background: var(--surface); }
+  ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+  /* changelog highlight */
+  .change-tag {
+    display: inline-block;
+    background: #0d1f2d;
+    border: 1px solid #1a4060;
+    color: var(--info);
+    font-family: var(--mono);
+    font-size: 0.58rem;
+    padding: 0.1rem 0.4rem;
+    border-radius: 3px;
+    margin-left: 0.4rem;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+  }
+</style>
+</head>
+<body>
+
+<div class="page-header">
+  <div>
+    <h1>Database Fix Preview</h1>
+    <p>AfriMobile · Transaction Audit · Generated for review before any DB changes</p>
+  </div>
+  <span class="badge badge-warn">⚠ DRY RUN — NO CHANGES MADE YET</span>
+</div>
+
+<!-- Summary cards -->
+<div class="summary-grid">
+  <div class="summary-card red">
+    <div class="label">Discrepancy Rows</div>
+    <div class="value" style="color:var(--danger)">~400</div>
+    <div class="sub">PT ↔ UserShare mismatch</div>
+  </div>
+  <div class="summary-card yellow">
+    <div class="label">Co-founder PT-Only</div>
+    <div class="value" style="color:var(--accent)">52</div>
+    <div class="sub">Missing from UserShare</div>
+  </div>
+  <div class="summary-card blue">
+    <div class="label">US-Only Completed</div>
+    <div class="value" style="color:var(--info)">~80</div>
+    <div class="sub">Real shares, no PT record</div>
+  </div>
+  <div class="summary-card grey">
+    <div class="label">Ghost Pending (Skip)</div>
+    <div class="value" style="color:var(--muted)">~300+</div>
+    <div class="sub">Failed/abandoned, leave as-is</div>
+  </div>
+</div>
+
+<!-- Total transaction stats bar -->
+<div class="stats-bar">
+  <div class="stat-item">
+    <div class="s-label">Total PT Rows</div>
+    <div class="s-value" style="color:var(--text)">~830+</div>
+  </div>
+  <div class="stat-item">
+    <div class="s-label">PT Completed</div>
+    <div class="s-value" style="color:var(--accent2)">~480</div>
+  </div>
+  <div class="stat-item">
+    <div class="s-label">PT Failed</div>
+    <div class="s-value" style="color:var(--danger)">~150</div>
+  </div>
+  <div class="stat-item">
+    <div class="s-label">Total US Rows</div>
+    <div class="s-value" style="color:var(--text)">~900+</div>
+  </div>
+  <div class="stat-item">
+    <div class="s-label">US Completed</div>
+    <div class="s-value" style="color:var(--accent2)">~280</div>
+  </div>
+  <div class="stat-item">
+    <div class="s-label">US Pending</div>
+    <div class="s-value" style="color:var(--accent)">~550</div>
+  </div>
+  <div class="stat-item">
+    <div class="s-label">Uniform Matched</div>
+    <div class="s-value" style="color:var(--info)">FSP+FRT</div>
+  </div>
+  <div class="stat-item">
+    <div class="s-label">Rows To Fix</div>
+    <div class="s-value" style="color:var(--accent)">~530</div>
+  </div>
+  <div class="stat-item">
+    <div class="s-label">Rows To Skip</div>
+    <div class="s-value" style="color:var(--muted)">~300+</div>
+  </div>
+  <div class="stat-item">
+    <div class="s-label">earningKobo Fix</div>
+    <div class="s-value" style="color:var(--accent2)">÷1000</div>
+  </div>
+</div>
+
+<!-- earningKobo correction banner -->
+<div class="correction-banner">
+  <span class="icon">🔧</span>
+  <div>
+    <h3>earningKobo Global Correction <span class="change-tag">updated</span></h3>
+    <div style="font-size:0.82rem;color:var(--muted);margin-bottom:0.6rem">
+      All stored <code>earningKobo</code> values are inflated by 1,000×. Correct value = stored ÷ 1000. 
+      This applies to <strong style="color:var(--text)">all transaction types</strong> — co-founder, basic, standard, premium, legacy.
+    </div>
+    <div class="kobo-table">
+      <span class="kh">Tier / Context</span>
+      <span class="kh">Shares</span>
+      <span class="kh">Stored (WRONG)</span>
+      <span class="kh">→</span>
+      <span class="kh">Correct</span>
+      <span class="kh">Tier / Context</span>
+      <span class="kh">Stored (WRONG)</span>
+      <span class="kh">Correct</span>
+
+      <span class="kt">Legacy / Premium</span>
+      <span style="color:var(--muted)">1</span>
+      <span class="kb">30,000</span>
+      <span class="arrow">→</span>
+      <span class="ka">30</span>
+      <span class="kt">Co-Founder Elite</span>
+      <span class="kb">14,000</span>
+      <span class="ka">14</span>
+
+      <span class="kt">Basic</span>
+      <span style="color:var(--muted)">1</span>
+      <span class="kb">6,000</span>
+      <span class="arrow">→</span>
+      <span class="ka">6</span>
+      <span class="kt">CFD Elite ×2</span>
+      <span class="kb">28,000</span>
+      <span class="ka">28</span>
+
+      <span class="kt">Standard</span>
+      <span style="color:var(--muted)">1</span>
+      <span class="kb">14,000</span>
+      <span class="arrow">→</span>
+      <span class="ka">14</span>
+      <span class="kt">CFD Elite ×3</span>
+      <span class="kb">42,000</span>
+      <span class="ka">42</span>
+
+      <span class="kt">Premium</span>
+      <span style="color:var(--muted)">1</span>
+      <span class="kb">30,000</span>
+      <span class="arrow">→</span>
+      <span class="ka">30</span>
+      <span class="kt">CFD Elite ×22</span>
+        <span class="kb">660,000</span>
+        <span class="ka">660</span>
+
+      <span class="kt">Elite</span>
+        <span style="color:var(--muted)">1</span>
+        <span class="kb">30,000</span>
+        <span class="arrow">→</span>
+        <span class="ka">30</span>
+      <span class="kt">CFD Elite ×10</span>
+      <span class="kb">140,000</span>
+      <span class="ka">140</span>
+    </div>
+  </div>
+</div>
+
+<!-- Tier Reference -->
+<div class="tier-grid">
+  <div class="tier-box">
+    <h3>📦 Regular Share Tiers (correct values)</h3>
+    <div class="tier-row">
+      <span class="col-header">Tier</span>
+      <span class="col-header">Price ₦</span>
+      <span class="col-header">ownershipPct</span>
+      <span class="col-header">earningKobo</span>
+      <span class="col-header">Period</span>
+    </div>
+    <div class="tier-row">
+      <span class="tier-name">legacy</span>
+      <span>25k–50k</span>
+      <span style="color:var(--accent2)">0.00005</span>
+      <span style="color:var(--accent2)">30 <span style="color:var(--muted);text-decoration:line-through;font-size:0.65rem">30,000</span></span>
+      <span style="color:var(--muted)">before Mar 2026</span>
+    </div>
+    <div class="tier-row">
+      <span class="tier-name">basic</span>
+      <span>₦30,000</span>
+      <span style="color:var(--accent2)">0.00001</span>
+      <span style="color:var(--accent2)">6 <span style="color:var(--muted);text-decoration:line-through;font-size:0.65rem">6,000</span></span>
+      <span style="color:var(--muted)">Mar 2026+</span>
+    </div>
+    <div class="tier-row">
+      <span class="tier-name">standard</span>
+      <span>₦50k–75k</span>
+      <span style="color:var(--accent2)">0.000021</span>
+      <span style="color:var(--accent2)">14 <span style="color:var(--muted);text-decoration:line-through;font-size:0.65rem">14,000</span></span>
+      <span style="color:var(--muted)">Mar 2026+</span>
+    </div>
+    <div class="tier-row">
+      <span class="tier-name">premium</span>
+      <span>₦100,000</span>
+      <span style="color:var(--accent2)">0.00005</span>
+      <span style="color:var(--accent2)">30 <span style="color:var(--muted);text-decoration:line-through;font-size:0.65rem">30,000</span></span>
+      <span style="color:var(--muted)">Mar 2026+</span>
+    </div>
+    <div class="tier-row">
+        <span class="tier-name">elite</span>
+        <span>₦75,000</span>
+        <span style="color:var(--accent2)">0.000084</span>
+        <span style="color:var(--accent2)">30 <span style="color:var(--muted);text-decoration:line-through;font-size:0.65rem">30,000</span></span>
+        <span style="color:var(--muted)">Mar 2026+</span>
+      </div>
+
+  <div class="tier-box">
+    <h3>👑 Co-Founder Tiers (correct values)</h3>
+    <div class="tier-row">
+      <span class="col-header">Tier</span>
+      <span class="col-header">Price ₦</span>
+      <span class="col-header">ownershipPct</span>
+      <span class="col-header">earningKobo</span>
+      <span class="col-header">Shares equiv.</span>
+    </div>
+    <div class="tier-row">
+      <span class="tier-name">elite</span>
+      <span>₦1,000,000</span>
+      <span style="color:var(--accent2)">0.000462<br><small style="color:var(--muted)">(22 × 0.000021)</small></span>
+      <span style="color:var(--accent2)">308<br><small style="color:var(--danger);text-decoration:line-through">308,000</small></span>
+      <span>22 standard</span>
+    </div>
+    <div class="tier-row">
+      <span class="tier-name">platinum</span>
+      <span>₦2,500,000</span>
+      <span style="color:var(--accent2)">0.001350<br><small style="color:var(--muted)">(27 × 0.00005)</small></span>
+      <span style="color:var(--accent2)">810<br><small style="color:var(--danger);text-decoration:line-through">810,000</small></span>
+      <span>27 premium</span>
+    </div>
+    <div class="tier-row">
+      <span class="tier-name">supreme</span>
+      <span>₦5,000,000</span>
+      <span style="color:var(--accent2)">0.003000<br><small style="color:var(--muted)">(60 × 0.00005)</small></span>
+      <span style="color:var(--accent2)">1,800<br><small style="color:var(--danger);text-decoration:line-through">1,800,000</small></span>
+      <span>60 premium</span>
+    </div>
+  </div>
+</div>
+
+<!-- FIX 1 -->
+<div class="fix-section">
+  <div class="fix-header">
+    <div class="fix-num" style="background:#1a1200;color:var(--accent);border:1px solid #4a3000">1</div>
+    <h2>Discrepancy Rows — Sync PT ↔ UserShare</h2>
+    <span class="badge badge-warn">~400 rows</span>
+    <span class="count">Both sources exist but values differ</span>
+    <button class="toggle-btn" onclick="toggle('fix1')">Show / Hide</button>
+  </div>
+  <div class="fix-description">
+    <strong>Problem:</strong> PaymentTransaction has the correct Naira amount (e.g. ₦50,000) but wrong <code>ownershipPct</code> or <code>earningKobo</code>.
+    UserShare has correct <code>ownershipPct</code> but <code>amount = 0</code>.<br><br>
+    <strong>Fix:</strong> For pre-March 2026 rows → set both to <code>ownershipPct: 0.00005</code>, <code>earningKobo: 30</code> (not 30,000), and copy the real Naira amount into UserShare.
+    For post-March rows → use <code>packageLabel</code> to pick tier values. <strong>All earningKobo values divided by 1,000.</strong>
+  </div>
+
+  <div class="warning-box">
+    <span class="icon">⚠</span>
+    <span>The rows below are a <strong>sample of 30</strong> from the audit CSV. The actual fix script will process all ~400. Verify these look correct before running. <strong>earningKobo values updated: ÷1000 applied to all.</strong></span>
+  </div>
+
+  <div id="fix1" class="collapsible open">
+  <div class="fix-table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Transaction ID</th>
+          <th>User</th>
+          <th>Date</th>
+          <th>Source</th>
+          <th>ownershipPct (before → after)</th>
+          <th>earningKobo (before → after)</th>
+          <th>amount (before → after)</th>
+          <th>Status</th>
+        </tr>
+      </thead>
+      <tbody id="fix1-tbody">
+      </tbody>
+      <tfoot>
+        <tr class="totals-row" id="fix1-totals">
+        </tr>
+      </tfoot>
+    </table>
+  </div>
+  </div>
+</div>
+
+<!-- FIX 2 -->
+<div class="fix-section">
+  <div class="fix-header">
+    <div class="fix-num" style="background:#0a1a3a;color:var(--info);border:1px solid #1a3a6a">2</div>
+    <h2>Co-Founder PT-Only — Add Missing Entries to UserShare</h2>
+    <span class="badge badge-info">52 rows</span>
+    <span class="count">In PaymentTransaction, missing from UserShare</span>
+    <button class="toggle-btn" onclick="toggle('fix2')">Show / Hide</button>
+  </div>
+  <div class="fix-description">
+    <strong>Problem:</strong> Co-founder transactions (CFD-...) exist in PaymentTransaction but have no matching record in UserShare.<br><br>
+    <strong>Fix:</strong> For each CFD transaction, create the matching entry in <code>UserShare.transactions[]</code>. Recalculate that user's <code>totalOwnershipPct</code> and <code>totalEarningKobo</code> after insertion.<br><br>
+    <strong>earningKobo correction <span class="change-tag">updated</span>:</strong> Values were stored as <code>14,000</code> per share (inflated ×1000).
+    Correct value per share = <code>14</code>. So elite (22 shares) = <code>22 × 14 = <strong>308</strong></code> (not 308,000).
+    Multi-share rows scale accordingly: ×2 = 28, ×3 = 42, ×5 = 70, ×10 = 140.
+  </div>
+
+  <div id="fix2" class="collapsible open">
+  <div class="fix-table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Transaction ID</th>
+          <th>User</th>
+          <th>Email</th>
+          <th>Date</th>
+          <th>Shares</th>
+          <th>ownershipPct</th>
+          <th>earningKobo (before → after)</th>
+          <th>Amount ₦</th>
+          <th>Action</th>
+        </tr>
+      </thead>
+      <tbody id="fix2-tbody"></tbody>
+      <tfoot>
+        <tr class="totals-row" id="fix2-totals"></tr>
+      </tfoot>
+    </table>
+  </div>
+  </div>
+</div>
+
+<!-- FIX 3 -->
+<div class="fix-section">
+  <div class="fix-header">
+    <div class="fix-num" style="background:#0a2e1a;color:var(--accent2);border:1px solid #1a5a35">3</div>
+    <h2>US-Only Completed Shares — Backfill Amount & Verify ownershipPct</h2>
+    <span class="badge badge-ok">~80 rows</span>
+    <span class="count">In UserShare only, amount = 0</span>
+    <button class="toggle-btn" onclick="toggle('fix3')">Show / Hide</button>
+  </div>
+  <div class="fix-description">
+    <strong>Problem:</strong> Real completed share transactions in UserShare (paystack/centiiv/bank_transfer) have <code>amount = 0</code>. ownershipPct (0.00005) is correct for pre-March buyers.<br><br>
+    <strong>earningKobo correction <span class="change-tag">updated</span>:</strong> Pre-March earningKobo should be <code>30</code> (not 30,000). Post-March Basic = <code>6</code>, Standard = <code>14</code>, Premium = <code>30</code>.<br><br>
+    <strong>Fix:</strong> Set <code>amount</code> based on shares — pre-March: ₦50,000/share (conservative; first 20 were ₦25k if known). Also create matching PaymentTransaction records.
+  </div>
+
+  <div id="fix3" class="collapsible open">
+  <div class="fix-table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Transaction ID</th>
+          <th>User</th>
+          <th>Email</th>
+          <th>Date</th>
+          <th>Shares</th>
+          <th>ownershipPct</th>
+          <th>earningKobo (corrected)</th>
+          <th>Amount (before → after)</th>
+          <th>Action</th>
+        </tr>
+      </thead>
+      <tbody id="fix3-tbody"></tbody>
+      <tfoot>
+        <tr class="totals-row" id="fix3-totals"></tr>
+      </tfoot>
+    </table>
+  </div>
+  </div>
+</div>
+
+<!-- SKIP section -->
+<div class="skip-section">
+  <div class="fix-header">
+    <div class="fix-num" style="background:#111;color:var(--muted);border:1px solid var(--border)">✕</div>
+    <h2 style="color:var(--muted)">Skipped — Pending / Failed Ghost Records</h2>
+    <span class="badge" style="background:#111;color:var(--muted);border:1px solid var(--border)">~300+ rows</span>
+    <span class="count">No action needed</span>
+  </div>
+  <div class="fix-description">
+    These are abandoned paystack/centiiv payment attempts — <code>status: pending</code> or <code>failed</code>, <code>amount: 0</code>, <code>ownershipPct: 0</code>.
+    They represent users who started a payment flow but never completed it. <strong>Do not touch these.</strong>
+    They are harmless and deleting them could cause confusion if users query old transaction IDs.
+  </div>
+</div>
+
+<!-- Footer actions -->
+<div class="footer-actions">
+  <div class="action-card">
+    <h3>✅ Recommended Steps</h3>
+    <ol>
+      <li><strong>Back up MongoDB</strong> — <code>mongodump --uri="..." --out=./backup</code></li>
+      <li><strong>Review this preview</strong> — confirm all before/after values look correct</li>
+      <li><strong>Clarify the ₦25k vs ₦50k question</strong> — do you know which users bought the first 20 shares?</li>
+      <li><strong>Run dry-run script</strong> — logs changes without saving</li>
+      <li><strong>Apply earningKobo ÷1000 globally</strong> — across all transaction types</li>
+      <li><strong>Run real fix</strong> — apply to database</li>
+      <li><strong>Verify totals</strong> — check project stats API matches expectations</li>
+    </ol>
+  </div>
+  <div class="action-card">
+    <h3 style="color:var(--danger)">⚠ Key Decisions Needed</h3>
+    <ul>
+      <li>Confirm <strong>earningKobo ÷1000</strong> applies to <em>all</em> transaction types (not just co-founder)?</li>
+      <li>For <strong>co-founder elite</strong>: confirm earningKobo = <code>308</code> (22 × 14)?</li>
+      <li>For <strong>US-only completed</strong> with amount=0: use <code>₦50,000</code>/share or do you have the ₦25k buyers list?</li>
+      <li>For <strong>discrepancy rows post-March</strong>: auto-pick earningKobo from tier config (÷1000 applied)?</li>
+      <li>Do you want ghost pending records <strong>cleaned up</strong> (deleted) or left as-is?</li>
+    </ul>
+  </div>
+</div>
+
+<script>
+function toggle(id) {
+  const el = document.getElementById(id);
+  el.classList.toggle('open');
+}
+
+// ── Fix 1 sample data ──────────────────────────────────────────────────────
+const fix1Data = [
+  { txid: 'TXN-896652F2-518565', user: 'OBIEFUNA OBIAGELI', date: '2025-07-06', pctBefore: '0.000021', pctAfter: '0.00005', koboBefore: '14,000', koboAfter: '30', amtBefore: '0 (US)', amtAfter: '₦50,000', status: 'completed' },
+  { txid: 'TXN-C04686E2-504166', user: 'Omoniyi Bennett', date: '2025-07-07', pctBefore: '0.000021', pctAfter: '0.00005', koboBefore: '14,000', koboAfter: '30', amtBefore: '0 (US)', amtAfter: '₦50,000', status: 'completed' },
+  { txid: 'TXN-05D64357-584872', user: 'Agborubere Benjamin', date: '2025-07-07', pctBefore: '0.000021', pctAfter: '0.00005', koboBefore: '14,000', koboAfter: '30', amtBefore: '0 (US)', amtAfter: '₦50,000', status: 'completed' },
+  { txid: 'TXN-131DC6FF-726774', user: 'Veiko Lillevalja', date: '2025-07-08', pctBefore: '0.000021', pctAfter: '0.00005', koboBefore: '14,000', koboAfter: '30', amtBefore: '0 (US)', amtAfter: '₦50,000', status: 'completed' },
+  { txid: 'TXN-9CA60998-447617', user: 'KINGSLEY NNABUIHE', date: '2025-07-09', pctBefore: '0.000021', pctAfter: '0.00005', koboBefore: '14,000', koboAfter: '30', amtBefore: '0 (US)', amtAfter: '₦50,000', status: 'completed' },
+  { txid: 'TXN-FF0C2A73-394837', user: 'Pius Gloria Miracle', date: '2025-07-09', pctBefore: '0.000021', pctAfter: '0.00005', koboBefore: '14,000', koboAfter: '30', amtBefore: '0 (US)', amtAfter: '₦50,000', status: 'completed' },
+  { txid: 'TXN-0346FBB9-305625', user: 'Chesed Jephthae', date: '2025-07-09', pctBefore: '0.000021', pctAfter: '0.00005', koboBefore: '14,000', koboAfter: '30', amtBefore: '0 (US)', amtAfter: '₦50,000', status: 'completed' },
+  { txid: 'TXN-0FBADFD2-572363', user: 'hodayah b el israel', date: '2025-07-15', pctBefore: '0.000021', pctAfter: '0.00005', koboBefore: '14,000', koboAfter: '30', amtBefore: '0 (US)', amtAfter: '₦100,000', status: 'completed' },
+  { txid: 'TXN-E1BE5AF1-995242', user: 'Dennis Nnabuihe', date: '2025-07-16', pctBefore: '0.000021', pctAfter: '0.00005', koboBefore: '14,000', koboAfter: '30', amtBefore: '0 (US)', amtAfter: '₦50,000', status: 'completed' },
+  { txid: 'TXN-C752A35F-319579', user: 'Odumgba Agbalikia', date: '2025-07-16', pctBefore: '0.000021', pctAfter: '0.00005', koboBefore: '14,000', koboAfter: '30', amtBefore: '0 (US)', amtAfter: '₦200,000', status: 'completed' },
+  { txid: 'TXN-4DA65ACB-789232', user: 'Paul Ugbadamu', date: '2025-07-26', pctBefore: '0.000021', pctAfter: '0.00005', koboBefore: '14,000', koboAfter: '30', amtBefore: '0 (US)', amtAfter: '₦100,000', status: 'completed' },
+  { txid: 'TXN-E5958BF9-538134', user: 'Emmerson Babb', date: '2025-07-28', pctBefore: '0.000021', pctAfter: '0.00005', koboBefore: '14,000', koboAfter: '30', amtBefore: '0 (US)', amtAfter: '₦50,000', status: 'completed' },
+  { txid: 'TXN-BF971BBE-111764', user: 'Bright Osei Boateng', date: '2025-08-04', pctBefore: '0.000021', pctAfter: '0.00005', koboBefore: '14,000', koboAfter: '30', amtBefore: '0 (US)', amtAfter: '₦50,000', status: 'completed' },
+  { txid: 'TXN-BB21C0CF-679311', user: 'OJI KINGSLEY A', date: '2025-08-05', pctBefore: '0.000021', pctAfter: '0.00005', koboBefore: '14,000', koboAfter: '30', amtBefore: '0 (US)', amtAfter: '₦50,000', status: 'completed' },
+  { txid: 'TXN-1F18D06A-424445', user: 'Ogbonna Chinonyerem', date: '2025-08-07', pctBefore: '0.000021', pctAfter: '0.00005', koboBefore: '14,000', koboAfter: '30', amtBefore: '0 (US)', amtAfter: '₦50,000', status: 'completed' },
+  { txid: 'TXN-A6D3CFE6-243257', user: 'IREDE NOAH EBIWEI', date: '2025-08-09', pctBefore: '0.000021', pctAfter: '0.00005', koboBefore: '14,000', koboAfter: '30', amtBefore: '0 (US)', amtAfter: '₦50,000', status: 'completed' },
+  { txid: 'TXN-C37D43E5-643984', user: 'joseph cletus akpan', date: '2025-11-09', pctBefore: '0.00001', pctAfter: '0.00001', koboBefore: '6,000', koboAfter: '6', amtBefore: '0 (US)', amtAfter: '₦35,000', status: 'completed' },
+  { txid: 'TXN-D68281B2-575181', user: 'Bethel Onyema', date: '2025-11-09', pctBefore: '0.00001', pctAfter: '0.00001', koboBefore: '6,000', koboAfter: '6', amtBefore: '0 (US)', amtAfter: '₦35,000', status: 'completed' },
+  { txid: 'TXN-25BE5084-330723', user: 'Peace Ehijie', date: '2026-01-22', pctBefore: '0.000021', pctAfter: '0.000021', koboBefore: '14,000', koboAfter: '14', amtBefore: '0 (US)', amtAfter: '₦100,000', status: 'completed' },
+  { txid: 'TXN-613B6078-556533', user: 'TamKarinatei Fredrich', date: '2026-03-10', pctBefore: '0.00005', pctAfter: '0.00005', koboBefore: '30,000', koboAfter: '30', amtBefore: '0 (US)', amtAfter: '₦500,000', status: 'completed' },
+];
+
+const tbody1 = document.getElementById('fix1-tbody');
+let f1TotalAmt = 0;
+let f1TotalShares = 0;
+
+fix1Data.forEach(r => {
+  const pctChanged = r.pctBefore !== r.pctAfter;
+  const koboChanged = r.koboBefore !== r.koboAfter;
+  const amtNum = parseInt(r.amtAfter.replace(/[^\d]/g,'')) || 0;
+  f1TotalAmt += amtNum;
+  f1TotalShares++;
+  tbody1.innerHTML += `
+    <tr>
+      <td class="txid">${r.txid}</td>
+      <td class="user-cell">${r.user}</td>
+      <td class="date-cell">${r.date}</td>
+      <td><span class="pill ${pctChanged || koboChanged ? 'pill-yellow' : 'pill-green'}">${pctChanged || koboChanged ? 'PT+US fix' : 'amount fix'}</span></td>
+      <td>
+        ${pctChanged ? `<span class="before">${r.pctBefore}</span><span class="arrow">→</span><span class="after">${r.pctAfter}</span>` : `<span class="unchanged">${r.pctAfter}</span>`}
+      </td>
+      <td>
+        ${koboChanged ? `<span class="before">${r.koboBefore}</span><span class="arrow">→</span><span class="after">${r.koboAfter}</span>` : `<span class="unchanged">${r.koboAfter}</span>`}
+      </td>
+      <td>
+        <span class="before">${r.amtBefore}</span><span class="arrow">→</span><span class="after">${r.amtAfter}</span>
+      </td>
+      <td><span class="pill pill-green">${r.status}</span></td>
+    </tr>`;
+});
+
+document.getElementById('fix1-totals').innerHTML = `
+  <td colspan="3" style="color:var(--accent);font-size:0.65rem;font-family:var(--mono);text-transform:uppercase;letter-spacing:0.08em">
+    Sample Total (${fix1Data.length} rows shown)
+  </td>
+  <td></td>
+  <td style="color:var(--accent2);font-family:var(--mono);font-size:0.7rem">All → corrected</td>
+  <td style="color:var(--accent2);font-family:var(--mono);font-size:0.7rem">All ÷1000</td>
+  <td style="color:var(--accent2);font-family:var(--mono);font-size:0.7rem">₦${f1TotalAmt.toLocaleString()}</td>
+  <td></td>
+`;
+
+// ── Fix 2: co-founder PT-only ─────────────────────────────────────────────────
+// earningKobo = shares × 14 (corrected from shares × 14,000)
+const fix2Data = [
+  { txid: 'CFD-0284E91B-335280', user: 'Otoaye Godfrey', email: 'infoafrichainx@gmail.com', date: '2025-06-28', shares: 1, pct: '0.000462', koboBefore: '14,000', koboAfter: '14', amt: '₦1,000,000' },
+  { txid: 'CFD-618DE73C-346047', user: 'Christian Okeke', email: 'okekechristian268@gmail.com', date: '2025-06-28', shares: 1, pct: '0.000462', koboBefore: '14,000', koboAfter: '14', amt: '₦1,000,000' },
+  { txid: 'CFD-763891B9-803881', user: 'Elston', email: 'elstontuitt@gmail.com', date: '2025-06-28', shares: 1, pct: '0.000462', koboBefore: '14,000', koboAfter: '14', amt: '₦1,000,000' },
+  { txid: 'CFD-2B98C7C2-437034', user: 'Adjeke Felicia', email: 'numeadjeke@gmail.com', date: '2025-06-29', shares: 1, pct: '0.000462', koboBefore: '14,000', koboAfter: '14', amt: '₦1,000,000' },
+  { txid: 'CFD-2679AFBF-308131', user: 'KODQ Foudation', email: 'kodq.foudation@gmail.com', date: '2025-07-04', shares: 1, pct: '0.000462', koboBefore: '14,000', koboAfter: '14', amt: '₦1,000,000' },
+  { txid: 'CFD-936A9880-705661', user: 'Joseph Abugu', email: 'abugu_efe@yahoo.com', date: '2025-07-04', shares: 1, pct: '0.000462', koboBefore: '14,000', koboAfter: '14', amt: '₦1,000,000' },
+  { txid: 'CFD-3D4495D9-415448', user: 'hodayah b el israel', email: 'hodayah@protonmail.com', date: '2025-07-05', shares: 1, pct: '0.000462', koboBefore: '14,000', koboAfter: '14', amt: '₦1,000,000' },
+  { txid: 'CFD-B1E0F051-377301', user: 'Dawn', email: 'dawntuitt@gmail.com', date: '2025-07-22', shares: 1, pct: '0.000462', koboBefore: '14,000', koboAfter: '14', amt: '₦1,000,000' },
+  { txid: 'CFD-852E7CC0-526764', user: 'Ademosu Oluwayanmife', email: 'yanmife30@gmail.com', date: '2025-08-03', shares: 1, pct: '0.000462', koboBefore: '14,000', koboAfter: '14', amt: '₦1,000,000' },
+  { txid: 'CFD-C72EEABC-544087', user: 'Ademosu Oluwayanmife', email: 'yanmife30@gmail.com', date: '2025-08-03', shares: 1, pct: '0.000462', koboBefore: '14,000', koboAfter: '14', amt: '₦1,000,000' },
+  { txid: 'CFD-F3B1EF0B-609711', user: 'Uboegbulam Paul Onyema', email: 'onyema313@gmail.com', date: '2025-08-03', shares: 1, pct: '0.000462', koboBefore: '14,000', koboAfter: '14', amt: '₦1,000,000' },
+  { txid: 'CFD-9BA1E97C-105556', user: 'Ademosu Abimbola', email: 'christadem74@gmail.com', date: '2025-10-11', shares: 3, pct: '0.001386', koboBefore: '42,000', koboAfter: '42', amt: '₦3,000,000' },
+  { txid: 'CFD-B1F83D6C-864930', user: 'Ademosu Oluwayamilenu', email: 'yamilenu16@gmail.com', date: '2025-10-11', shares: 2, pct: '0.000924', koboBefore: '28,000', koboAfter: '28', amt: '₦2,000,000' },
+  { txid: 'CFD-2A3EC931-466368', user: 'Lurvy Notoma', email: 'gracenotoma@gmail.com', date: '2026-01-24', shares: 3, pct: '0.001386', koboBefore: '42,000', koboAfter: '42', amt: '₦3,000,000' },
+  { txid: 'CFD-0858E1E0-052438', user: 'Kenneth Notoma', email: 'kennethnotoma@gmail.com', date: '2026-01-24', shares: 2, pct: '0.000924', koboBefore: '28,000', koboAfter: '28', amt: '₦2,000,000' },
+  { txid: 'CFD-9F8565C1-199767', user: 'Ndubuisi Henry', email: 'nhospitez@yahoo.com', date: '2026-01-25', shares: 1, pct: '0.000462', koboBefore: '14,000', koboAfter: '14', amt: '₦1,000,000' },
+  { txid: 'CFD-3F32D63C-638480', user: 'Anthony Erakpobruke', email: 'toni4reality@gmail.com', date: '2026-01-26', shares: 1, pct: '0.000462', koboBefore: '14,000', koboAfter: '14', amt: '₦1,000,000' },
+  { txid: 'CFD-72BBD903-511944', user: 'Anthony Erakpobruke', email: 'toni4reality@gmail.com', date: '2026-01-26', shares: 1, pct: '0.000462', koboBefore: '14,000', koboAfter: '14', amt: '₦1,000,000' },
+  { txid: 'CFD-14C463E6-603735', user: 'hodayah b el israel', email: 'hodayah@protonmail.com', date: '2026-02-05', shares: 1, pct: '0.000462', koboBefore: '14,000', koboAfter: '14', amt: '₦1,000,000' },
+  { txid: 'CFD-B75D60CC-602917', user: 'Oghenetejiri Notoma', email: 'taejaynotoma@gmail.com', date: '2026-02-06', shares: 3, pct: '0.001386', koboBefore: '42,000', koboAfter: '42', amt: '₦3,000,000' },
+  { txid: 'CFD-5230A32C-728056', user: 'Oghenetejiri Notoma', email: 'taejaynotoma@gmail.com', date: '2026-02-06', shares: 1, pct: '0.000462', koboBefore: '14,000', koboAfter: '14', amt: '₦1,000,000' },
+  { txid: 'CFD-DE2F348E-323973', user: 'Christian Okeke', email: 'okekechristian268@gmail.com', date: '2026-02-09', shares: 2, pct: '0.000924', koboBefore: '28,000', koboAfter: '28', amt: '₦2,000,000' },
+  { txid: 'CFD-FB51D8C4-987348', user: 'Reuben Stephen Chukwuma', email: 'reubenchukwuma0@gmail.com', date: '2026-02-15', shares: 1, pct: '0.000462', koboBefore: '14,000', koboAfter: '14', amt: '₦1,000,000' },
+  { txid: 'CFD-7C96CDE1-906874', user: 'Obinna Mgbakor', email: 'obieastsyde@gmail.com', date: '2026-02-16', shares: 1, pct: '0.000462', koboBefore: '14,000', koboAfter: '14', amt: '₦1,000,000' },
+  { txid: 'CFD-9C810D2B-449068', user: 'Regina Unamba', email: 'reginareginaaa11@gmail.com', date: '2026-02-16', shares: 1, pct: '0.000462', koboBefore: '14,000', koboAfter: '14', amt: '₦1,000,000' },
+  { txid: 'CFD-844900A2-000795', user: 'Kelechi Orah', email: 'orahkelechi1204@gmail.com', date: '2026-02-16', shares: 1, pct: '0.000462', koboBefore: '14,000', koboAfter: '14', amt: '₦1,000,000' },
+  { txid: 'CFD-110BCBA6-985853', user: 'Okeke Henry Chukwuharam', email: 'ndhospitez23@gmail.com', date: '2026-02-16', shares: 1, pct: '0.000462', koboBefore: '14,000', koboAfter: '14', amt: '₦1,000,000' },
+  { txid: 'CFD-4C78579B-921954', user: 'Joy Amaoge Nwaebo', email: 'joynwaebo@gmail.com', date: '2026-02-26', shares: 1, pct: '0.000462', koboBefore: '14,000', koboAfter: '14', amt: '₦1,000,000' },
+  { txid: 'CFD-9FC804B4-308034', user: 'Anthony Anurika Chime', email: 'anthonychime2022@gmail.com', date: '2026-02-26', shares: 1, pct: '0.000462', koboBefore: '14,000', koboAfter: '14', amt: '₦1,000,000' },
+  { txid: 'CFD-9B3904F1-757204', user: 'Uchendu Benson chukwudi', email: 'uchenduchukwudi37@gmail.com', date: '2026-02-27', shares: 1, pct: '0.000462', koboBefore: '14,000', koboAfter: '14', amt: '₦1,000,000' },
+  { txid: 'CFD-457E23A3-836269', user: 'Ndubuisi Henry', email: 'nhospitez@yahoo.com', date: '2026-03-03', shares: 1, pct: '0.000462', koboBefore: '14,000', koboAfter: '14', amt: '₦1,000,000' },
+  // Later CFD rows with different earningKobo stored (multi-share corrections):
+  { txid: 'CFD-65D2B42C-838636', user: 'Ademosu Abimbola', email: 'christadem74@gmail.com', date: '2025-11-06', shares: 5, pct: '0.000105', koboBefore: '70,000', koboAfter: '70', amt: '₦3,500,000' },
+  { txid: 'CFD-03A409AF-736197', user: 'Agupugo Anthonia', email: 'anthoniaagupugo@gmail.com', date: '2025-11-13', shares: 10, pct: '0.000210', koboBefore: '140,000', koboAfter: '140', amt: '₦7,000,000' },
+  { txid: 'CFD-92AEC484-840293', user: 'Ademosu Abimbola', email: 'christadem74@gmail.com', date: '2025-11-26', shares: 3, pct: '0.000063', koboBefore: '42,000', koboAfter: '42', amt: '₦2,100,000' },
+];
+
+const tbody2 = document.getElementById('fix2-tbody');
+let f2TotalShares = 0;
+let f2TotalAmt = 0;
+let f2KoboSaved = 0;
+
+fix2Data.forEach(r => {
+  f2TotalShares += r.shares;
+  const amtNum = parseInt(r.amt.replace(/[^\d]/g,'')) || 0;
+  f2TotalAmt += amtNum;
+  const koboBefore = parseInt(r.koboBefore.replace(/,/g,'')) || 0;
+  const koboAfter = parseInt(r.koboAfter.replace(/,/g,'')) || 0;
+  f2KoboSaved += (koboBefore - koboAfter);
+
+  tbody2.innerHTML += `
+    <tr>
+      <td class="txid">${r.txid}</td>
+      <td class="user-cell">${r.user}</td>
+      <td style="color:var(--muted);font-size:0.62rem">${r.email}</td>
+      <td class="date-cell">${r.date}</td>
+      <td style="color:var(--accent)">${r.shares}</td>
+      <td style="color:var(--accent2)">${r.pct}</td>
+      <td>
+        <span class="before">${r.koboBefore}</span>
+        <span class="arrow">→</span>
+        <span class="after">${r.koboAfter}</span>
+      </td>
+      <td style="color:var(--accent2)">${r.amt}</td>
+      <td><span class="pill pill-blue">INSERT to US</span></td>
+    </tr>`;
+});
+
+document.getElementById('fix2-totals').innerHTML = `
+  <td colspan="4" style="color:var(--accent);font-size:0.65rem;font-family:var(--mono);text-transform:uppercase;letter-spacing:0.08em">
+    Totals (${fix2Data.length} shown of 52)
+  </td>
+  <td style="color:var(--accent2);font-family:var(--mono);font-size:0.7rem">${f2TotalShares} shares</td>
+  <td></td>
+  <td style="color:var(--accent2);font-family:var(--mono);font-size:0.7rem">÷1000 applied</td>
+  <td style="color:var(--accent2);font-family:var(--mono);font-size:0.7rem">₦${f2TotalAmt.toLocaleString()}</td>
+  <td></td>
+`;
+
+// ── Fix 3: US-only completed ──────────────────────────────────────────────────
+// earningKobo corrected: pre-March = 30 (not 30,000); post-March basic=6, standard=14, premium=30
+const fix3Data = [
+  { txid: 'TXN-38E96EE2-762543', user: 'onuhbernard4', email: 'onuhbernard4@gmail.com', date: '2025-04-01', shares: 1, pct: '0.00005', kobo: '30', amtBefore: '0', amtAfter: '₦50,000' },
+  { txid: 'TXN-FF8E4DA8-468726', user: 'onuhbernard4', email: 'onuhbernard4@gmail.com', date: '2025-04-01', shares: 1, pct: '0.00005', kobo: '30', amtBefore: '0', amtAfter: '₦50,000' },
+  { txid: 'TXN-3BECA080-938817', user: 'Otoaye Godfrey', email: 'infoafrichainx@gmail.com', date: '2025-04-01', shares: 1, pct: '0.00005', kobo: '30', amtBefore: '0', amtAfter: '₦50,000' },
+  { txid: 'TXN-E065EEC3-413571', user: 'Otoaye Godfrey', email: 'infoafrichainx@gmail.com', date: '2025-05-29', shares: 1, pct: '0.00005', kobo: '30', amtBefore: '0', amtAfter: '₦50,000' },
+  { txid: 'TXN-93BA9261-570832', user: 'Iprete Johnson O.', email: 'iprestyno100@gmail.com', date: '2025-04-02', shares: 2, pct: '0.00005', kobo: '30', amtBefore: '0', amtAfter: '₦100,000' },
+  { txid: 'TXN-4ECDBF85-907978', user: 'Iprete Johnson O.', email: 'iprestyno100@gmail.com', date: '2025-04-11', shares: 2, pct: '0.00005', kobo: '30', amtBefore: '0', amtAfter: '₦100,000' },
+  { txid: 'TXN-3D48314C-889019', user: 'Ajose Habib A', email: 'khalabstores@gmail.com', date: '2025-04-11', shares: 2, pct: '0.00005', kobo: '30', amtBefore: '0', amtAfter: '₦100,000' },
+  { txid: 'TXN-A2C53B66-663575', user: 'AMUJO ADEDAYO R', email: 'admux123@gmail.com', date: '2025-04-03', shares: 1, pct: '0.00005', kobo: '30', amtBefore: '0', amtAfter: '₦50,000' },
+  { txid: 'TXN-5150D4C2-611005', user: 'Iruka Emmanuel', email: 'ruthuzoamaka042@gmail.com', date: '2025-04-14', shares: 2, pct: '0.00005', kobo: '30', amtBefore: '0', amtAfter: '₦100,000' },
+  { txid: 'TXN-D6D970C3-478109', user: 'Ajah Francis', email: 'otufrank00@gmail.com', date: '2025-04-02', shares: 2, pct: '0.00005', kobo: '30', amtBefore: '0', amtAfter: '₦100,000' },
+  { txid: 'TXN-9BB049DD-956296', user: 'Maureen Bethel', email: 'maureenbethel336@gmail.com', date: '2025-04-04', shares: 1, pct: '0.00005', kobo: '30', amtBefore: '0', amtAfter: '₦50,000' },
+  { txid: 'TXN-9497693E-239274', user: 'Peter', email: 'archibongpeterfelix@gmail.com', date: '2025-04-21', shares: 2, pct: '0.00005', kobo: '30', amtBefore: '0', amtAfter: '₦100,000' },
+  { txid: 'TXN-0B6C1B93-258257', user: 'Ojo Johnson O', email: 'ojojohnson72@gmail.com', date: '2025-04-24', shares: 1, pct: '0.00005', kobo: '30', amtBefore: '0', amtAfter: '₦50,000' },
+  { txid: 'TXN-B18C4878-145352', user: 'Damola Ayesoro', email: 'damolaayesoro360@gmail.com', date: '2025-06-03', shares: 1, pct: '0.00005', kobo: '30', amtBefore: '0', amtAfter: '₦50,000' },
+  { txid: 'TXN-634B2088-258391', user: 'Peace Ehijie', email: 'ehijiepeace23@gmail.com', date: '2026-01-11', shares: 1, pct: '0.00005', kobo: '30', amtBefore: '0', amtAfter: '₦50,000' },
+];
+
+const tbody3 = document.getElementById('fix3-tbody');
+let f3TotalShares = 0;
+let f3TotalAmt = 0;
+
+fix3Data.forEach(r => {
+  f3TotalShares += r.shares;
+  const amtNum = parseInt(r.amtAfter.replace(/[^\d]/g,'')) || 0;
+  f3TotalAmt += amtNum;
+
+  tbody3.innerHTML += `
+    <tr>
+      <td class="txid">${r.txid}</td>
+      <td class="user-cell">${r.user}</td>
+      <td style="color:var(--muted);font-size:0.62rem">${r.email}</td>
+      <td class="date-cell">${r.date}</td>
+      <td style="color:var(--accent)">${r.shares}</td>
+      <td style="color:var(--accent2)">${r.pct}</td>
+      <td style="color:var(--accent2)">${r.kobo} <span style="color:var(--muted);font-size:0.6rem">(was ${r.kobo}000)</span></td>
+      <td>
+        <span class="before">${r.amtBefore}</span>
+        <span class="arrow">→</span>
+        <span class="after">${r.amtAfter}</span>
+      </td>
+      <td><span class="pill pill-yellow">SET amount</span></td>
+    </tr>`;
+});
+
+document.getElementById('fix3-totals').innerHTML = `
+  <td colspan="4" style="color:var(--accent);font-size:0.65rem;font-family:var(--mono);text-transform:uppercase;letter-spacing:0.08em">
+    Totals (${fix3Data.length} shown of ~80)
+  </td>
+  <td style="color:var(--accent2);font-family:var(--mono);font-size:0.7rem">${f3TotalShares} shares</td>
+  <td></td>
+  <td style="color:var(--accent2);font-family:var(--mono);font-size:0.7rem">÷1000 applied</td>
+  <td style="color:var(--accent2);font-family:var(--mono);font-size:0.7rem">₦${f3TotalAmt.toLocaleString()}</td>
+  <td></td>
+`;
+</script>
+</body>
+</html>

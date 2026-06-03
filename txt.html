@@ -1,0 +1,1275 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Transaction Audit · Comparison Dashboard</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;700&family=Syne:wght@400;600;700;800&display=swap');
+
+  :root {
+    --bg: #0b0d11;
+    --surface: #111318;
+    --surface2: #181b22;
+    --border: #1e2230;
+    --border2: #2a2f40;
+    --accent: #4fffb0;
+    --accent2: #ff4f81;
+    --warn: #ffb84f;
+    --blue: #4f8fff;
+    --text: #e8ecf5;
+    --muted: #5a6277;
+    --muted2: #8891a8;
+    --mono: 'JetBrains Mono', monospace;
+    --sans: 'Syne', sans-serif;
+  }
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 13px;
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+
+  /* ── Grid background ── */
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background-image:
+      linear-gradient(var(--border) 1px, transparent 1px),
+      linear-gradient(90deg, var(--border) 1px, transparent 1px);
+    background-size: 32px 32px;
+    opacity: 0.35;
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  /* ── Layout ── */
+  .shell {
+    position: relative;
+    z-index: 1;
+    max-width: 1600px;
+    margin: 0 auto;
+    padding: 0 24px 80px;
+  }
+
+  /* ── Header ── */
+  header {
+    padding: 40px 0 32px;
+    display: flex;
+    align-items: flex-end;
+    gap: 32px;
+    border-bottom: 1px solid var(--border2);
+    margin-bottom: 32px;
+  }
+
+  .logo-mark {
+    width: 48px; height: 48px;
+    background: var(--accent);
+    display: grid;
+    place-items: center;
+    flex-shrink: 0;
+  }
+
+  .logo-mark svg { width: 28px; height: 28px; }
+
+  .header-text h1 {
+    font-family: var(--sans);
+    font-size: 26px;
+    font-weight: 800;
+    letter-spacing: -0.5px;
+    color: var(--text);
+    line-height: 1;
+  }
+
+  .header-text p {
+    font-size: 11px;
+    color: var(--muted2);
+    margin-top: 6px;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+  }
+
+  .header-actions {
+    margin-left: auto;
+    display: flex;
+    gap: 10px;
+    align-items: center;
+  }
+
+  /* ── Upload zone ── */
+  .upload-zone {
+    border: 1.5px dashed var(--border2);
+    background: var(--surface);
+    padding: 48px 32px;
+    text-align: center;
+    cursor: pointer;
+    transition: border-color 0.2s, background 0.2s;
+    position: relative;
+    overflow: hidden;
+  }
+
+  .upload-zone::before {
+    content: '';
+    position: absolute;
+    top: -50%; left: -50%;
+    width: 200%; height: 200%;
+    background: radial-gradient(circle at center, rgba(79,255,176,0.03) 0%, transparent 60%);
+    pointer-events: none;
+  }
+
+  .upload-zone:hover, .upload-zone.drag-over {
+    border-color: var(--accent);
+    background: #111e18;
+  }
+
+  .upload-zone input { display: none; }
+
+  .upload-icon {
+    width: 48px; height: 48px;
+    border: 1.5px solid var(--border2);
+    display: inline-grid;
+    place-items: center;
+    margin-bottom: 16px;
+  }
+
+  .upload-zone h2 {
+    font-family: var(--sans);
+    font-size: 18px;
+    font-weight: 700;
+    color: var(--text);
+    margin-bottom: 8px;
+  }
+
+  .upload-zone p { color: var(--muted2); font-size: 12px; }
+  .upload-zone .hint { margin-top: 12px; font-size: 11px; color: var(--muted); letter-spacing: 0.03em; }
+
+  .or-divider {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    margin: 24px 0;
+    color: var(--muted);
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+  }
+
+  .or-divider::before, .or-divider::after {
+    content: '';
+    flex: 1;
+    height: 1px;
+    background: var(--border2);
+  }
+
+  /* ── Stats bar ── */
+  .stats-bar {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    gap: 2px;
+    margin-bottom: 32px;
+  }
+
+  .stat-card {
+    background: var(--surface);
+    padding: 20px 24px;
+    border: 1px solid var(--border);
+    position: relative;
+    overflow: hidden;
+  }
+
+  .stat-card::after {
+    content: '';
+    position: absolute;
+    bottom: 0; left: 0; right: 0;
+    height: 2px;
+  }
+
+  .stat-card.green::after  { background: var(--accent); }
+  .stat-card.red::after    { background: var(--accent2); }
+  .stat-card.yellow::after { background: var(--warn); }
+  .stat-card.blue::after   { background: var(--blue); }
+
+  .stat-label {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--muted);
+    margin-bottom: 8px;
+  }
+
+  .stat-value {
+    font-family: var(--sans);
+    font-size: 28px;
+    font-weight: 800;
+    line-height: 1;
+  }
+
+  .stat-card.green .stat-value  { color: var(--accent); }
+  .stat-card.red .stat-value    { color: var(--accent2); }
+  .stat-card.yellow .stat-value { color: var(--warn); }
+  .stat-card.blue .stat-value   { color: var(--blue); }
+
+  /* ── Filters & tabs ── */
+  .toolbar {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 20px;
+    flex-wrap: wrap;
+  }
+
+  .tab-group {
+    display: flex;
+    border: 1px solid var(--border2);
+    overflow: hidden;
+  }
+
+  .tab {
+    padding: 8px 18px;
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    background: var(--surface);
+    color: var(--muted2);
+    border: none;
+    cursor: pointer;
+    border-right: 1px solid var(--border2);
+    transition: all 0.15s;
+    position: relative;
+  }
+
+  .tab:last-child { border-right: none; }
+
+  .tab.active {
+    background: var(--bg);
+    color: var(--text);
+  }
+
+  .tab.active::after {
+    content: '';
+    position: absolute;
+    bottom: 0; left: 0; right: 0;
+    height: 2px;
+    background: var(--accent);
+  }
+
+  .tab .badge {
+    display: inline-block;
+    background: var(--border2);
+    color: var(--muted2);
+    font-size: 9px;
+    padding: 1px 5px;
+    margin-left: 6px;
+    vertical-align: middle;
+  }
+
+  .tab.active .badge { background: var(--accent); color: #000; }
+  .tab.red-tab.active .badge { background: var(--accent2); color: #fff; }
+  .tab.yellow-tab.active .badge { background: var(--warn); color: #000; }
+
+  .search-box {
+    flex: 1;
+    min-width: 200px;
+    max-width: 360px;
+    position: relative;
+  }
+
+  .search-box input {
+    width: 100%;
+    background: var(--surface);
+    border: 1px solid var(--border2);
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 12px;
+    padding: 8px 12px 8px 32px;
+    outline: none;
+    transition: border-color 0.15s;
+  }
+
+  .search-box input:focus { border-color: var(--accent); }
+  .search-box input::placeholder { color: var(--muted); }
+
+  .search-box .icon {
+    position: absolute;
+    left: 10px; top: 50%;
+    transform: translateY(-50%);
+    color: var(--muted);
+    pointer-events: none;
+  }
+
+  .btn {
+    padding: 8px 16px;
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    border: 1px solid var(--border2);
+    background: var(--surface);
+    color: var(--muted2);
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+
+  .btn:hover { border-color: var(--accent); color: var(--accent); }
+  .btn.primary { background: var(--accent); color: #000; border-color: var(--accent); font-weight: 700; }
+  .btn.primary:hover { background: #3ae09d; }
+  .btn.danger { background: var(--accent2); color: #fff; border-color: var(--accent2); font-weight: 700; }
+
+  /* ── Table ── */
+  .table-wrap {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    overflow-x: auto;
+  }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12px;
+  }
+
+  thead th {
+    background: var(--bg);
+    padding: 10px 14px;
+    text-align: left;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--muted);
+    border-bottom: 1px solid var(--border2);
+    white-space: nowrap;
+    position: sticky;
+    top: 0;
+    z-index: 2;
+    cursor: pointer;
+    user-select: none;
+  }
+
+  thead th:hover { color: var(--text); }
+  thead th.sorted { color: var(--accent); }
+
+  thead th .sort-arrow { margin-left: 4px; opacity: 0.4; }
+  thead th.sorted .sort-arrow { opacity: 1; }
+
+  tbody tr {
+    border-bottom: 1px solid var(--border);
+    transition: background 0.1s;
+  }
+
+  tbody tr:hover { background: var(--surface2); }
+
+  tbody td {
+    padding: 10px 14px;
+    color: var(--text);
+    vertical-align: top;
+    white-space: nowrap;
+  }
+
+  /* ── Source badges ── */
+  .src-badge {
+    display: inline-block;
+    font-size: 9px;
+    padding: 2px 6px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    font-weight: 700;
+  }
+
+  .src-badge.pt   { background: rgba(79,143,255,0.15); color: var(--blue); border: 1px solid rgba(79,143,255,0.3); }
+  .src-badge.us   { background: rgba(79,255,176,0.12); color: var(--accent); border: 1px solid rgba(79,255,176,0.3); }
+  .src-badge.both { background: rgba(255,184,79,0.12); color: var(--warn); border: 1px solid rgba(255,184,79,0.3); }
+
+  /* ── Status pills ── */
+  .pill {
+    display: inline-block;
+    padding: 2px 8px;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+  }
+
+  .pill.completed { background: rgba(79,255,176,0.12); color: var(--accent); border: 1px solid rgba(79,255,176,0.3); }
+  .pill.pending   { background: rgba(255,184,79,0.12); color: var(--warn); border: 1px solid rgba(255,184,79,0.3); }
+  .pill.failed    { background: rgba(255,79,129,0.12); color: var(--accent2); border: 1px solid rgba(255,79,129,0.3); }
+
+  /* ── Diff cell ── */
+  .diff-cell {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  .diff-val { color: var(--muted2); }
+  .diff-val.changed { color: var(--warn); }
+
+  .diff-tag {
+    display: inline-block;
+    background: rgba(255,184,79,0.15);
+    color: var(--warn);
+    font-size: 9px;
+    padding: 1px 5px;
+    letter-spacing: 0.06em;
+  }
+
+  .mismatch-badge {
+    display: inline-block;
+    background: rgba(255,79,129,0.15);
+    color: var(--accent2);
+    border: 1px solid rgba(255,79,129,0.3);
+    font-size: 9px;
+    padding: 2px 6px;
+    letter-spacing: 0.04em;
+  }
+
+  .mono-val { font-family: var(--mono); }
+
+  /* ── Expandable row ── */
+  .expand-btn {
+    background: none;
+    border: none;
+    color: var(--muted2);
+    cursor: pointer;
+    padding: 0 6px;
+    font-size: 14px;
+    line-height: 1;
+    transition: color 0.15s, transform 0.2s;
+  }
+
+  .expand-btn:hover { color: var(--accent); }
+  .expand-btn.open { transform: rotate(90deg); color: var(--accent); }
+
+  .detail-row td {
+    padding: 0;
+    background: #0d1017;
+  }
+
+  .detail-inner {
+    padding: 20px 24px;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+    border-top: 1px solid var(--border2);
+  }
+
+  .detail-block h4 {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--muted);
+    margin-bottom: 10px;
+    padding-bottom: 6px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .kv-row {
+    display: flex;
+    gap: 12px;
+    padding: 4px 0;
+    border-bottom: 1px solid rgba(255,255,255,0.02);
+    align-items: flex-start;
+  }
+
+  .kv-key {
+    color: var(--muted2);
+    min-width: 130px;
+    flex-shrink: 0;
+    font-size: 11px;
+  }
+
+  .kv-val { color: var(--text); font-size: 11px; }
+  .kv-val.highlight { color: var(--warn); }
+
+  /* ── Empty state ── */
+  .empty-state {
+    padding: 80px 32px;
+    text-align: center;
+    color: var(--muted);
+  }
+
+  .empty-state .icon { font-size: 40px; margin-bottom: 16px; }
+  .empty-state p { font-size: 13px; margin-bottom: 8px; }
+  .empty-state small { font-size: 11px; }
+
+  /* ── Amount ── */
+  .amount { font-variant-numeric: tabular-nums; }
+
+  /* ── Scrollable table container ── */
+  .table-container {
+    max-height: 600px;
+    overflow-y: auto;
+  }
+
+  .table-container::-webkit-scrollbar { width: 6px; }
+  .table-container::-webkit-scrollbar-track { background: var(--bg); }
+  .table-container::-webkit-scrollbar-thumb { background: var(--border2); }
+
+  /* ── Side panel for compare ── */
+  .compare-panel {
+    position: fixed;
+    right: 0; top: 0; bottom: 0;
+    width: 480px;
+    background: var(--surface);
+    border-left: 1px solid var(--border2);
+    z-index: 100;
+    transform: translateX(100%);
+    transition: transform 0.25s ease;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .compare-panel.open { transform: translateX(0); }
+
+  .panel-header {
+    padding: 20px 24px;
+    border-bottom: 1px solid var(--border2);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    position: sticky;
+    top: 0;
+    background: var(--surface);
+    z-index: 1;
+  }
+
+  .panel-header h3 {
+    font-family: var(--sans);
+    font-size: 14px;
+    font-weight: 700;
+  }
+
+  .close-btn {
+    background: none;
+    border: none;
+    color: var(--muted2);
+    cursor: pointer;
+    font-size: 18px;
+    line-height: 1;
+    padding: 4px 8px;
+  }
+
+  .close-btn:hover { color: var(--accent2); }
+
+  .panel-body { padding: 20px 24px; flex: 1; }
+
+  .compare-field {
+    margin-bottom: 16px;
+    border: 1px solid var(--border);
+    overflow: hidden;
+  }
+
+  .compare-field-label {
+    background: var(--bg);
+    padding: 6px 12px;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--muted);
+    border-bottom: 1px solid var(--border);
+  }
+
+  .compare-values {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .compare-val {
+    padding: 10px 12px;
+    font-size: 12px;
+    border-right: 1px solid var(--border);
+  }
+
+  .compare-val:last-child { border-right: none; }
+  .compare-val .source-label { font-size: 9px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 4px; }
+  .compare-val .val-text { color: var(--text); }
+  .compare-val.mismatch .val-text { color: var(--warn); }
+  .compare-val.missing .val-text { color: var(--muted); font-style: italic; }
+
+  .overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.5);
+    z-index: 99;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.25s;
+  }
+
+  .overlay.open { opacity: 1; pointer-events: all; }
+
+  /* ── Export row ── */
+  .export-row {
+    display: flex;
+    gap: 10px;
+    margin-bottom: 20px;
+    justify-content: flex-end;
+  }
+
+  /* ── Loading indicator ── */
+  .loading {
+    display: none;
+    align-items: center;
+    gap: 10px;
+    padding: 16px;
+    color: var(--muted2);
+  }
+
+  .spinner {
+    width: 16px; height: 16px;
+    border: 2px solid var(--border2);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: spin 0.6s linear infinite;
+  }
+
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* responsive */
+  @media (max-width: 768px) {
+    .compare-panel { width: 100%; }
+    .detail-inner { grid-template-columns: 1fr; }
+    .stats-bar { grid-template-columns: 1fr 1fr; }
+  }
+</style>
+</head>
+<body>
+<div class="shell">
+
+  <!-- Header -->
+  <header>
+    <div class="logo-mark">
+      <svg viewBox="0 0 28 28" fill="none">
+        <rect x="2" y="2" width="10" height="10" fill="#0b0d11"/>
+        <rect x="16" y="2" width="10" height="10" fill="#0b0d11"/>
+        <rect x="2" y="16" width="10" height="10" fill="#0b0d11"/>
+        <rect x="16" y="16" width="10" height="10" fill="#0b0d11"/>
+        <rect x="4" y="4" width="6" height="6" fill="#4fffb0"/>
+        <rect x="18" y="4" width="6" height="6" fill="#4f8fff"/>
+        <rect x="4" y="18" width="6" height="6" fill="#4f8fff"/>
+        <rect x="18" y="18" width="6" height="6" fill="#ff4f81"/>
+      </svg>
+    </div>
+    <div class="header-text">
+      <h1>Transaction Audit</h1>
+      <p>PaymentTransaction ↔ UserShare · Cross-Source Comparison</p>
+    </div>
+    <div class="header-actions" id="headerActions" style="display:none;">
+      <button class="btn" onclick="resetData()">↩ Reset</button>
+      <button class="btn primary" onclick="exportReport()">↓ Export Report</button>
+    </div>
+  </header>
+
+  <!-- Upload section -->
+  <div id="uploadSection">
+    <div class="upload-zone" id="dropZone" onclick="document.getElementById('fileInput').click()">
+      <input type="file" id="fileInput" accept=".csv,.xlsx,.xls" onchange="handleFileUpload(this)">
+      <div class="upload-icon">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+          <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M17 8l-5-5-5 5M12 3v12"/>
+        </svg>
+      </div>
+      <h2>Drop your audit CSV export here</h2>
+      <p>Generated by <code style="color:var(--accent)">node auditTransactions.js --export-csv</code></p>
+      <p class="hint">Accepts: .csv  ·  Max recommended: 50k rows</p>
+    </div>
+
+    <div class="or-divider">or paste data</div>
+
+    <textarea id="pasteCsv"
+      placeholder="Paste CSV content here..."
+      style="width:100%;height:120px;background:var(--surface);border:1px solid var(--border2);color:var(--text);font-family:var(--mono);font-size:11px;padding:12px;resize:vertical;outline:none;"
+      oninput="if(this.value.trim()) loadCSVText(this.value)"></textarea>
+
+    <div class="loading" id="loadingIndicator">
+      <div class="spinner"></div>
+      <span>Parsing file…</span>
+    </div>
+  </div>
+
+  <!-- Dashboard (hidden until data loaded) -->
+  <div id="dashboard" style="display:none;">
+
+    <!-- Stats -->
+    <div class="stats-bar" id="statsBar"></div>
+
+    <!-- Toolbar -->
+    <div class="toolbar">
+      <div class="tab-group" id="tabGroup">
+        <button class="tab active" data-view="all" onclick="switchTab(this)">All <span class="badge" id="badge-all">0</span></button>
+        <button class="tab" data-view="discrepancies" onclick="switchTab(this)">Mismatches <span class="badge" id="badge-discrepancies">0</span></button>
+        <button class="tab red-tab" data-view="ptOnly" onclick="switchTab(this)">PT Only <span class="badge" id="badge-ptOnly">0</span></button>
+        <button class="tab yellow-tab" data-view="usOnly" onclick="switchTab(this)">US Only <span class="badge" id="badge-usOnly">0</span></button>
+        <button class="tab" data-view="completed" onclick="switchTab(this)">Completed <span class="badge" id="badge-completed">0</span></button>
+        <button class="tab" data-view="pending" onclick="switchTab(this)">Pending <span class="badge" id="badge-pending">0</span></button>
+        <button class="tab" data-view="failed" onclick="switchTab(this)">Failed <span class="badge" id="badge-failed">0</span></button>
+      </div>
+      <div class="search-box">
+        <span class="icon">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
+        </span>
+        <input type="text" placeholder="Search by ID, user, email, tier…" oninput="handleSearch(this.value)" id="searchInput">
+      </div>
+      <div class="export-row" style="margin:0;">
+        <button class="btn" onclick="exportFilteredCSV()">↓ CSV</button>
+      </div>
+    </div>
+
+    <!-- Table -->
+    <div class="table-wrap">
+      <div class="table-container">
+        <table id="mainTable">
+          <thead>
+            <tr>
+              <th></th>
+              <th onclick="sortBy('transactionId')">Tx ID <span class="sort-arrow">↕</span></th>
+              <th onclick="sortBy('userName')">User <span class="sort-arrow">↕</span></th>
+              <th onclick="sortBy('source')">Source <span class="sort-arrow">↕</span></th>
+              <th onclick="sortBy('type')">Type <span class="sort-arrow">↕</span></th>
+              <th onclick="sortBy('status')">Status <span class="sort-arrow">↕</span></th>
+              <th onclick="sortBy('tierKey')">Tier <span class="sort-arrow">↕</span></th>
+              <th onclick="sortBy('amount')">Amount <span class="sort-arrow">↕</span></th>
+              <th onclick="sortBy('shares')">Shares <span class="sort-arrow">↕</span></th>
+              <th onclick="sortBy('ownershipPct')">Ownership% <span class="sort-arrow">↕</span></th>
+              <th>Discrepancies</th>
+              <th onclick="sortBy('createdAt')">Date <span class="sort-arrow">↕</span></th>
+              <th>⚡</th>
+            </tr>
+          </thead>
+          <tbody id="tableBody"></tbody>
+        </table>
+      </div>
+      <div id="tableFooter" style="padding:10px 14px;border-top:1px solid var(--border);color:var(--muted);font-size:11px;"></div>
+    </div>
+
+  </div>
+
+</div>
+
+<!-- Side panel -->
+<div class="overlay" id="overlay" onclick="closePanel()"></div>
+<div class="compare-panel" id="comparePanel">
+  <div class="panel-header">
+    <h3 id="panelTitle">Transaction Detail</h3>
+    <button class="close-btn" onclick="closePanel()">✕</button>
+  </div>
+  <div class="panel-body" id="panelBody"></div>
+</div>
+
+<script>
+// ─── State ────────────────────────────────────────────────────────────────────
+let allRows = [];
+let groupedRows = {};  // keyed by transactionId
+let filteredRows = [];
+let currentView = 'all';
+let searchQuery = '';
+let sortField = 'createdAt';
+let sortDir = -1;
+let expandedRows = new Set();
+
+// ─── CSV parser ───────────────────────────────────────────────────────────────
+function parseCSV(text) {
+  const lines = text.trim().split(/\r?\n/);
+  if (lines.length < 2) return [];
+  const headers = splitCSVLine(lines[0]);
+  const rows = [];
+  for (let i = 1; i < lines.length; i++) {
+    const vals = splitCSVLine(lines[i]);
+    if (vals.length < 2) continue;
+    const row = {};
+    headers.forEach((h, idx) => { row[h.trim()] = (vals[idx] || '').trim(); });
+    rows.push(row);
+  }
+  return rows;
+}
+
+function splitCSVLine(line) {
+  const vals = [];
+  let inQ = false, cur = '';
+  for (let i = 0; i < line.length; i++) {
+    const c = line[i];
+    if (c === '"') { inQ = !inQ; }
+    else if (c === ',' && !inQ) { vals.push(cur.replace(/^"|"$/g, '')); cur = ''; }
+    else { cur += c; }
+  }
+  vals.push(cur.replace(/^"|"$/g, ''));
+  return vals;
+}
+
+// ─── File upload handlers ─────────────────────────────────────────────────────
+const dropZone = document.getElementById('dropZone');
+dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('drag-over'); });
+dropZone.addEventListener('dragleave', () => dropZone.classList.remove('drag-over'));
+dropZone.addEventListener('drop', e => {
+  e.preventDefault();
+  dropZone.classList.remove('drag-over');
+  const file = e.dataTransfer.files[0];
+  if (file) processFile(file);
+});
+
+function handleFileUpload(input) {
+  if (input.files[0]) processFile(input.files[0]);
+}
+
+function processFile(file) {
+  document.getElementById('loadingIndicator').style.display = 'flex';
+  const ext = file.name.split('.').pop().toLowerCase();
+  const reader = new FileReader();
+
+  if (ext === 'csv') {
+    reader.onload = e => { loadCSVText(e.target.result); };
+    reader.readAsText(file);
+  } else if (ext === 'xlsx' || ext === 'xls') {
+    alert('Excel files not supported here. Please use the CSV export:\nnode auditTransactions.js --export-csv');
+    document.getElementById('loadingIndicator').style.display = 'none';
+  } else {
+    alert('Please upload a CSV file.');
+    document.getElementById('loadingIndicator').style.display = 'none';
+  }
+}
+
+function loadCSVText(text) {
+  document.getElementById('loadingIndicator').style.display = 'flex';
+  setTimeout(() => {
+    try {
+      const rows = parseCSV(text);
+      if (rows.length === 0) { alert('No data found in file.'); return; }
+      processRows(rows);
+    } catch (e) {
+      alert('Error parsing file: ' + e.message);
+    } finally {
+      document.getElementById('loadingIndicator').style.display = 'none';
+    }
+  }, 50);
+}
+
+// ─── Data processing ──────────────────────────────────────────────────────────
+const COMPARABLE_FIELDS = ['type','tierKey','packageLabel','status','amount','currency','paymentMethod','shares','ownershipPct','earningKobo'];
+
+function normaliseRow(r) {
+  return {
+    transactionId: r.transactionId || r.transaction_id || 'N/A',
+    source: r.source || '',
+    userId: r.userId || '',
+    userName: r.userName || r.user_name || 'Unknown',
+    userEmail: r.userEmail || r.user_email || '',
+    type: r.type || '',
+    tierKey: r.tierKey || r.tier_key || '',
+    packageLabel: r.packageLabel || r.package_label || '',
+    status: (r.status || '').toLowerCase(),
+    amount: parseFloat(r.amount) || 0,
+    currency: (r.currency || 'naira').toLowerCase(),
+    paymentMethod: r.paymentMethod || r.payment_method || '',
+    shares: parseFloat(r.shares) || 0,
+    ownershipPct: parseFloat(r.ownershipPct || r.ownership_pct) || 0,
+    earningKobo: parseFloat(r.earningKobo || r.earning_kobo) || 0,
+    hasProof: r.hasProof === 'true' || r.has_proof === 'true',
+    adminNote: r.adminNote || r.admin_note || '',
+    createdAt: r.createdAt || r.created_at || '',
+    updatedAt: r.updatedAt || r.updated_at || '',
+    ACTION: r.ACTION || 'KEEP',
+    isUniform: r.isUniform,
+    discrepancyFields: r.discrepancyFields || '',
+  };
+}
+
+function computeDiffs(ptRow, usRow) {
+  const diffs = [];
+  for (const f of COMPARABLE_FIELDS) {
+    const a = ptRow[f], b = usRow[f];
+    if (typeof a === 'number' && typeof b === 'number') {
+      if (Math.abs(a - b) > 0.01) diffs.push({ field: f, ptVal: a, usVal: b });
+    } else if (String(a ?? '').toLowerCase() !== String(b ?? '').toLowerCase()) {
+      diffs.push({ field: f, ptVal: a, usVal: b });
+    }
+  }
+  return diffs;
+}
+
+function processRows(rawRows) {
+  allRows = rawRows.map(normaliseRow);
+
+  // Group by transactionId to find both-source records
+  const grouped = {};
+  for (const r of allRows) {
+    if (!grouped[r.transactionId]) grouped[r.transactionId] = [];
+    grouped[r.transactionId].push(r);
+  }
+  groupedRows = grouped;
+
+  // Build display rows — one per transactionId
+  const displayRows = [];
+  for (const [txId, rows] of Object.entries(grouped)) {
+    const ptRow = rows.find(r => r.source === 'PaymentTransaction');
+    const usRow = rows.find(r => r.source === 'UserShare' || r.source === 'UserShare-Only');
+    const repRow = ptRow || usRow || rows[0];
+
+    let sourceType = 'both';
+    if (ptRow && !usRow) sourceType = 'ptOnly';
+    else if (!ptRow && usRow) sourceType = 'usOnly';
+
+    const diffs = (ptRow && usRow) ? computeDiffs(ptRow, usRow) : [];
+
+    displayRows.push({
+      transactionId: txId,
+      representative: repRow,
+      ptRow: ptRow || null,
+      usRow: usRow || null,
+      sourceType,
+      diffs,
+      hasDiff: diffs.length > 0,
+    });
+  }
+
+  // Update state
+  allRows = displayRows;
+
+  // Compute stats
+  const stats = {
+    total: displayRows.length,
+    ptOnly: displayRows.filter(r => r.sourceType === 'ptOnly').length,
+    usOnly: displayRows.filter(r => r.sourceType === 'usOnly').length,
+    both: displayRows.filter(r => r.sourceType === 'both').length,
+    discrepancies: displayRows.filter(r => r.hasDiff).length,
+    uniform: displayRows.filter(r => r.sourceType === 'both' && !r.hasDiff).length,
+    completed: displayRows.filter(r => r.representative.status === 'completed').length,
+    pending: displayRows.filter(r => r.representative.status === 'pending').length,
+    failed: displayRows.filter(r => r.representative.status === 'failed').length,
+  };
+
+  renderStats(stats);
+  updateBadges(stats);
+  applyFilters();
+  showDashboard();
+}
+
+// ─── Render stats ─────────────────────────────────────────────────────────────
+function renderStats(s) {
+  const bar = document.getElementById('statsBar');
+  const cards = [
+    { label: 'Total Transactions', val: s.total, cls: 'blue' },
+    { label: 'In Both Sources', val: s.both, cls: 'green' },
+    { label: 'Mismatches', val: s.discrepancies, cls: 'red' },
+    { label: 'PT Only', val: s.ptOnly, cls: 'red' },
+    { label: 'US Only', val: s.usOnly, cls: 'yellow' },
+    { label: 'Uniform', val: s.uniform, cls: 'green' },
+    { label: 'Completed', val: s.completed, cls: 'green' },
+    { label: 'Pending', val: s.pending, cls: 'yellow' },
+  ];
+
+  bar.innerHTML = cards.map(c => `
+    <div class="stat-card ${c.cls}">
+      <div class="stat-label">${c.label}</div>
+      <div class="stat-value">${c.val.toLocaleString()}</div>
+    </div>
+  `).join('');
+}
+
+function updateBadges(s) {
+  document.getElementById('badge-all').textContent = s.total;
+  document.getElementById('badge-discrepancies').textContent = s.discrepancies;
+  document.getElementById('badge-ptOnly').textContent = s.ptOnly;
+  document.getElementById('badge-usOnly').textContent = s.usOnly;
+  document.getElementById('badge-completed').textContent = s.completed;
+  document.getElementById('badge-pending').textContent = s.pending;
+  document.getElementById('badge-failed').textContent = s.failed;
+}
+
+// ─── Filtering / sorting ──────────────────────────────────────────────────────
+function applyFilters() {
+  let rows = [...allRows];
+
+  // View filter
+  if (currentView === 'discrepancies') rows = rows.filter(r => r.hasDiff);
+  else if (currentView === 'ptOnly') rows = rows.filter(r => r.sourceType === 'ptOnly');
+  else if (currentView === 'usOnly') rows = rows.filter(r => r.sourceType === 'usOnly');
+  else if (currentView === 'completed') rows = rows.filter(r => r.representative.status === 'completed');
+  else if (currentView === 'pending') rows = rows.filter(r => r.representative.status === 'pending');
+  else if (currentView === 'failed') rows = rows.filter(r => r.representative.status === 'failed');
+
+  // Search
+  if (searchQuery) {
+    const q = searchQuery.toLowerCase();
+    rows = rows.filter(r => {
+      const rep = r.representative;
+      return (
+        r.transactionId.toLowerCase().includes(q) ||
+        rep.userName.toLowerCase().includes(q) ||
+        rep.userEmail.toLowerCase().includes(q) ||
+        rep.tierKey.toLowerCase().includes(q) ||
+        rep.status.toLowerCase().includes(q) ||
+        rep.paymentMethod.toLowerCase().includes(q)
+      );
+    });
+  }
+
+  // Sort
+  rows.sort((a, b) => {
+    const av = a.representative[sortField] ?? a[sortField] ?? '';
+    const bv = b.representative[sortField] ?? b[sortField] ?? '';
+    if (typeof av === 'number') return sortDir * (av - bv);
+    return sortDir * String(av).localeCompare(String(bv));
+  });
+
+  filteredRows = rows;
+  renderTable();
+}
+
+function switchTab(btn) {
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  btn.classList.add('active');
+  currentView = btn.dataset.view;
+  applyFilters();
+}
+
+function handleSearch(val) {
+  searchQuery = val;
+  applyFilters();
+}
+
+function sortBy(field) {
+  if (sortField === field) sortDir *= -1;
+  else { sortField = field; sortDir = -1; }
+  document.querySelectorAll('thead th').forEach(th => th.classList.remove('sorted'));
+  event.currentTarget.classList.add('sorted');
+  applyFilters();
+}
+
+// ─── Table render ─────────────────────────────────────────────────────────────
+function renderTable() {
+  const tbody = document.getElementById('tableBody');
+  const footer = document.getElementById('tableFooter');
+
+  if (filteredRows.length === 0) {
+    tbody.innerHTML = `<tr><td colspan="13"><div class="empty-state">
+      <div class="icon">◻</div>
+      <p>No transactions match the current filter.</p>
+      <small>Try changing the tab or clearing the search.</small>
+    </div></td></tr>`;
+    footer.textContent = '0 results';
+    return;
+  }
+
+  const html = [];
+  for (const row of filteredRows) {
+    html.push(renderMainRow(row));
+    if (expandedRows.has(row.transactionId)) {
+      html.push(renderDetailRow(row));
+    }
+  }
+  tbody.innerHTML = html.join('');
+  footer.textContent = `${filteredRows.length.toLocaleString()} transaction${filteredRows.length !== 1 ? 's' : ''}`;
+}
+
+function renderMainRow(row) {
+  const rep = row.representative;
+  const isExpanded = expandedRows.has(row.transactionId);
+
+  // Source badge
+  let srcBadge = '';
+  if (row.sourceType === 'both') srcBadge = '<span class="src-badge both">BOTH</span>';
+  else if (row.sourceType === 'ptOnly') srcBadge = '<span class="src-badge pt">PT ONLY</span>';
+  else srcBadge = '<span class="src-badge us">US ONLY</span>';
+
+  // Status pill
+  const status = rep.status;
+  const statusPill = `<span class="pill ${status}">${status || '—'}</span>`;
+
+  // Amount
+  const amt = rep.amount > 0
+    ? `<span class="amount">${rep.currency === 'usdt' ? '$' : '₦'}${rep.amount.toLocaleString('en-NG', {minimumFractionDigits:2,maximumFractionDigits:2})}</span>`
+    : '<span style="color:var(--muted)">—</span>';
+
+  // Discrepancies
+  let diffBadge = '<span style="color:var(--accent);font-size:10px;">✓ clean</span>';
+  if (row.sourceType !== 'both') diffBadge = '<span style="color:var(--muted);font-size:10px;">—</span>';
+  else if (row.hasDiff) {
+    diffBadge = `<span class="mismatch-badge">${row.diffs.length} field${row.diffs.length!==1?'s':''}: ${row.diffs.map(d=>d.field).join(', ')}</span>`;
+  }
+
+  // Ownership%
+  const ownPct = rep.ownershipPct ? (rep.ownershipPct * 100).toFixed(5) + '%' : '—';
+
+  return `<tr>
+    <td><button class="expand-btn ${isExpanded?'open':''}" onclick="toggleExpand('${esc(row.transactionId)}')">▶</button></td>
+    <td><span class="mono-val" style="font-size:11px;color:var(--muted2)">${esc(row.transactionId)}</span></td>
+    <td>
+      <div style="font-size:12px;">${esc(rep.userName)}</div>
+      <div style="font-size:10px;color:var(--muted)">${esc(rep.userEmail)}</div>
+    </td>
+    <td>${srcBadge}</td>
+    <td><span style="color:var(--blue)">${esc(rep.type||'—')}</span></td>
+    <td>${statusPill}</td>
+    <td>
+      <span style="color:var(--text)">${esc(rep.tierKey||'—')}</span>
+      ${rep.packageLabel ? `<div style="font-size:10px;color:var(--muted)">${esc(rep.packageLabel)}</div>` : ''}
+    </td>
+    <td>${amt}</td>
+    <td><span class="mono-val">${rep.shares||'—'}</span></td>
+    <td><span class="mono-val" style="font-size:11px;">${ownPct}</span></td>
+    <td>${diffBadge}</td>
+    <td><span style="color:var(--muted);font-size:11px;">${esc(rep.createdAt||'—')}</span></td>
+    <td>
+      ${row.sourceType==='both'?`<button class="btn" style="padding:3px 10px;font-size:10px;" onclick="openCompare('${esc(row.transactionId)}')">Compare</button>`:''}
+    </td>
+  </tr>`;
+}
+
+function renderDetailRow(row) {
+  const buildKV = (obj, highlights = []) => {
+    if (!obj) return '<div style="color:var(--muted);font-size:11px;">No data</div>';
+    const fields = ['transactionId','userId','userName','userEmail','type','tierKey','packageLabel','status','amount','currency','paymentMethod','shares','ownershipPct','earningKobo','hasProof','adminNote','createdAt','updatedAt'];
+    return fields.map(f => {
+      const val = obj[f];
+      const isHL = highlights.includes(f);
+      return `<div class="kv-row">
+        <span class="kv-key">${f}</span>
+        <span class="kv-val ${isHL?'highlight':''}">${val !== undefined && val !== '' ? esc(String(val)) : '<span style="color:var(--muted)">—</span>'}</span>
+      </div>`;
+    }).join('');
+  };
+
+  const diffFields = row.diffs.map(d => d.field);
+
+  return `<tr class="detail-row">
+    <td colspan="13">
+      <div class="detail-inner">
+        <div class="detail-block">
+          <h4><span class="src-badge pt" style="margin-right:8px;">PT</span> PaymentTransaction</h4>
+          ${buildKV(row.ptRow, diffFields)}
+        </div>
+        <div class="detail-block">
+          <h4><span class="src-badge us" style="margin-right:8px;">US</span> UserShare</h4>
+          ${buildKV(row.usRow, diffFields)}
+        </div>
+      </div>
+    </td>
+  </tr>`;
+}
+
+function toggleExpand(txId) {
+  if (expandedRows.has(txId)) expandedRows.delete(txId);
+  else expandedRows.add(txId);
+  renderTable();
+}
+
+// ─── Compare panel ────────────────────────────────────────────────────────────
+function openCompare(txId) {
+  const row = allRows.find(r => r.transactionId === txId);
+  if (!row) return;
+
+  document.getElementById('panelTitle').textContent = txId;
+  const body = document.getElementById('panelBody');
+
+  const fields = ['type','tierKey','packageLabel','status','amount','currency','paymentMethod','shares','ownershipPct','earningKobo','hasProof','createdAt'];
+
+  const html = fields.map(f => {
+    const ptVal = row.ptRow ? String(row.ptRow[f] ?? '—') : null;
+    const usVal = row.usRow ? String(row.usRow[f] ?? '—') : null;
+    const isMismatch = row.diffs.some(d => d.field === f);
+
+    return `<div class="compare-field">
+      <div class="compare-field-label">${f}</div>
+      <div class="compare-values">
+        <div class="compare-val ${isMismatch?'mismatch':''} ${ptVal===null?'missing':''}">
+          <div class="source-label">PaymentTransaction</div>
+          <div class="val-text">${ptVal !== null ? esc(ptVal) : '<em>Not present</em>'}</div>
+        </div>
+        <div class="compare-val ${isMismatch?'mismatch':''} ${usVal===null?'missing':''}">
+          <div class="source-label">UserShare</div>
+          <div class="val-text">${usVal !== null ? esc(usVal) : '<em>Not present</em>'}</div>
+        </div>
+      </div>
+    </div>`;
+  }).join('');
+
+  const summary = row.hasDiff
+    ? `<div style="background:rgba(255,79,129,0.1);border:1px solid rgba(255,79,129,0.3);padding:10px 12px;margin-bottom:16px;color:var(--accent2);font-size:11px;">
+        ⚠ ${row.diffs.length} discrepanc${row.diffs.length!==1?'ies':'y'} found in: ${row.diffs.map(d=>d.field).join(', ')}
+       </div>`
+    : `<div style="background:rgba(79,255,176,0.1);border:1px solid rgba(79,255,176,0.3);padding:10px 12px;margin-bottom:16px;color:var(--accent);font-size:11px;">
+        ✓ Both sources are in sync
+       </div>`;
+
+  body.innerHTML = summary + html;
+
+  document.getElementById('comparePanel').classList.add('open');
+  document.getElementById('overlay').classList.add('open');
+}
+
+function closePanel() {
+  document.getElementById('comparePanel').classList.remove('open');
+  document.getElementById('overlay').classList.remove('open');
+}
+
+// ─── Export ───────────────────────────────────────────────────────────────────
+function exportFilteredCSV() {
+  if (!filteredRows.length) return;
+
+  const fields = ['transactionId','sourceType','userName','userEmail','type','tierKey','packageLabel','status','amount','currency','paymentMethod','shares','ownershipPct','earningKobo','hasDiff','diffFields','createdAt'];
+  const csvEsc = v => { const s = String(v??'').replace(/"/g,'""'); return /[",\n\r]/.test(s)?`"${s}"`:s; };
+
+  const rows = [fields.join(',')];
+  for (const row of filteredRows) {
+    const rep = row.representative;
+    const r = {
+      transactionId: row.transactionId,
+      sourceType: row.sourceType,
+      userName: rep.userName,
+      userEmail: rep.userEmail,
+      type: rep.type,
+      tierKey: rep.tierKey,
+      packageLabel: rep.packageLabel,
+      status: rep.status,
+      amount: rep.amount,
+      currency: rep.currency,
+      paymentMethod: rep.paymentMethod,
+      shares: rep.shares,
+      ownershipPct: rep.ownershipPct,
+      earningKobo: rep.earningKobo,
+      hasDiff: row.hasDiff,
+      diffFields: row.diffs.map(d=>d.field).join(';'),
+      createdAt: rep.createdAt,
+    };
+    rows.push(fields.map(f => csvEsc(r[f])).join(','));
+  }
+
+  const blob = new Blob([rows.join('\n')], {type:'text/csv'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = `audit-comparison-${Date.now()}.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+function exportReport() {
+  exportFilteredCSV();
+}
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+function esc(s) { return String(s??'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+function showDashboard() {
+  document.getElementById('uploadSection').style.display = 'none';
+  document.getElementById('dashboard').style.display = 'block';
+  document.getElementById('headerActions').style.display = 'flex';
+}
+
+function resetData() {
+  allRows = []; filteredRows = []; groupedRows = {};
+  expandedRows = new Set();
+  document.getElementById('uploadSection').style.display = 'block';
+  document.getElementById('dashboard').style.display = 'none';
+  document.getElementById('headerActions').style.display = 'none';
+  document.getElementById('fileInput').value = '';
+  document.getElementById('pasteCsv').value = '';
+}
+</script>
+</body>
+</html>

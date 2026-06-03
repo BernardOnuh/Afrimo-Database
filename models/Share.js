@@ -10,14 +10,14 @@ const mongoose = require('mongoose');
  * 
  * New Tier Structure:
  * REGULAR SHARES:
- *   basic:    $30 / ₦30,000  — 0.00001% per share  — ₦6,000 earning/unit (in Kobo)
- *   standard: $50 / ₦50,000  — 0.000021% per share — ₦14,000 earning/unit (in Kobo)
- *   premium:  $100 / ₦100,000 — 0.00005% per share — ₦30,000 earning/unit (in Kobo)
+ *   basic:    $30 / ₦30,000  — 0.00001% per share  — 6 earning/unit (in Kobo)
+ *   standard: $50 / ₦50,000  — 0.000021% per share — 14 earning/unit (in Kobo)
+ *   premium:  $100 / ₦100,000 — 0.00005% per share — 30 earning/unit (in Kobo)
  * 
  * CO-FOUNDER TIERS:
- *   elite:    $1,000 / ₦1,000,000  — 22 shares @ 0.000021% each — ₦14,000/unit
- *   platinum: $2,500 / ₦2,500,000  — 27 shares @ 0.00005% each
- *   supreme:  $5,000 / ₦5,000,000  — 60 shares @ 0.00005% each
+ *   elite:    $1,000 / ₦1,000,000  — 22 shares @ 0.000021% each — 14 earning/unit (in Kobo)
+ *   platinum: $2,500 / ₦2,500,000  — 27 shares @ 0.00005% each - 30 earning/unit (in Kobo)
+ *   supreme:  $5,000 / ₦5,000,000  — 60 shares @ 0.00005% each - 30 earning/unit (in Kobo)
  */
 
 // Tier configuration constants

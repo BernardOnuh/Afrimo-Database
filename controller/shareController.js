@@ -2394,7 +2394,9 @@ exports.submitManualPayment = async (req, res) => {
     }
     
     const tierData = config.tiers.get(tierKey);
-    if (tierData.type !== 'share' || tierData.active === false) {
+    
+    // ✅ FIXED: Accept both 'share' and 'regular' tier types
+    if (!['share', 'regular'].includes(tierData.type) || tierData.active === false) {
       return res.status(400).json({ success: false, message: 'Invalid or inactive tier' });
     }
     
@@ -2402,7 +2404,7 @@ exports.submitManualPayment = async (req, res) => {
     if (!priceAmount) {
       return res.status(400).json({ success: false, message: `Tier not available in ${currency}` });
     }
-
+    
     const existing = await PaymentTransaction.findOne({
       userId,
       type: 'share',
