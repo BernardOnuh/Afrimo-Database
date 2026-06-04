@@ -1,6 +1,7 @@
 /**
  * Co-Founder Share Controller - COMPLETE FIXED VERSION
  * Uses TierConfig for all tier definitions (type: 'co-founder')
+ * FIXED: Consistent tier type validation across all functions
  */
 
 const CoFounderShare = require('../models/CoFounderShare');
@@ -180,7 +181,8 @@ const submitCoFounderManualPayment = async (req, res) => {
 
         const tier = config.tiers.get(tierKey);
 
-        if (tier.type !== 'co-founder' || tier.active === false) {
+        // ✅ FIXED: Accept both 'co-founder' and 'cofounder' (CONSISTENT WITH calculateCoFounderPurchase)
+        if ((tier.type !== 'co-founder' && tier.type !== 'cofounder') || tier.active === false) {
             return res.status(400).json({ success: false, message: 'Tier is not an active co-founder tier' });
         }
 
@@ -753,7 +755,8 @@ const adminAddCoFounderShares = async (req, res) => {
         
         const tier = config.tiers.get(tierKey);
         
-        if (tier.type !== 'co-founder') {
+        // ✅ FIXED: Accept both 'co-founder' and 'cofounder'
+        if (tier.type !== 'co-founder' && tier.type !== 'cofounder') {
             return res.status(400).json({ success: false, message: 'Specified tier is not a co-founder tier' });
         }
         
@@ -1173,7 +1176,8 @@ const updateCoFounderTierPricing = async (req, res) => {
         
         const tier = config.tiers.get(tierKey);
         
-        if (tier.type !== 'co-founder') {
+        // ✅ FIXED: Accept both 'co-founder' and 'cofounder'
+        if (tier.type !== 'co-founder' && tier.type !== 'cofounder') {
             return res.status(400).json({ success: false, message: 'Specified tier is not a co-founder tier' });
         }
         

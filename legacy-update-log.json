@@ -1,0 +1,4988 @@
+{
+  "executedAt": "2026-06-03T13:57:19.296Z",
+  "dryRun": false,
+  "cutoff": "2026-02-25T00:00:00.000Z",
+  "totalUpdated": 332,
+  "updates": [
+    {
+      "transactionId": "TXN-3BECA080-938817",
+      "type": "share",
+      "shares": 1,
+      "previous": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Premium"
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "TXN-38E96EE2-762543",
+      "type": "share",
+      "shares": 1,
+      "previous": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Premium"
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "TXN-FF8E4DA8-468726",
+      "type": "share",
+      "shares": 1,
+      "previous": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Premium"
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "TXN-93BA9261-570832",
+      "type": "share",
+      "shares": 1,
+      "previous": {
+        "earning": 60,
+        "ownership": 0.00005,
+        "label": "Premium"
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "TXN-D6D970C3-478109",
+      "type": "share",
+      "shares": 1,
+      "previous": {
+        "earning": 60,
+        "ownership": 0.00005,
+        "label": "Premium"
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "TXN-03098E2F-415106",
+      "type": "share",
+      "shares": 1,
+      "previous": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Premium"
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "TXN-A2C53B66-663575",
+      "type": "share",
+      "shares": 1,
+      "previous": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Premium"
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "TXN-1F2A41A7-869978",
+      "type": "share",
+      "shares": 1,
+      "previous": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Premium"
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "TXN-719A7E16-790533",
+      "type": "share",
+      "shares": 1,
+      "previous": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Premium"
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "TXN-5909EC94-750529",
+      "type": "share",
+      "shares": 1,
+      "previous": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Premium"
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "TXN-1AD9D44F-996393",
+      "type": "share",
+      "shares": 1,
+      "previous": {
+        "earning": 60,
+        "ownership": 0.00005,
+        "label": "Premium"
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "TXN-DC868043-007297",
+      "type": "share",
+      "shares": 1,
+      "previous": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Premium"
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "TXN-9BB049DD-956296",
+      "type": "share",
+      "shares": 1,
+      "previous": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Premium"
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "TXN-42ECCD20-603571",
+      "type": "share",
+      "shares": 1,
+      "previous": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Premium"
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "TXN-14D45B04-701381",
+      "type": "share",
+      "shares": 1,
+      "previous": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Premium"
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "TXN-4DACEB97-223686",
+      "type": "share",
+      "shares": 1,
+      "previous": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Premium"
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "TXN-98F610D0-320044",
+      "type": "share",
+      "shares": 1,
+      "previous": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Premium"
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "TXN-27BBE08E-989136",
+      "type": "share",
+      "shares": 1,
+      "previous": {
+        "earning": 60,
+        "ownership": 0.00005,
+        "label": "Premium"
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "TXN-4ECDBF85-907978",
+      "type": "share",
+      "shares": 1,
+      "previous": {
+        "earning": 60,
+        "ownership": 0.00005,
+        "label": "Premium"
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "TXN-A10FD0D6-835239",
+      "type": "share",
+      "shares": 1,
+      "previous": {
+        "earning": 60,
+        "ownership": 0.00005,
+        "label": "Premium"
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "TXN-3D48314C-889019",
+      "type": "share",
+      "shares": 1,
+      "previous": {
+        "earning": 60,
+        "ownership": 0.00005,
+        "label": "Premium"
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "TXN-4BA64CC5-414910",
+      "type": "share",
+      "shares": 1,
+      "previous": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Premium"
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "TXN-D3301C62-490323",
+      "type": "share",
+      "shares": 1,
+      "previous": {
+        "earning": 60,
+        "ownership": 0.00005,
+        "label": "Premium"
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "TXN-ECD2CC15-021829",
+      "type": "share",
+      "shares": 1,
+      "previous": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Premium"
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "TXN-E0896FD6-079796",
+      "type": "share",
+      "shares": 1,
+      "previous": {
+        "earning": 120,
+        "ownership": 0.00005,
+        "label": "Premium"
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "TXN-18204D58-745034",
+      "type": "share",
+      "shares": 1,
+      "previous": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Premium"
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "TXN-7148409A-034791",
+      "type": "share",
+      "shares": 1,
+      "previous": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Premium"
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "TXN-BFEC6B1E-332301",
+      "type": "share",
+      "shares": 1,
+      "previous": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Premium"
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "TXN-6F6DF247-048766",
+      "type": "share",
+      "shares": 1,
+      "previous": {
+        "earning": 60,
+        "ownership": 0.00005,
+        "label": "Premium"
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "TXN-8DD04917-484945",
+      "type": "share",
+      "shares": 1,
+      "previous": {
+        "earning": 60,
+        "ownership": 0.00005,
+        "label": "Premium"
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "TXN-4533FA64-419538",
+      "type": "share",
+      "shares": 1,
+      "previous": {
+        "earning": 60,
+        "ownership": 0.00005,
+        "label": "Premium"
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "TXN-C35B46C3-941201",
+      "type": "share",
+      "shares": 1,
+      "previous": {
+        "earning": 60,
+        "ownership": 0.00005,
+        "label": "Premium"
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "TXN-1F1F0F60-603862",
+      "type": "share",
+      "shares": 1,
+      "previous": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Premium"
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "TXN-3A19082E-066436",
+      "type": "share",
+      "shares": 1,
+      "previous": {
+        "earning": 120,
+        "ownership": 0.00005,
+        "label": "Premium"
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "TXN-B21F3368-190952",
+      "type": "share",
+      "shares": 1,
+      "previous": {
+        "earning": 60,
+        "ownership": 0.00005,
+        "label": "Premium"
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "TXN-ECDB3614-637221",
+      "type": "share",
+      "shares": 1,
+      "previous": {
+        "earning": 60,
+        "ownership": 0.00005,
+        "label": "Premium"
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "TXN-E7B5476C-169443",
+      "type": "share",
+      "shares": 1,
+      "previous": {
+        "earning": 60,
+        "ownership": 0.00005,
+        "label": "Premium"
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "TXN-08FF1115-739704",
+      "type": "share",
+      "shares": 1,
+      "previous": {
+        "earning": 90,
+        "ownership": 0.00005,
+        "label": "Premium"
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "TXN-5150D4C2-611005",
+      "type": "share",
+      "shares": 1,
+      "previous": {
+        "earning": 60,
+        "ownership": 0.00005,
+        "label": "Premium"
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "TXN-953736F9-756470",
+      "type": "share",
+      "shares": 1,
+      "previous": {
+        "earning": 60,
+        "ownership": 0.00005,
+        "label": "Premium"
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "TXN-F6C7472F-718919",
+      "type": "share",
+      "shares": 1,
+      "previous": {
+        "earning": 60,
+        "ownership": 0.00005,
+        "label": "Premium"
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "TXN-08BDF28E-885692",
+      "type": "share",
+      "shares": 1,
+      "previous": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Premium"
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "TXN-37B63B8B-886667",
+      "type": "share",
+      "shares": 1,
+      "previous": {
+        "earning": 60,
+        "ownership": 0.00005,
+        "label": "Premium"
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "TXN-9497693E-239274",
+      "type": "share",
+      "shares": 1,
+      "previous": {
+        "earning": 60,
+        "ownership": 0.00005,
+        "label": "Premium"
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "TXN-0B6C1B93-258257",
+      "type": "share",
+      "shares": 1,
+      "previous": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Premium"
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "TXN-4818D0EA-366647",
+      "type": "share",
+      "shares": 1,
+      "previous": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Premium"
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "TXN-8BDB3920-565085",
+      "type": "share",
+      "shares": 1,
+      "previous": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Premium"
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "TXN-46FC3FC7-813367",
+      "type": "share",
+      "shares": 1,
+      "previous": {
+        "earning": 120,
+        "ownership": 0.00005,
+        "label": "Premium"
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "TXN-AD074B4F-166848",
+      "type": "share",
+      "shares": 1,
+      "previous": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Premium"
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "TXN-A3631F5B-096186",
+      "type": "share",
+      "shares": 1,
+      "previous": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Premium"
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "TXN-AB1C9772-132164",
+      "type": "share",
+      "shares": 1,
+      "previous": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Premium"
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "TXN-F2E29EFA-396025",
+      "type": "share",
+      "shares": 1,
+      "previous": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Premium"
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "TXN-948DBE65-694348",
+      "type": "share",
+      "shares": 1,
+      "previous": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Premium"
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "TXN-1E1917BF-368459",
+      "type": "share",
+      "shares": 1,
+      "previous": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Premium"
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "TXN-9C485A98-983712",
+      "type": "share",
+      "shares": 1,
+      "previous": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Premium"
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "TXN-AE5154EF-279065",
+      "type": "share",
+      "shares": 1,
+      "previous": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Premium"
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "TXN-CB496949-464113",
+      "type": "share",
+      "shares": 1,
+      "previous": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Premium"
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "TXN-DA341610-850734",
+      "type": "share",
+      "shares": 1,
+      "previous": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Premium"
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "TXN-CAA72F28-147478",
+      "type": "share",
+      "shares": 1,
+      "previous": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Premium"
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "TXN-06DF96E1-947136",
+      "type": "share",
+      "shares": 1,
+      "previous": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Premium"
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "TXN-C2A2654A-306895",
+      "type": "share",
+      "shares": 1,
+      "previous": {
+        "earning": 60,
+        "ownership": 0.00005,
+        "label": "Premium"
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "TXN-A571148D-097511",
+      "type": "share",
+      "shares": 1,
+      "previous": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Premium"
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "TXN-23E3A191-626005",
+      "type": "share",
+      "shares": 1,
+      "previous": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Premium"
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "TXN-10EDF495-740489",
+      "type": "share",
+      "shares": 1,
+      "previous": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Premium"
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "TXN-C02931D7-758126",
+      "type": "share",
+      "shares": 1,
+      "previous": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Premium"
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "TXN-5D4E4C58-016464",
+      "type": "share",
+      "shares": 1,
+      "previous": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Premium"
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "TXN-6CDFDC11-539256",
+      "type": "share",
+      "shares": 1,
+      "previous": {
+        "earning": 60,
+        "ownership": 0.00005,
+        "label": "Premium"
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "TXN-144859F6-125870",
+      "type": "share",
+      "shares": 1,
+      "previous": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Premium"
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "TXN-58027B85-267653",
+      "type": "share",
+      "shares": 1,
+      "previous": {
+        "earning": 60,
+        "ownership": 0.00005,
+        "label": "Premium"
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "TXN-8A79C4D0-261282",
+      "type": "share",
+      "shares": 1,
+      "previous": {
+        "earning": 120,
+        "ownership": 0.00005,
+        "label": "Premium"
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "TXN-E065EEC3-413571",
+      "type": "share",
+      "shares": 1,
+      "previous": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Premium"
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "TXN-B18C4878-145352",
+      "type": "share",
+      "shares": 1,
+      "previous": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Premium"
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "TXN-32F126F1-036916",
+      "type": "share",
+      "shares": 1,
+      "previous": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Premium"
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "TXN-E87D66DF-063720",
+      "type": "share",
+      "shares": 1,
+      "previous": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Premium"
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "TXN-8027AC85-377172",
+      "type": "share",
+      "shares": 1,
+      "previous": {
+        "earning": 90,
+        "ownership": 0.00005,
+        "label": "Premium"
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "TXN-F5EA60FC-122157",
+      "type": "share",
+      "shares": 1,
+      "previous": {
+        "earning": 120,
+        "ownership": 0.00005,
+        "label": "Premium"
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "TXN-89D811FE-967478",
+      "type": "share",
+      "shares": 1,
+      "previous": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Premium"
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "TXN-60C728BA-006862",
+      "type": "share",
+      "shares": 1,
+      "previous": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Premium"
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "TXN-C6159EC0-434973",
+      "type": "share",
+      "shares": 1,
+      "previous": {
+        "earning": 120,
+        "ownership": 0.00005,
+        "label": "Premium"
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "TXN-EE4773B3-478452",
+      "type": "share",
+      "shares": 1,
+      "previous": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Premium"
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "TXN-DB43B898-169850",
+      "type": "share",
+      "shares": 1,
+      "previous": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Premium"
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "TXN-A149A7EA-111590",
+      "type": "share",
+      "shares": 1,
+      "previous": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Premium"
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "TXN-FB5A1933-344685",
+      "type": "share",
+      "shares": 1,
+      "previous": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Premium"
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "TXN-2483F13C-876202",
+      "type": "share",
+      "shares": 1,
+      "previous": {
+        "earning": 60,
+        "ownership": 0.00005,
+        "label": "Premium"
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "TXN-0AA6C547-068175",
+      "type": "share",
+      "shares": 1,
+      "previous": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Premium"
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "TXN-ACD4B415-302599",
+      "type": "share",
+      "shares": 1,
+      "previous": {
+        "earning": 90,
+        "ownership": 0.00005,
+        "label": "Premium"
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "TXN-4A649B09-278304",
+      "type": "share",
+      "shares": 1,
+      "previous": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Premium"
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "TXN-8D110C0F-638200",
+      "type": "share",
+      "shares": 1,
+      "previous": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Premium"
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "TXN-DE209850-268656",
+      "type": "share",
+      "shares": 1,
+      "previous": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Premium"
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "685f8a5d76fa3276e8124e16",
+      "type": "share",
+      "shares": 1,
+      "previous": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Premium"
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "685f96cac27ba1a92f51b421",
+      "type": "share",
+      "shares": 1,
+      "previous": {
+        "earning": 300,
+        "ownership": 0.00005,
+        "label": "Premium"
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "CFD-0284E91B-335280",
+      "type": "co-founder",
+      "shares": 1,
+      "previous": {
+        "earning": 14000,
+        "ownership": 0.000462,
+        "label": ""
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "6860113f40b82acfb4e745c4",
+      "type": "share",
+      "shares": 1,
+      "previous": {
+        "earning": 870,
+        "ownership": 0.00005,
+        "label": "Premium"
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "CFD-618DE73C-346047",
+      "type": "co-founder",
+      "shares": 1,
+      "previous": {
+        "earning": 14000,
+        "ownership": 0.000462,
+        "label": ""
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "68601d0240b82acfb4e8f5b4",
+      "type": "share",
+      "shares": 1,
+      "previous": {
+        "earning": 870,
+        "ownership": 0.00005,
+        "label": "Premium"
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "CFD-763891B9-803881",
+      "type": "co-founder",
+      "shares": 1,
+      "previous": {
+        "earning": 14000,
+        "ownership": 0.000462,
+        "label": ""
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "68603e0b40b82acfb4eda42e",
+      "type": "share",
+      "shares": 1,
+      "previous": {
+        "earning": 870,
+        "ownership": 0.00005,
+        "label": "Premium"
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "CFD-2B98C7C2-437034",
+      "type": "co-founder",
+      "shares": 1,
+      "previous": {
+        "earning": 14000,
+        "ownership": 0.000462,
+        "label": ""
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "68617ced40b82acfb41adb7d",
+      "type": "share",
+      "shares": 1,
+      "previous": {
+        "earning": 870,
+        "ownership": 0.00005,
+        "label": "Premium"
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "TXN-09805F60-147638",
+      "type": "share",
+      "shares": 1,
+      "previous": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Premium"
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "TXN-6AADAAB4-675592",
+      "type": "share",
+      "shares": 1,
+      "previous": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Premium"
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "TXN-C1977380-039390",
+      "type": "share",
+      "shares": 1,
+      "previous": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Premium"
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "TXN-519B78F5-330955",
+      "type": "share",
+      "shares": 1,
+      "previous": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Premium"
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "TXN-494DD0E4-802830",
+      "type": "share",
+      "shares": 1,
+      "previous": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Premium"
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "TXN-91391614-588022",
+      "type": "share",
+      "shares": 1,
+      "previous": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Premium"
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "TXN-12FC5F7D-000255",
+      "type": "share",
+      "shares": 1,
+      "previous": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Premium"
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "TXN-E0034E95-636305",
+      "type": "share",
+      "shares": 1,
+      "previous": {
+        "earning": 60,
+        "ownership": 0.00005,
+        "label": "Premium"
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "CFD-2679AFBF-308131",
+      "type": "co-founder",
+      "shares": 1,
+      "previous": {
+        "earning": 14000,
+        "ownership": 0.000462,
+        "label": ""
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "6867e1249a401444706c7fb9",
+      "type": "share",
+      "shares": 1,
+      "previous": {
+        "earning": 870,
+        "ownership": 0.00005,
+        "label": "Premium"
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "CFD-936A9880-705661",
+      "type": "co-founder",
+      "shares": 1,
+      "previous": {
+        "earning": 14000,
+        "ownership": 0.000462,
+        "label": ""
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "6867fa219a40144470703c60",
+      "type": "share",
+      "shares": 1,
+      "previous": {
+        "earning": 870,
+        "ownership": 0.00005,
+        "label": "Premium"
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "CFD-3D4495D9-415448",
+      "type": "co-founder",
+      "shares": 1,
+      "previous": {
+        "earning": 14000,
+        "ownership": 0.000462,
+        "label": ""
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "6869588f22ac049d4b3fa660",
+      "type": "share",
+      "shares": 1,
+      "previous": {
+        "earning": 870,
+        "ownership": 0.00005,
+        "label": "Premium"
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "TXN-896652F2-518565",
+      "type": "share",
+      "shares": 1,
+      "previous": {
+        "earning": 14,
+        "ownership": 0.00005,
+        "label": ""
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "TXN-C04686E2-504166",
+      "type": "share",
+      "shares": 1,
+      "previous": {
+        "earning": 14,
+        "ownership": 0.00005,
+        "label": ""
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "TXN-05D64357-584872",
+      "type": "share",
+      "shares": 1,
+      "previous": {
+        "earning": 14,
+        "ownership": 0.00005,
+        "label": ""
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "TXN-131DC6FF-726774",
+      "type": "share",
+      "shares": 1,
+      "previous": {
+        "earning": 14,
+        "ownership": 0.00005,
+        "label": ""
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "TXN-9CA60998-447617",
+      "type": "share",
+      "shares": 1,
+      "previous": {
+        "earning": 14,
+        "ownership": 0.00005,
+        "label": ""
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "TXN-FF0C2A73-394837",
+      "type": "share",
+      "shares": 1,
+      "previous": {
+        "earning": 14,
+        "ownership": 0.00005,
+        "label": ""
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "TXN-0346FBB9-305625",
+      "type": "share",
+      "shares": 1,
+      "previous": {
+        "earning": 14,
+        "ownership": 0.00005,
+        "label": ""
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "TXN-0FBADFD2-572363",
+      "type": "share",
+      "shares": 2,
+      "previous": {
+        "earning": 14,
+        "ownership": 0.00005,
+        "label": ""
+      },
+      "new": {
+        "earning": 60,
+        "ownership": 0.0001,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "TXN-E1BE5AF1-995242",
+      "type": "share",
+      "shares": 1,
+      "previous": {
+        "earning": 14,
+        "ownership": 0.00005,
+        "label": ""
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "TXN-C752A35F-319579",
+      "type": "share",
+      "shares": 4,
+      "previous": {
+        "earning": 14,
+        "ownership": 0.00005,
+        "label": ""
+      },
+      "new": {
+        "earning": 120,
+        "ownership": 0.0002,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "TXN-4C7BE746-850404",
+      "type": "share",
+      "shares": 1,
+      "previous": {
+        "earning": 14,
+        "ownership": 0.00005,
+        "label": ""
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "CFD-B1E0F051-377301",
+      "type": "co-founder",
+      "shares": 1,
+      "previous": {
+        "earning": 14000,
+        "ownership": 0.000462,
+        "label": ""
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "687f64f1b2951aaa32cf3f38",
+      "type": "share",
+      "shares": 1,
+      "previous": {
+        "earning": 870,
+        "ownership": 0.00005,
+        "label": "Premium"
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "TXN-5FB44F35-426102",
+      "type": "share",
+      "shares": 1,
+      "previous": {
+        "earning": 14,
+        "ownership": 0.00005,
+        "label": ""
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "TXN-4DA65ACB-789232",
+      "type": "share",
+      "shares": 2,
+      "previous": {
+        "earning": 14,
+        "ownership": 0.00005,
+        "label": ""
+      },
+      "new": {
+        "earning": 60,
+        "ownership": 0.0001,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "TXN-E5958BF9-538134",
+      "type": "share",
+      "shares": 1,
+      "previous": {
+        "earning": 14,
+        "ownership": 0.00005,
+        "label": ""
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "TXN-4B81C05B-870301",
+      "type": "share",
+      "shares": 1,
+      "previous": {
+        "earning": 14,
+        "ownership": 0.00005,
+        "label": ""
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "TXN-10063F7D-822828",
+      "type": "share",
+      "shares": 2,
+      "previous": {
+        "earning": 14,
+        "ownership": 0.00005,
+        "label": ""
+      },
+      "new": {
+        "earning": 60,
+        "ownership": 0.0001,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "TXN-54EC646F-474085",
+      "type": "share",
+      "shares": 2,
+      "previous": {
+        "earning": 14,
+        "ownership": 0.00005,
+        "label": ""
+      },
+      "new": {
+        "earning": 60,
+        "ownership": 0.0001,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "TXN-47C2268C-510495",
+      "type": "share",
+      "shares": 1,
+      "previous": {
+        "earning": 14,
+        "ownership": 0.00005,
+        "label": ""
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "TXN-81805B1F-125776",
+      "type": "share",
+      "shares": 2,
+      "previous": {
+        "earning": 14,
+        "ownership": 0.00005,
+        "label": ""
+      },
+      "new": {
+        "earning": 60,
+        "ownership": 0.0001,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "TXN-A8124603-348880",
+      "type": "share",
+      "shares": 1,
+      "previous": {
+        "earning": 14,
+        "ownership": 0.00005,
+        "label": ""
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "TXN-30D97D91-453669",
+      "type": "share",
+      "shares": 2,
+      "previous": {
+        "earning": 14,
+        "ownership": 0.00005,
+        "label": ""
+      },
+      "new": {
+        "earning": 60,
+        "ownership": 0.0001,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "TXN-57E17FF0-084637",
+      "type": "share",
+      "shares": 1,
+      "previous": {
+        "earning": 14,
+        "ownership": 0.00005,
+        "label": ""
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "TXN-B385E5DA-189442",
+      "type": "share",
+      "shares": 1,
+      "previous": {
+        "earning": 14,
+        "ownership": 0.00005,
+        "label": ""
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "TXN-D0687803-755902",
+      "type": "share",
+      "shares": 2,
+      "previous": {
+        "earning": 14,
+        "ownership": 0.00005,
+        "label": ""
+      },
+      "new": {
+        "earning": 60,
+        "ownership": 0.0001,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "CFD-852E7CC0-526764",
+      "type": "co-founder",
+      "shares": 1,
+      "previous": {
+        "earning": 14000,
+        "ownership": 0.000462,
+        "label": ""
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "688f28ae06bb63644ac3bc50",
+      "type": "share",
+      "shares": 1,
+      "previous": {
+        "earning": 870,
+        "ownership": 0.00005,
+        "label": "Premium"
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "CFD-C72EEABC-544087",
+      "type": "co-founder",
+      "shares": 1,
+      "previous": {
+        "earning": 14000,
+        "ownership": 0.000462,
+        "label": ""
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "CFD-F3B1EF0B-609711",
+      "type": "co-founder",
+      "shares": 1,
+      "previous": {
+        "earning": 14000,
+        "ownership": 0.000462,
+        "label": ""
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "688f635806bb63644ac3c986",
+      "type": "share",
+      "shares": 1,
+      "previous": {
+        "earning": 870,
+        "ownership": 0.00005,
+        "label": "Premium"
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "688f6b6906bb63644ac3cdf3",
+      "type": "share",
+      "shares": 1,
+      "previous": {
+        "earning": 870,
+        "ownership": 0.00005,
+        "label": "Premium"
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "TXN-BF971BBE-111764",
+      "type": "share",
+      "shares": 1,
+      "previous": {
+        "earning": 14,
+        "ownership": 0.00005,
+        "label": ""
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "TXN-36693DED-443140",
+      "type": "share",
+      "shares": 1,
+      "previous": {
+        "earning": 14,
+        "ownership": 0.00005,
+        "label": ""
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "TXN-BB21C0CF-679311",
+      "type": "share",
+      "shares": 1,
+      "previous": {
+        "earning": 14,
+        "ownership": 0.00005,
+        "label": ""
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "TXN-1F18D06A-424445",
+      "type": "share",
+      "shares": 1,
+      "previous": {
+        "earning": 14,
+        "ownership": 0.00005,
+        "label": ""
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "TXN-A6D3CFE6-243257",
+      "type": "share",
+      "shares": 1,
+      "previous": {
+        "earning": 14,
+        "ownership": 0.00005,
+        "label": ""
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "TXN-FE50D216-748578",
+      "type": "share",
+      "shares": 1,
+      "previous": {
+        "earning": 14,
+        "ownership": 0.00005,
+        "label": ""
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "TXN-1650B4FE-996692",
+      "type": "share",
+      "shares": 2,
+      "previous": {
+        "earning": 14,
+        "ownership": 0.00005,
+        "label": ""
+      },
+      "new": {
+        "earning": 60,
+        "ownership": 0.0001,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "TXN-C3086CC8-703365",
+      "type": "share",
+      "shares": 1,
+      "previous": {
+        "earning": 14,
+        "ownership": 0.00005,
+        "label": ""
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "TXN-150B02F5-865810",
+      "type": "share",
+      "shares": 1,
+      "previous": {
+        "earning": 14,
+        "ownership": 0.00005,
+        "label": ""
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "TXN-4639D41F-491354",
+      "type": "share",
+      "shares": 1,
+      "previous": {
+        "earning": 14,
+        "ownership": 0.00005,
+        "label": ""
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "TXN-D80CC4D6-635266",
+      "type": "share",
+      "shares": 1,
+      "previous": {
+        "earning": 14,
+        "ownership": 0.00005,
+        "label": ""
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "TXN-157D7F7B-267481",
+      "type": "share",
+      "shares": 1,
+      "previous": {
+        "earning": 14,
+        "ownership": 0.00005,
+        "label": ""
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "TXN-7788480E-113811",
+      "type": "share",
+      "shares": 1,
+      "previous": {
+        "earning": 14,
+        "ownership": 0.00005,
+        "label": ""
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "TXN-9EB27DD2-944730",
+      "type": "share",
+      "shares": 2,
+      "previous": {
+        "earning": 14,
+        "ownership": 0.00005,
+        "label": ""
+      },
+      "new": {
+        "earning": 60,
+        "ownership": 0.0001,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "TXN-5EA73B6C-613771",
+      "type": "share",
+      "shares": 1,
+      "previous": {
+        "earning": 14,
+        "ownership": 0.00005,
+        "label": ""
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "TXN-8F7C060F-005958",
+      "type": "share",
+      "shares": 2,
+      "previous": {
+        "earning": 14,
+        "ownership": 0.00005,
+        "label": ""
+      },
+      "new": {
+        "earning": 60,
+        "ownership": 0.0001,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "TXN-8FEB3024-996709",
+      "type": "share",
+      "shares": 1,
+      "previous": {
+        "earning": 14,
+        "ownership": 0.00005,
+        "label": ""
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "TXN-077F16AE-076399",
+      "type": "share",
+      "shares": 1,
+      "previous": {
+        "earning": 14,
+        "ownership": 0.00005,
+        "label": ""
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "TXN-BD6A61CA-058439",
+      "type": "share",
+      "shares": 1,
+      "previous": {
+        "earning": 14,
+        "ownership": 0.00005,
+        "label": ""
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "TXN-90F90D94-535912",
+      "type": "share",
+      "shares": 1,
+      "previous": {
+        "earning": 14,
+        "ownership": 0.00005,
+        "label": ""
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "TXN-8C58741C-074084",
+      "type": "share",
+      "shares": 1,
+      "previous": {
+        "earning": 14,
+        "ownership": 0.00005,
+        "label": ""
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "TXN-EC26E230-620098",
+      "type": "share",
+      "shares": 1,
+      "previous": {
+        "earning": 14,
+        "ownership": 0.00005,
+        "label": ""
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "TXN-A4B137D2-396384",
+      "type": "share",
+      "shares": 1,
+      "previous": {
+        "earning": 14,
+        "ownership": 0.00005,
+        "label": ""
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "TXN-65815F3F-467949",
+      "type": "share",
+      "shares": 1,
+      "previous": {
+        "earning": 14,
+        "ownership": 0.00005,
+        "label": ""
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "TXN-B01251D3-743366",
+      "type": "share",
+      "shares": 1,
+      "previous": {
+        "earning": 14,
+        "ownership": 0.00005,
+        "label": ""
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "TXN-53149794-880665",
+      "type": "share",
+      "shares": 2,
+      "previous": {
+        "earning": 14,
+        "ownership": 0.00005,
+        "label": ""
+      },
+      "new": {
+        "earning": 60,
+        "ownership": 0.0001,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "TXN-55C2FBF1-003246",
+      "type": "share",
+      "shares": 1,
+      "previous": {
+        "earning": 14,
+        "ownership": 0.00005,
+        "label": ""
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "TXN-9B4B0F25-070942",
+      "type": "share",
+      "shares": 1,
+      "previous": {
+        "earning": 14,
+        "ownership": 0.00005,
+        "label": ""
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "TXN-1698C41B-339892",
+      "type": "share",
+      "shares": 1,
+      "previous": {
+        "earning": 14,
+        "ownership": 0.00005,
+        "label": ""
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "TXN-EFF425A8-029328",
+      "type": "share",
+      "shares": 1,
+      "previous": {
+        "earning": 14,
+        "ownership": 0.00005,
+        "label": ""
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "CFD-7E548CB6-931408",
+      "type": "co-founder",
+      "shares": 1,
+      "previous": {
+        "earning": 14000,
+        "ownership": 0.000462,
+        "label": ""
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "TXN-32162F2F-527329",
+      "type": "share",
+      "shares": 1,
+      "previous": {
+        "earning": 14,
+        "ownership": 0.00005,
+        "label": ""
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "CFD-D6004EB8-479646",
+      "type": "co-founder",
+      "shares": 1,
+      "previous": {
+        "earning": 14000,
+        "ownership": 0.000462,
+        "label": ""
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "68b434dfa1587b878b52bf3f",
+      "type": "share",
+      "shares": 1,
+      "previous": {
+        "earning": 870,
+        "ownership": 0.00005,
+        "label": "Premium"
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "68b32d03d19a957079f7e068",
+      "type": "share",
+      "shares": 1,
+      "previous": {
+        "earning": 870,
+        "ownership": 0.00005,
+        "label": "Premium"
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "TXN-D129B758-693380",
+      "type": "share",
+      "shares": 1,
+      "previous": {
+        "earning": 14,
+        "ownership": 0.00005,
+        "label": ""
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "TXN-81CDBB4C-984454",
+      "type": "share",
+      "shares": 1,
+      "previous": {
+        "earning": 14,
+        "ownership": 0.00005,
+        "label": ""
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "TXN-D749422C-843535",
+      "type": "share",
+      "shares": 1,
+      "previous": {
+        "earning": 14,
+        "ownership": 0.00005,
+        "label": ""
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "TXN-BC28C913-696836",
+      "type": "share",
+      "shares": 2,
+      "previous": {
+        "earning": 14,
+        "ownership": 0.00005,
+        "label": ""
+      },
+      "new": {
+        "earning": 60,
+        "ownership": 0.0001,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "TXN-7789EEE5-397182",
+      "type": "share",
+      "shares": 1,
+      "previous": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Premium"
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "TXN-B25F5CAA-943307",
+      "type": "share",
+      "shares": 1,
+      "previous": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Premium"
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "TXN-D669E30D-607272",
+      "type": "share",
+      "shares": 1,
+      "previous": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Premium"
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "TXN-10197AFB-358315",
+      "type": "share",
+      "shares": 1,
+      "previous": {
+        "earning": 14,
+        "ownership": 0.00005,
+        "label": ""
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "TXN-FC78578F-879952",
+      "type": "share",
+      "shares": 1,
+      "previous": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Premium"
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "TXN-6AD8CFF5-113615",
+      "type": "share",
+      "shares": 2,
+      "previous": {
+        "earning": 14,
+        "ownership": 0.00005,
+        "label": ""
+      },
+      "new": {
+        "earning": 60,
+        "ownership": 0.0001,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "TXN-42414550-056972",
+      "type": "share",
+      "shares": 1,
+      "previous": {
+        "earning": 14,
+        "ownership": 0.00005,
+        "label": ""
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "TXN-4C389410-621277",
+      "type": "share",
+      "shares": 1,
+      "previous": {
+        "earning": 14,
+        "ownership": 0.00005,
+        "label": ""
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "TXN-7AEECC06-440639",
+      "type": "share",
+      "shares": 1,
+      "previous": {
+        "earning": 60,
+        "ownership": 0.00005,
+        "label": "Premium"
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "TXN-79F8034A-880618",
+      "type": "share",
+      "shares": 2,
+      "previous": {
+        "earning": 14,
+        "ownership": 0.00005,
+        "label": ""
+      },
+      "new": {
+        "earning": 60,
+        "ownership": 0.0001,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "TXN-DC32DFCB-808309",
+      "type": "share",
+      "shares": 2,
+      "previous": {
+        "earning": 14,
+        "ownership": 0.00005,
+        "label": ""
+      },
+      "new": {
+        "earning": 60,
+        "ownership": 0.0001,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "CFD-6D186377-036989",
+      "type": "co-founder",
+      "shares": 1,
+      "previous": {
+        "earning": 14000,
+        "ownership": 0.000462,
+        "label": ""
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "68c2aa442500bfced8753811",
+      "type": "share",
+      "shares": 1,
+      "previous": {
+        "earning": 870,
+        "ownership": 0.00005,
+        "label": "Premium"
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "TXN-3B4B7EA5-840612",
+      "type": "share",
+      "shares": 1,
+      "previous": {
+        "earning": 14,
+        "ownership": 0.00005,
+        "label": ""
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "TXN-DB94CEC9-460267",
+      "type": "share",
+      "shares": 1,
+      "previous": {
+        "earning": 14,
+        "ownership": 0.00005,
+        "label": ""
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "TXN-FFC0A3BE-162123",
+      "type": "share",
+      "shares": 1,
+      "previous": {
+        "earning": 14,
+        "ownership": 0.00005,
+        "label": ""
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "CFD-D8BACB9E-614671",
+      "type": "co-founder",
+      "shares": 1,
+      "previous": {
+        "earning": 14000,
+        "ownership": 0.000462,
+        "label": ""
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "68c42386c400a1a440b0cb2b",
+      "type": "share",
+      "shares": 1,
+      "previous": {
+        "earning": 870,
+        "ownership": 0.00005,
+        "label": "Premium"
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "TXN-92B08252-126332",
+      "type": "share",
+      "shares": 4,
+      "previous": {
+        "earning": 14,
+        "ownership": 0.00005,
+        "label": ""
+      },
+      "new": {
+        "earning": 120,
+        "ownership": 0.0002,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "TXN-D11AC6A0-769952",
+      "type": "share",
+      "shares": 1,
+      "previous": {
+        "earning": 14,
+        "ownership": 0.00005,
+        "label": ""
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "TXN-5D05ECC5-503805",
+      "type": "share",
+      "shares": 3,
+      "previous": {
+        "earning": 14,
+        "ownership": 0.00005,
+        "label": ""
+      },
+      "new": {
+        "earning": 90,
+        "ownership": 0.00015000000000000001,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "TXN-5BE649C1-359591",
+      "type": "share",
+      "shares": 1,
+      "previous": {
+        "earning": 14,
+        "ownership": 0.00005,
+        "label": ""
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "TXN-8E47C2DF-130080",
+      "type": "share",
+      "shares": 1,
+      "previous": {
+        "earning": 14,
+        "ownership": 0.00005,
+        "label": ""
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "TXN-DA23BB1C-141673",
+      "type": "share",
+      "shares": 2,
+      "previous": {
+        "earning": 14,
+        "ownership": 0.00005,
+        "label": ""
+      },
+      "new": {
+        "earning": 60,
+        "ownership": 0.0001,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "TXN-86CDC1DE-999442",
+      "type": "share",
+      "shares": 1,
+      "previous": {
+        "earning": 14,
+        "ownership": 0.00005,
+        "label": ""
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "TXN-152C7000-972148",
+      "type": "share",
+      "shares": 10,
+      "previous": {
+        "earning": 14,
+        "ownership": 0.00005,
+        "label": ""
+      },
+      "new": {
+        "earning": 300,
+        "ownership": 0.0005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "TXN-F129A2BB-292797",
+      "type": "share",
+      "shares": 10,
+      "previous": {
+        "earning": 14,
+        "ownership": 0.00005,
+        "label": ""
+      },
+      "new": {
+        "earning": 300,
+        "ownership": 0.0005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "TXN-21094026-623182",
+      "type": "share",
+      "shares": 1,
+      "previous": {
+        "earning": 14,
+        "ownership": 0.00005,
+        "label": ""
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "CFD-CB9F8416-692471",
+      "type": "co-founder",
+      "shares": 1,
+      "previous": {
+        "earning": 14000,
+        "ownership": 0.000462,
+        "label": ""
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "68e271a4227bd13094f1955d",
+      "type": "share",
+      "shares": 1,
+      "previous": {
+        "earning": 870,
+        "ownership": 0.00005,
+        "label": "Premium"
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "TXN-8347D9B7-962156",
+      "type": "share",
+      "shares": 5,
+      "previous": {
+        "earning": 14,
+        "ownership": 0.00005,
+        "label": ""
+      },
+      "new": {
+        "earning": 150,
+        "ownership": 0.00025,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "TXN-507FD13F-399844",
+      "type": "share",
+      "shares": 2,
+      "previous": {
+        "earning": 14,
+        "ownership": 0.00005,
+        "label": ""
+      },
+      "new": {
+        "earning": 60,
+        "ownership": 0.0001,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "TXN-CFDE27FA-049687",
+      "type": "share",
+      "shares": 3,
+      "previous": {
+        "earning": 14,
+        "ownership": 0.00005,
+        "label": ""
+      },
+      "new": {
+        "earning": 90,
+        "ownership": 0.00015000000000000001,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "CFD-9BA1E97C-105556",
+      "type": "co-founder",
+      "shares": 3,
+      "previous": {
+        "earning": 14000,
+        "ownership": 0.000462,
+        "label": ""
+      },
+      "new": {
+        "earning": 90,
+        "ownership": 0.00015000000000000001,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "CFD-B1F83D6C-864930",
+      "type": "co-founder",
+      "shares": 2,
+      "previous": {
+        "earning": 14000,
+        "ownership": 0.000462,
+        "label": ""
+      },
+      "new": {
+        "earning": 60,
+        "ownership": 0.0001,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "68ea4729918c41c434d186b3",
+      "type": "share",
+      "shares": 1,
+      "previous": {
+        "earning": 2610,
+        "ownership": 0.00005,
+        "label": "Premium"
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "68ea51f0918c41c434d18e13",
+      "type": "share",
+      "shares": 1,
+      "previous": {
+        "earning": 1740,
+        "ownership": 0.00005,
+        "label": "Premium"
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "TXN-542A4240-268328",
+      "type": "share",
+      "shares": 5,
+      "previous": {
+        "earning": 14,
+        "ownership": 0.00005,
+        "label": ""
+      },
+      "new": {
+        "earning": 150,
+        "ownership": 0.00025,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "TXN-518EAE01-157696",
+      "type": "share",
+      "shares": 1,
+      "previous": {
+        "earning": 14,
+        "ownership": 0.00005,
+        "label": ""
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "TXN-288F6780-804121",
+      "type": "share",
+      "shares": 1,
+      "previous": {
+        "earning": 14,
+        "ownership": 0.00005,
+        "label": ""
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "TXN-3DCA6AFD-297849",
+      "type": "share",
+      "shares": 3,
+      "previous": {
+        "earning": 14,
+        "ownership": 0.00005,
+        "label": ""
+      },
+      "new": {
+        "earning": 90,
+        "ownership": 0.00015000000000000001,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "TXN-DF40738D-509247",
+      "type": "share",
+      "shares": 1,
+      "previous": {
+        "earning": 14,
+        "ownership": 0.00005,
+        "label": ""
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "TXN-6ECE2BF2-009305",
+      "type": "share",
+      "shares": 1,
+      "previous": {
+        "earning": 14,
+        "ownership": 0.00005,
+        "label": ""
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "TXN-A3219B6D-043876",
+      "type": "share",
+      "shares": 1,
+      "previous": {
+        "earning": 14,
+        "ownership": 0.00005,
+        "label": ""
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "TXN-3190DF99-263587",
+      "type": "share",
+      "shares": 2,
+      "previous": {
+        "earning": 14,
+        "ownership": 0.00005,
+        "label": ""
+      },
+      "new": {
+        "earning": 60,
+        "ownership": 0.0001,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "TXN-F862D3C7-475859",
+      "type": "share",
+      "shares": 1,
+      "previous": {
+        "earning": 14,
+        "ownership": 0.00005,
+        "label": ""
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "TXN-89E0BD64-150287",
+      "type": "share",
+      "shares": 1,
+      "previous": {
+        "earning": 14,
+        "ownership": 0.00005,
+        "label": ""
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "TXN-3EFB8695-639490",
+      "type": "share",
+      "shares": 10,
+      "previous": {
+        "earning": 14,
+        "ownership": 0.00005,
+        "label": ""
+      },
+      "new": {
+        "earning": 300,
+        "ownership": 0.0005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "TXN-5AE51DE9-801388",
+      "type": "share",
+      "shares": 1,
+      "previous": {
+        "earning": 14,
+        "ownership": 0.00005,
+        "label": ""
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "CFD-AD7979BF-743786",
+      "type": "co-founder",
+      "shares": 1,
+      "previous": {
+        "earning": 14000,
+        "ownership": 0.000021,
+        "label": ""
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "690c7f772e36ed2c65cf7fc0",
+      "type": "share",
+      "shares": 1,
+      "previous": {
+        "earning": 870,
+        "ownership": 0.00005,
+        "label": "Premium"
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "CFD-65D2B42C-838636",
+      "type": "co-founder",
+      "shares": 5,
+      "previous": {
+        "earning": 14000,
+        "ownership": 0.000021,
+        "label": ""
+      },
+      "new": {
+        "earning": 150,
+        "ownership": 0.00025,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "TXN-C37D43E5-643984",
+      "type": "share",
+      "shares": 1,
+      "previous": {
+        "earning": 6,
+        "ownership": 0.00005,
+        "label": ""
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "TXN-D68281B2-575181",
+      "type": "share",
+      "shares": 1,
+      "previous": {
+        "earning": 6,
+        "ownership": 0.00005,
+        "label": ""
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "TXN-F454E397-819351",
+      "type": "share",
+      "shares": 3,
+      "previous": {
+        "earning": 6,
+        "ownership": 0.00005,
+        "label": ""
+      },
+      "new": {
+        "earning": 90,
+        "ownership": 0.00015000000000000001,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "TXN-075146C5-060741",
+      "type": "share",
+      "shares": 1,
+      "previous": {
+        "earning": 6,
+        "ownership": 0.00005,
+        "label": ""
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "TXN-1C804D0B-729761",
+      "type": "share",
+      "shares": 2,
+      "previous": {
+        "earning": 6,
+        "ownership": 0.00005,
+        "label": ""
+      },
+      "new": {
+        "earning": 60,
+        "ownership": 0.0001,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "TXN-141939CC-366008",
+      "type": "share",
+      "shares": 2,
+      "previous": {
+        "earning": 6,
+        "ownership": 0.00005,
+        "label": ""
+      },
+      "new": {
+        "earning": 60,
+        "ownership": 0.0001,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "TXN-B2B2E85D-969323",
+      "type": "share",
+      "shares": 1,
+      "previous": {
+        "earning": 6,
+        "ownership": 0.00005,
+        "label": ""
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "TXN-67510A39-597878",
+      "type": "share",
+      "shares": 1,
+      "previous": {
+        "earning": 6,
+        "ownership": 0.00005,
+        "label": ""
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "TXN-065BCE9B-316651",
+      "type": "share",
+      "shares": 1,
+      "previous": {
+        "earning": 6,
+        "ownership": 0.00005,
+        "label": ""
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "CFD-03A409AF-736197",
+      "type": "co-founder",
+      "shares": 10,
+      "previous": {
+        "earning": 14000,
+        "ownership": 0.000021,
+        "label": ""
+      },
+      "new": {
+        "earning": 300,
+        "ownership": 0.0005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "TXN-40A3867F-801840",
+      "type": "share",
+      "shares": 2,
+      "previous": {
+        "earning": 6,
+        "ownership": 0.00005,
+        "label": ""
+      },
+      "new": {
+        "earning": 60,
+        "ownership": 0.0001,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "TXN-C9B8BCFD-452997",
+      "type": "share",
+      "shares": 2,
+      "previous": {
+        "earning": 6,
+        "ownership": 0.00005,
+        "label": ""
+      },
+      "new": {
+        "earning": 60,
+        "ownership": 0.0001,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "TXN-51C6902A-552164",
+      "type": "share",
+      "shares": 3,
+      "previous": {
+        "earning": 6,
+        "ownership": 0.00005,
+        "label": ""
+      },
+      "new": {
+        "earning": 90,
+        "ownership": 0.00015000000000000001,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "TXN-32D3B60A-638694",
+      "type": "share",
+      "shares": 2,
+      "previous": {
+        "earning": 6,
+        "ownership": 0.00005,
+        "label": ""
+      },
+      "new": {
+        "earning": 60,
+        "ownership": 0.0001,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "TXN-EC2D6AE9-925801",
+      "type": "share",
+      "shares": 1,
+      "previous": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Premium"
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "TXN-F560E0D6-736047",
+      "type": "share",
+      "shares": 1,
+      "previous": {
+        "earning": 6,
+        "ownership": 0.00005,
+        "label": ""
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "TXN-856ABA97-520491",
+      "type": "share",
+      "shares": 1,
+      "previous": {
+        "earning": 6,
+        "ownership": 0.00005,
+        "label": ""
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "TXN-268889C6-843581",
+      "type": "share",
+      "shares": 1,
+      "previous": {
+        "earning": 6,
+        "ownership": 0.00005,
+        "label": ""
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "TXN-76552755-734079",
+      "type": "share",
+      "shares": 2,
+      "previous": {
+        "earning": 6,
+        "ownership": 0.00005,
+        "label": ""
+      },
+      "new": {
+        "earning": 60,
+        "ownership": 0.0001,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "TXN-3ADEEA98-014063",
+      "type": "share",
+      "shares": 1,
+      "previous": {
+        "earning": 6,
+        "ownership": 0.00005,
+        "label": ""
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "TXN-C697DE2F-157775",
+      "type": "share",
+      "shares": 1,
+      "previous": {
+        "earning": 6,
+        "ownership": 0.00005,
+        "label": ""
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "TXN-6C94EFAE-493457",
+      "type": "share",
+      "shares": 1,
+      "previous": {
+        "earning": 6,
+        "ownership": 0.00005,
+        "label": ""
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "TXN-5182D0F2-557720",
+      "type": "share",
+      "shares": 1,
+      "previous": {
+        "earning": 6,
+        "ownership": 0.00005,
+        "label": ""
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "CFD-92AEC484-840293",
+      "type": "co-founder",
+      "shares": 3,
+      "previous": {
+        "earning": 14000,
+        "ownership": 0.000021,
+        "label": ""
+      },
+      "new": {
+        "earning": 90,
+        "ownership": 0.00015000000000000001,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "TXN-7124EB01-804950",
+      "type": "share",
+      "shares": 1,
+      "previous": {
+        "earning": 6,
+        "ownership": 0.00005,
+        "label": ""
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "TXN-7E0C9599-272803",
+      "type": "share",
+      "shares": 1,
+      "previous": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Premium"
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "69268bd0947f62a7279fb435",
+      "type": "share",
+      "shares": 1,
+      "previous": {
+        "earning": 2610,
+        "ownership": 0.00005,
+        "label": "Premium"
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "TXN-E6CA9A3B-689119",
+      "type": "share",
+      "shares": 3,
+      "previous": {
+        "earning": 6,
+        "ownership": 0.00005,
+        "label": ""
+      },
+      "new": {
+        "earning": 90,
+        "ownership": 0.00015000000000000001,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "CFD-E38EEBED-284491",
+      "type": "co-founder",
+      "shares": 1,
+      "previous": {
+        "earning": 14000,
+        "ownership": 0.000021,
+        "label": ""
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "TXN-FC798486-111448",
+      "type": "share",
+      "shares": 1,
+      "previous": {
+        "earning": 6,
+        "ownership": 0.00005,
+        "label": ""
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "CFD-75AD1BF6-989674",
+      "type": "co-founder",
+      "shares": 5,
+      "previous": {
+        "earning": 14000,
+        "ownership": 0.000021,
+        "label": ""
+      },
+      "new": {
+        "earning": 150,
+        "ownership": 0.00025,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "692a005cc1d84c2dacebf1a3",
+      "type": "share",
+      "shares": 1,
+      "previous": {
+        "earning": 870,
+        "ownership": 0.00005,
+        "label": "Premium"
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "TXN-CAF9FB68-615381",
+      "type": "share",
+      "shares": 1,
+      "previous": {
+        "earning": 6,
+        "ownership": 0.00005,
+        "label": ""
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "CFD-28ADC821-672358",
+      "type": "co-founder",
+      "shares": 4,
+      "previous": {
+        "earning": 14000,
+        "ownership": 0.000021,
+        "label": ""
+      },
+      "new": {
+        "earning": 120,
+        "ownership": 0.0002,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "TXN-F4253034-250627",
+      "type": "share",
+      "shares": 1,
+      "previous": {
+        "earning": 6,
+        "ownership": 0.00005,
+        "label": ""
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "CFD-09B9C506-986247",
+      "type": "co-founder",
+      "shares": 1,
+      "previous": {
+        "earning": 14000,
+        "ownership": 0.000021,
+        "label": ""
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "TXN-C0EA9BDF-069571",
+      "type": "share",
+      "shares": 1,
+      "previous": {
+        "earning": 6,
+        "ownership": 0.00005,
+        "label": ""
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "692deb1a0565f24496531190",
+      "type": "share",
+      "shares": 1,
+      "previous": {
+        "earning": 870,
+        "ownership": 0.00005,
+        "label": "Premium"
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "TXN-43BFF151-092950",
+      "type": "share",
+      "shares": 1,
+      "previous": {
+        "earning": 6,
+        "ownership": 0.00005,
+        "label": ""
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "TXN-DA621F09-275659",
+      "type": "share",
+      "shares": 1,
+      "previous": {
+        "earning": 6,
+        "ownership": 0.00005,
+        "label": ""
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "TXN-BFF9881F-310049",
+      "type": "share",
+      "shares": 1,
+      "previous": {
+        "earning": 6,
+        "ownership": 0.00005,
+        "label": ""
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "TXN-841BA0E3-591994",
+      "type": "share",
+      "shares": 1,
+      "previous": {
+        "earning": 6,
+        "ownership": 0.00005,
+        "label": ""
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "TXN-B4B9F6DC-968060",
+      "type": "share",
+      "shares": 1,
+      "previous": {
+        "earning": 6,
+        "ownership": 0.00005,
+        "label": ""
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "TXN-526361A3-882930",
+      "type": "share",
+      "shares": 2,
+      "previous": {
+        "earning": 6,
+        "ownership": 0.00005,
+        "label": ""
+      },
+      "new": {
+        "earning": 60,
+        "ownership": 0.0001,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "TXN-7B632331-099520",
+      "type": "share",
+      "shares": 1,
+      "previous": {
+        "earning": 6,
+        "ownership": 0.00005,
+        "label": ""
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "TXN-36F3B634-117386",
+      "type": "share",
+      "shares": 5,
+      "previous": {
+        "earning": 6,
+        "ownership": 0.00005,
+        "label": ""
+      },
+      "new": {
+        "earning": 150,
+        "ownership": 0.00025,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "TXN-B357E0F9-342811",
+      "type": "share",
+      "shares": 2,
+      "previous": {
+        "earning": 6,
+        "ownership": 0.00005,
+        "label": ""
+      },
+      "new": {
+        "earning": 60,
+        "ownership": 0.0001,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "TXN-FAAAE81E-986996",
+      "type": "share",
+      "shares": 1,
+      "previous": {
+        "earning": 6,
+        "ownership": 0.00005,
+        "label": ""
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "TXN-6BF5D8E3-289239",
+      "type": "share",
+      "shares": 1,
+      "previous": {
+        "earning": 14,
+        "ownership": 0.00005,
+        "label": ""
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "TXN-AE101D07-786153",
+      "type": "share",
+      "shares": 1,
+      "previous": {
+        "earning": 14,
+        "ownership": 0.00005,
+        "label": ""
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "TXN-38426EFC-533791",
+      "type": "share",
+      "shares": 2,
+      "previous": {
+        "earning": 6,
+        "ownership": 0.00005,
+        "label": ""
+      },
+      "new": {
+        "earning": 60,
+        "ownership": 0.0001,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "TXN-9B7A1748-647669",
+      "type": "share",
+      "shares": 5,
+      "previous": {
+        "earning": 6,
+        "ownership": 0.00005,
+        "label": ""
+      },
+      "new": {
+        "earning": 150,
+        "ownership": 0.00025,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "TXN-A04E0FDC-066746",
+      "type": "share",
+      "shares": 1,
+      "previous": {
+        "earning": 6,
+        "ownership": 0.00005,
+        "label": ""
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "TXN-634B2088-258391",
+      "type": "share",
+      "shares": 1,
+      "previous": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Premium"
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "TXN-74FBB8A2-132535",
+      "type": "share",
+      "shares": 1,
+      "previous": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Premium"
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "TXN-25BE5084-330723",
+      "type": "share",
+      "shares": 2,
+      "previous": {
+        "earning": 14,
+        "ownership": 0.00005,
+        "label": ""
+      },
+      "new": {
+        "earning": 60,
+        "ownership": 0.0001,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "TXN-37B16F57-409092",
+      "type": "share",
+      "shares": 1,
+      "previous": {
+        "earning": 14,
+        "ownership": 0.00005,
+        "label": ""
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "CFD-2A3EC931-466368",
+      "type": "co-founder",
+      "shares": 3,
+      "previous": {
+        "earning": 14000,
+        "ownership": 0.000462,
+        "label": ""
+      },
+      "new": {
+        "earning": 90,
+        "ownership": 0.00015000000000000001,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "CFD-0858E1E0-052438",
+      "type": "co-founder",
+      "shares": 2,
+      "previous": {
+        "earning": 14000,
+        "ownership": 0.000462,
+        "label": ""
+      },
+      "new": {
+        "earning": 60,
+        "ownership": 0.0001,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "TXN-1B8CD497-324655",
+      "type": "share",
+      "shares": 1,
+      "previous": {
+        "earning": 14,
+        "ownership": 0.00005,
+        "label": ""
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "TXN-2EC41ADE-346233",
+      "type": "share",
+      "shares": 1,
+      "previous": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Premium"
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "6974d3b4fd713f708b920e2a",
+      "type": "share",
+      "shares": 1,
+      "previous": {
+        "earning": 1740,
+        "ownership": 0.00005,
+        "label": "Premium"
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "6974d16afd713f708b92038c",
+      "type": "share",
+      "shares": 1,
+      "previous": {
+        "earning": 2610,
+        "ownership": 0.00005,
+        "label": "Premium"
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "CFD-9F8565C1-199767",
+      "type": "co-founder",
+      "shares": 1,
+      "previous": {
+        "earning": 14000,
+        "ownership": 0.000462,
+        "label": ""
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "CFD-3F32D63C-638480",
+      "type": "co-founder",
+      "shares": 1,
+      "previous": {
+        "earning": 14000,
+        "ownership": 0.000462,
+        "label": ""
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "CFD-72BBD903-511944",
+      "type": "co-founder",
+      "shares": 1,
+      "previous": {
+        "earning": 14000,
+        "ownership": 0.000462,
+        "label": ""
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "6977625689b172173c0593c5",
+      "type": "share",
+      "shares": 1,
+      "previous": {
+        "earning": 870,
+        "ownership": 0.00005,
+        "label": "Premium"
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "6975babffd713f708b9288a6",
+      "type": "share",
+      "shares": 1,
+      "previous": {
+        "earning": 870,
+        "ownership": 0.00005,
+        "label": "Premium"
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "6977fe1789b172173c06227e",
+      "type": "share",
+      "shares": 1,
+      "previous": {
+        "earning": 870,
+        "ownership": 0.00005,
+        "label": "Premium"
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "TXN-7501CC8F-516507",
+      "type": "share",
+      "shares": 1,
+      "previous": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": ""
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "TXN-7AEF8A04-544003",
+      "type": "share",
+      "shares": 1,
+      "previous": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": ""
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "CFD-14C463E6-603735",
+      "type": "co-founder",
+      "shares": 1,
+      "previous": {
+        "earning": 14000,
+        "ownership": 0.000462,
+        "label": ""
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "6984f2db961aee7a18374047",
+      "type": "share",
+      "shares": 1,
+      "previous": {
+        "earning": 870,
+        "ownership": 0.00005,
+        "label": "Premium"
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "CFD-B75D60CC-602917",
+      "type": "co-founder",
+      "shares": 3,
+      "previous": {
+        "earning": 14000,
+        "ownership": 0.000462,
+        "label": ""
+      },
+      "new": {
+        "earning": 90,
+        "ownership": 0.00015000000000000001,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "CFD-5230A32C-728056",
+      "type": "co-founder",
+      "shares": 1,
+      "previous": {
+        "earning": 14000,
+        "ownership": 0.000462,
+        "label": ""
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "TXN-F288B6A6-278557",
+      "type": "share",
+      "shares": 1,
+      "previous": {
+        "earning": 14,
+        "ownership": 0.00005,
+        "label": ""
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "69862b5a119571030f5c0012",
+      "type": "share",
+      "shares": 1,
+      "previous": {
+        "earning": 2610,
+        "ownership": 0.00005,
+        "label": "Premium"
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "69862bd8119571030f5c003c",
+      "type": "share",
+      "shares": 1,
+      "previous": {
+        "earning": 870,
+        "ownership": 0.00005,
+        "label": "Premium"
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "TXN-A3CAF9EB-250567",
+      "type": "share",
+      "shares": 1,
+      "previous": {
+        "earning": 14,
+        "ownership": 0.00005,
+        "label": ""
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "CFD-DE2F348E-323973",
+      "type": "co-founder",
+      "shares": 2,
+      "previous": {
+        "earning": 14000,
+        "ownership": 0.000462,
+        "label": ""
+      },
+      "new": {
+        "earning": 60,
+        "ownership": 0.0001,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "TXN-8CDC161D-234539",
+      "type": "share",
+      "shares": 1,
+      "previous": {
+        "earning": 14,
+        "ownership": 0.00005,
+        "label": ""
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "TXN-B90A9BA6-954396",
+      "type": "share",
+      "shares": 1,
+      "previous": {
+        "earning": 14,
+        "ownership": 0.00005,
+        "label": ""
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "698a6c1b036da431fb7b694b",
+      "type": "share",
+      "shares": 1,
+      "previous": {
+        "earning": 1740,
+        "ownership": 0.00005,
+        "label": "Premium"
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "CFD-FB51D8C4-987348",
+      "type": "co-founder",
+      "shares": 1,
+      "previous": {
+        "earning": 14000,
+        "ownership": 0.000462,
+        "label": ""
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "699217a3a400986db8ba0eb8",
+      "type": "share",
+      "shares": 1,
+      "previous": {
+        "earning": 870,
+        "ownership": 0.00005,
+        "label": "Premium"
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "CFD-7C96CDE1-906874",
+      "type": "co-founder",
+      "shares": 1,
+      "previous": {
+        "earning": 14000,
+        "ownership": 0.000462,
+        "label": ""
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "6992bf4aa400986db8ba3255",
+      "type": "share",
+      "shares": 1,
+      "previous": {
+        "earning": 870,
+        "ownership": 0.00005,
+        "label": "Premium"
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "CFD-9C810D2B-449068",
+      "type": "co-founder",
+      "shares": 1,
+      "previous": {
+        "earning": 14000,
+        "ownership": 0.000462,
+        "label": ""
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "CFD-844900A2-000795",
+      "type": "co-founder",
+      "shares": 1,
+      "previous": {
+        "earning": 14000,
+        "ownership": 0.000462,
+        "label": ""
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "CFD-110BCBA6-985853",
+      "type": "co-founder",
+      "shares": 1,
+      "previous": {
+        "earning": 14000,
+        "ownership": 0.000462,
+        "label": ""
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "69933699a400986db8ba4471",
+      "type": "share",
+      "shares": 1,
+      "previous": {
+        "earning": 870,
+        "ownership": 0.00005,
+        "label": "Premium"
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "69934860a400986db8ba48c1",
+      "type": "share",
+      "shares": 1,
+      "previous": {
+        "earning": 870,
+        "ownership": 0.00005,
+        "label": "Premium"
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "6993a9f98fd343d32b2654cf",
+      "type": "share",
+      "shares": 1,
+      "previous": {
+        "earning": 870,
+        "ownership": 0.00005,
+        "label": "Premium"
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "TXN-59607B4A-830569",
+      "type": "share",
+      "shares": 1,
+      "previous": {
+        "earning": 14,
+        "ownership": 0.00005,
+        "label": ""
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "TXN-794526E0-669499",
+      "type": "share",
+      "shares": 1,
+      "previous": {
+        "earning": 14,
+        "ownership": 0.00005,
+        "label": ""
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    },
+    {
+      "transactionId": "TXN-777C4EA0-693802",
+      "type": "share",
+      "shares": 1,
+      "previous": {
+        "earning": 14,
+        "ownership": 0.00005,
+        "label": ""
+      },
+      "new": {
+        "earning": 30,
+        "ownership": 0.00005,
+        "label": "Legacy"
+      }
+    }
+  ]
+}
