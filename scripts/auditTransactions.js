@@ -1,28 +1,37 @@
 'use strict';
 
 /**
- * auditTransactions.js  (v4 - WITH FIX CAPABILITIES)
- * 
- * Install Excel support: npm install xlsx
- * Or use CSV fallback automatically
+ * auditTransactions.js  (v2)
+ * ─────────────────────────────────────────────────────────────────────────────
+ * Produces SEPARATE output files for each transaction status:
+ *
+ *   audit-output/
+ *     audit-completed/   audit-completed.html + .csv
+ *     audit-pending/     audit-pending.html   + .csv
+ *     audit-failed/      audit-failed.html    + .csv
+ *     audit-all/         audit-all.html + .csv + .json
+ *
+ * Each HTML report has a side-by-side comparison tab showing BOTH the
+ * PaymentTransaction row AND the UserShare row — differing cells are
+ * highlighted red in both rows immediately.
+ *
+ * Usage:
+ *   node auditTransactions.js                     ← all four reports
+ *   node auditTransactions.js --only completed
+ *   node auditTransactions.js --only pending
+ *   node auditTransactions.js --only failed
+ *   node auditTransactions.js --type co-founder
+ * ─────────────────────────────────────────────────────────────────────────────
  */
 
 require('dotenv').config();
 const mongoose = require('mongoose');
-const fs = require('fs');
-const path = require('path');
-
-// Try to load Excel support, but don't fail if not available
-let XLSX = null;
-try {
-  XLSX = require('xlsx');
-  console.log('✅ Excel support loaded (xlsx)');
-} catch (e) {
-  console.log('⚠️ Excel support not available. Install with: npm install xlsx');
-  console.log('   Falling back to CSV export only\n');
-}
+const fs       = require('fs');
+const path     = require('path');
 
 // ── Model imports ─────────────────────────────────────────────────────────────
+// User MUST be required first so Mongoose registers its schema before
+// PaymentTransaction / UserShare try to .populate() it.
 const possibleUserPaths = [
   '../models/User',
   '../models/user',
@@ -30,780 +39,74 @@ const possibleUserPaths = [
 ];
 let User;
 for (const p of possibleUserPaths) {
-  try { User = require(p); break; } catch (_) { }
+  try { User = require(p); break; } catch (_) { /* try next */ }
 }
-if (!User) console.warn('⚠️ User model not found');
+if (!User) {
+  console.warn('⚠️  User model not found — names will show as "Unknown". populate will be skipped.');
+}
 
 const PaymentTransaction = require('../models/Transaction');
-const UserShare = require('../models/UserShare');
+const UserShare          = require('../models/UserShare');
 
 let TierConfig;
-try { TierConfig = require('../models/TierConfig'); } catch (_) { }
-
-let ShareModel;
-try { ShareModel = require('../models/Share'); } catch (_) { }
+try { TierConfig = require('../models/TierConfig'); } catch (_) {
+  console.warn('⚠️  TierConfig model not found — tier-based amount resolution skipped.');
+}
 
 // ── CLI args ──────────────────────────────────────────────────────────────────
-const args = process.argv.slice(2);
-const flagVal = (f) => { const i = args.indexOf(f); return i !== -1 ? args[i + 1] : null; };
-const hasFlag = (f) => args.includes(f);
-
-const ONLY = flagVal('--only') || null;
+const args        = process.argv.slice(2);
+const flagVal     = (f) => { const i = args.indexOf(f); return i !== -1 ? args[i + 1] : null; };
+const ONLY        = flagVal('--only') || null;
 const TYPE_FILTER = flagVal('--type') || null;
-const STATUSES = ONLY ? [ONLY] : ['completed', 'pending', 'failed'];
+const STATUSES    = ONLY ? [ONLY] : ['completed', 'pending', 'failed'];
 
-// New flags for fixing
-const EXPORT_FIX = hasFlag('--export-fix');
-const EXPORT_CSV = hasFlag('--export-csv');
-const APPLY_FIX = hasFlag('--apply-fix');
-const FIX_FILE = flagVal('--apply-fix') || flagVal('--fix-file');
-const DRY_RUN = hasFlag('--dry-run');
-const FIX_TRANSACTION = flagVal('--fix-transaction');
-const SET_FIELDS = [];
-
-// Parse --set key=value pairs
-for (let i = 0; i < args.length; i++) {
-  if (args[i] === '--set' && args[i + 1]) {
-    const pair = args[i + 1];
-    const [key, value] = pair.split('=');
-    if (key && value !== undefined) {
-      let parsedValue = value;
-      // Try to parse as number if it looks like one
-      if (!isNaN(value) && value.trim() !== '') {
-        parsedValue = parseFloat(value);
-      }
-      SET_FIELDS.push({ key, value: parsedValue });
-    }
-    i++;
-  }
-}
-
-// ── Helpers ─────────────────────────────────────────────────────────────────
+// ── Helpers ───────────────────────────────────────────────────────────────────
 const fmtDate = (d) => d ? new Date(d).toISOString().replace('T', ' ').slice(0, 19) : '—';
-const fmtAmt = (n) => (parseFloat(n) || 0).toLocaleString('en-NG', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-const fmtPct = (n) => ((parseFloat(n) || 0) * 100).toFixed(7) + '%';
-const esc = (s) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+const fmtAmt  = (n) => (parseFloat(n) || 0).toLocaleString('en-NG', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const fmtPct  = (n) => ((parseFloat(n) || 0) * 100).toFixed(7) + '%';
+const esc     = (s) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
-// CSV escape helper
-const csvEscape = (v) => {
-  if (v === undefined || v === null) return '';
-  const s = String(v).replace(/"/g, '""');
-  return /[",\n\r]/.test(s) ? `"${s}"` : s;
-};
-
-// ── Amount resolution (same as v3) ──────────────────────────────────────────
-const resolveAmount = (raw, tierConfig, legacyShareMap) => {
-  let amt = parseFloat(raw.amount ?? raw.totalAmount ?? 0) || 0;
-  if (amt > 0) return amt;
-
-  const tierKey = raw.tierKey || raw.packageId || raw.tier || '';
-  const shares = parseFloat(raw.shares) || 1;
-  const cur = (raw.currency || 'naira').toLowerCase();
-
-  if (tierKey && tierConfig?.tiers) {
-    const tier = tierConfig.tiers?.get?.(tierKey);
+const resolveAmount = (tx, tierConfig) => {
+  let amt = parseFloat(tx.amount ?? tx.totalAmount ?? 0) || 0;
+  if (amt === 0 && tx.tierKey && tierConfig) {
+    const tier = tierConfig.tiers?.get?.(tx.tierKey);
     if (tier) {
-      const price = cur === 'usdt' ? (tier.priceUSD || 0) : (tier.priceNGN || 0);
-      if (price > 0) return price * shares;
+      const cur = (tx.currency || 'naira').toLowerCase();
+      amt = (cur === 'usdt' ? tier.priceUSD : tier.priceNGN) * (parseFloat(tx.shares) || 1);
     }
   }
-
-  if (tierKey && legacyShareMap && legacyShareMap.size > 0) {
-    const legacy = legacyShareMap.get(tierKey);
-    if (legacy) {
-      const price = cur === 'usdt'
-        ? (legacy.priceUSDT || legacy.priceUsdt || legacy.priceUsd || legacy.usdtPrice || 0)
-        : (legacy.priceNaira || legacy.price || legacy.priceNGN || legacy.nairaPrice || legacy.amount || legacy.cost || 0);
-      if (price > 0) return price * shares;
-    }
-  }
-
-  const pps = parseFloat(raw.pricePerShare) || 0;
-  if (pps > 0) return pps * shares;
-
-  return 0;
+  return amt;
 };
 
-const normalise = (raw, source, userId, userName, userEmail, tierConfig, legacyShareMap) => ({
+const normalise = (raw, source, userId, userName, userEmail, tierConfig) => ({
   source,
-  transactionId: raw.transactionId || 'N/A',
-  userId: (userId || raw.userId || '').toString(),
-  userName: userName || 'Unknown',
-  userEmail: userEmail || '',
-  type: raw.type || 'share',
-  tierKey: raw.tierKey || raw.packageId || '',
-  packageLabel: raw.packageLabel || '',
-  status: (raw.status || '').toLowerCase(),
-  amount: resolveAmount(raw, tierConfig, legacyShareMap),
-  currency: (raw.currency || 'naira').toLowerCase(),
-  paymentMethod: (raw.paymentMethod || '').replace(/^manual_/, '').replace('admin_override', 'admin'),
-  shares: parseFloat(raw.shares) || 1,
-  ownershipPct: parseFloat(raw.ownershipPct) || 0,
-  earningKobo: parseFloat(raw.earningKobo) || 0,
-  hasProof: !!(raw.paymentProofCloudinaryUrl || raw.paymentProofPath || raw.hasProof),
-  adminAction: !!(raw.adminAction),
-  adminNote: raw.adminNotes || raw.adminNote || '',
-  createdAt: fmtDate(raw.createdAt),
-  updatedAt: fmtDate(raw.updatedAt || raw.createdAt),
-  verifiedAt: fmtDate(raw.verifiedAt || null),
+  transactionId : raw.transactionId || 'N/A',
+  userId        : (userId || raw.userId || '').toString(),
+  userName      : userName || 'Unknown',
+  userEmail     : userEmail || '',
+  type          : raw.type || 'share',
+  tierKey       : raw.tierKey || raw.packageId || '',
+  packageLabel  : raw.packageLabel || '',
+  status        : (raw.status || '').toLowerCase(),
+  amount        : resolveAmount(raw, tierConfig),
+  currency      : (raw.currency || 'naira').toLowerCase(),
+  paymentMethod : (raw.paymentMethod || '').replace(/^manual_/, '').replace('admin_override', 'admin'),
+  shares        : parseFloat(raw.shares) || 1,
+  ownershipPct  : parseFloat(raw.ownershipPct) || 0,
+  earningKobo   : parseFloat(raw.earningKobo)  || 0,
+  hasProof      : !!(raw.paymentProofCloudinaryUrl || raw.paymentProofPath || raw.hasProof),
+  adminAction   : !!(raw.adminAction),
+  adminNote     : raw.adminNotes || raw.adminNote || '',
+  createdAt     : fmtDate(raw.createdAt),
+  updatedAt     : fmtDate(raw.updatedAt || raw.createdAt),
+  verifiedAt    : fmtDate(raw.verifiedAt || null),
 });
 
-// ── Apply fixes to database ─────────────────────────────────────────────────
-async function applyFixToTransaction(transactionId, updates, dryRun = false) {
-  console.log(`\n📝 ${dryRun ? '[DRY RUN] ' : ''}Fixing transaction: ${transactionId}`);
-  
-  const results = {
-    transactionId,
-    paymentTransaction: { found: false, updated: false },
-    userShare: { found: false, updated: false },
-    errors: []
-  };
-  
-  // Build update object
-  const updateFields = {};
-  for (const { key, value } of updates) {
-    if (key === 'amount') {
-      updateFields.amount = value;
-      updateFields.totalAmount = value;
-    } else if (key === 'ownershipPct') {
-      updateFields.ownershipPct = value;
-    } else if (key === 'earningKobo') {
-      updateFields.earningKobo = value;
-    } else if (key === 'shares') {
-      updateFields.shares = value;
-    } else if (key === 'tierKey') {
-      updateFields.tierKey = value;
-      updateFields.packageId = value;
-    } else if (key === 'packageLabel') {
-      updateFields.packageLabel = value;
-    } else if (key === 'status') {
-      updateFields.status = value;
-    } else if (key === 'currency') {
-      updateFields.currency = value;
-    } else if (key === 'paymentMethod') {
-      updateFields.paymentMethod = value;
-    } else {
-      updateFields[key] = value;
-    }
-  }
-  
-  updateFields.adminNotes = `[FIXED ${new Date().toISOString()}] ${updateFields.adminNotes || ''}`;
-  
-  if (dryRun) {
-    console.log(`   Would update:`, JSON.stringify(updateFields, null, 2));
-    results.paymentTransaction.found = true;
-    results.userShare.found = true;
-    return results;
-  }
-  
-  // Update PaymentTransaction
-  try {
-    const ptResult = await PaymentTransaction.updateOne(
-      { transactionId },
-      { $set: updateFields }
-    );
-    results.paymentTransaction.found = ptResult.matchedCount > 0;
-    results.paymentTransaction.updated = ptResult.modifiedCount > 0;
-    if (results.paymentTransaction.updated) {
-      console.log(`   ✅ PaymentTransaction updated`);
-    } else if (results.paymentTransaction.found) {
-      console.log(`   ⏭️ PaymentTransaction already matches`);
-    }
-  } catch (err) {
-    results.errors.push(`PaymentTransaction: ${err.message}`);
-    console.log(`   ❌ PaymentTransaction error: ${err.message}`);
-  }
-  
-  // Update UserShare
-  try {
-    const userShare = await UserShare.findOne({ 'transactions.transactionId': transactionId });
-    if (userShare) {
-      results.userShare.found = true;
-      
-      const txIndex = userShare.transactions.findIndex(t => t.transactionId === transactionId);
-      if (txIndex !== -1) {
-        let modified = false;
-        for (const [key, value] of Object.entries(updateFields)) {
-          if (key === 'amount') {
-            if (userShare.transactions[txIndex].amount !== value) {
-              userShare.transactions[txIndex].amount = value;
-              userShare.transactions[txIndex].totalAmount = value;
-              modified = true;
-            }
-          } else if (key === 'totalAmount') {
-            if (userShare.transactions[txIndex].totalAmount !== value) {
-              userShare.transactions[txIndex].totalAmount = value;
-              modified = true;
-            }
-          } else if (key === 'tierKey') {
-            if (userShare.transactions[txIndex].tierKey !== value) {
-              userShare.transactions[txIndex].tierKey = value;
-              userShare.transactions[txIndex].packageId = value;
-              modified = true;
-            }
-          } else if (key !== 'verifiedBy' && key !== 'verifiedAt' && key !== 'adminNotes') {
-            if (userShare.transactions[txIndex][key] !== value) {
-              userShare.transactions[txIndex][key] = value;
-              modified = true;
-            }
-          }
-        }
-        
-        if (modified) {
-          // Recalculate user totals
-          let totalOwnershipPct = 0;
-          let totalEarningKobo = 0;
-          for (const tx of userShare.transactions) {
-            if (tx.status === 'completed') {
-              totalOwnershipPct += (tx.ownershipPct || 0);
-              totalEarningKobo += (tx.earningKobo || 0);
-            }
-          }
-          userShare.totalOwnershipPct = parseFloat(totalOwnershipPct.toFixed(7));
-          userShare.totalEarningKobo = totalEarningKobo;
-          
-          await userShare.save();
-          results.userShare.updated = true;
-          console.log(`   ✅ UserShare updated, recalculated totals: ${totalOwnershipPct.toFixed(7)}%`);
-        } else {
-          console.log(`   ⏭️ UserShare already matches`);
-        }
-      }
-    }
-  } catch (err) {
-    results.errors.push(`UserShare: ${err.message}`);
-    console.log(`   ❌ UserShare error: ${err.message}`);
-  }
-  
-  return results;
-}
-
-// ── Export to CSV (always works, no Excel needed) ───────────────────────────
-async function exportToCSV(tierConfig, legacyShareMap) {
-  console.log('\n📊 Exporting transactions to CSV for editing...');
-  
-  // Load all data
-  const ptDocs = await PaymentTransaction.find({}).populate('userId', 'name email username').lean();
-  const usDocs = await UserShare.find({}).populate('user', 'name email username').lean();
-  
-  // Build records
-  const records = [];
-  const seenIds = new Set();
-  
-  // Add PaymentTransaction records
-  for (const doc of ptDocs) {
-    if (TYPE_FILTER && doc.type !== TYPE_FILTER) continue;
-    if (ONLY && doc.status !== ONLY) continue;
-    
-    const row = normalise(
-      doc, 'PaymentTransaction',
-      doc.userId?._id || doc.userId,
-      doc.userId?.name || 'Unknown',
-      doc.userId?.email || '',
-      tierConfig, legacyShareMap
-    );
-    
-    seenIds.add(row.transactionId);
-    records.push({
-      ACTION: 'KEEP',
-      transactionId: row.transactionId,
-      source: row.source,
-      userEmail: row.userEmail,
-      userName: row.userName,
-      type: row.type,
-      tierKey: row.tierKey,
-      packageLabel: row.packageLabel,
-      status: row.status,
-      amount: row.amount,
-      currency: row.currency,
-      paymentMethod: row.paymentMethod,
-      shares: row.shares,
-      ownershipPct: row.ownershipPct,
-      earningKobo: row.earningKobo,
-      createdAt: row.createdAt,
-      adminNote: row.adminNote,
-    });
-  }
-  
-  // Add UserShare-only records
-  for (const doc of usDocs) {
-    for (const tx of doc.transactions || []) {
-      if (TYPE_FILTER && tx.type !== TYPE_FILTER) continue;
-      if (ONLY && tx.status !== ONLY) continue;
-      if (seenIds.has(tx.transactionId)) continue;
-      
-      const enrichedTx = {
-        ...tx,
-        currency: tx.currency || doc.currency || 'naira',
-        amount: parseFloat(tx.amount ?? tx.totalAmount ?? 0) || 0,
-      };
-      
-      const row = normalise(
-        enrichedTx, 'UserShare-Only',
-        doc.user?._id || doc.user,
-        doc.user?.name || 'Unknown',
-        doc.user?.email || '',
-        tierConfig, legacyShareMap
-      );
-      
-      records.push({
-        ACTION: 'CREATE',
-        transactionId: row.transactionId,
-        source: row.source,
-        userEmail: row.userEmail,
-        userName: row.userName,
-        type: row.type,
-        tierKey: row.tierKey,
-        packageLabel: row.packageLabel,
-        status: row.status,
-        amount: row.amount,
-        currency: row.currency,
-        paymentMethod: row.paymentMethod,
-        shares: row.shares,
-        ownershipPct: row.ownershipPct,
-        earningKobo: row.earningKobo,
-        createdAt: row.createdAt,
-        adminNote: row.adminNote,
-      });
-    }
-  }
-  
-  // Write CSV
-  const headers = Object.keys(records[0] || {});
-  const csvRows = [headers.map(h => csvEscape(h)).join(',')];
-  
-  for (const record of records) {
-    const row = headers.map(h => csvEscape(record[h] || '')).join(',');
-    csvRows.push(row);
-  }
-  
-  const filename = `audit-export-${Date.now()}.csv`;
-  fs.writeFileSync(filename, csvRows.join('\n'));
-  
-  console.log(`✅ Exported to ${filename}`);
-  console.log(`📊 Total records: ${records.length}`);
-  console.log(`\n📝 Edit the CSV file, then run:`);
-  console.log(`   node auditTransactions.js --apply-fix ${filename}`);
-  
-  // Also create instructions file
-  const instructions = `# HOW TO USE THIS CSV FILE
-
-## ACTION column options:
-- KEEP    - Do nothing (default)
-- UPDATE  - Update this transaction (edit the values in this row)
-- DELETE  - Remove this transaction from both sources
-- CREATE  - Create new PaymentTransaction from this UserShare record
-
-## For UPDATE:
-1. Change ACTION column to "UPDATE"
-2. Edit any values in this row to the correct values
-3. Save the file
-4. Run: node auditTransactions.js --apply-fix ${filename}
-
-## Important Notes:
-- Do NOT change the transactionId
-- amount is in Naira or USDT (depending on currency)
-- ownershipPct is a decimal (e.g., 0.0012345 = 0.12345%)
-- earningKobo is in kobo (₦1 = 100 kobo)
-- status can be: completed, pending, failed
-
-## Quick reference for tier prices:
-`;
-  
-  // Add tier info to instructions
-  if (tierConfig?.tiers) {
-    for (const [key, tier] of tierConfig.tiers) {
-      instructions.push(`\n${key}: ${tier.name} - ₦${tier.priceNGN} / $${tier.priceUSD} - ${(tier.percentPerShare * 100).toFixed(4)}% per share`);
-    }
-  }
-  
-  fs.writeFileSync(filename.replace('.csv', '-instructions.txt'), instructions);
-  console.log(`📝 Instructions saved to ${filename.replace('.csv', '-instructions.txt')}`);
-  
-  return filename;
-}
-
-// ── Export to Excel (if available) ───────────────────────────────────────────
-async function exportToExcel(tierConfig, legacyShareMap) {
-  if (!XLSX) {
-    console.log('⚠️ Excel not available, falling back to CSV export...');
-    return await exportToCSV(tierConfig, legacyShareMap);
-  }
-  
-  console.log('\n📊 Exporting transactions to Excel for editing...');
-  
-  // Load all data
-  const ptDocs = await PaymentTransaction.find({}).populate('userId', 'name email username').lean();
-  const usDocs = await UserShare.find({}).populate('user', 'name email username').lean();
-  
-  // Build records
-  const records = [];
-  const seenIds = new Set();
-  
-  // Add PaymentTransaction records
-  for (const doc of ptDocs) {
-    if (TYPE_FILTER && doc.type !== TYPE_FILTER) continue;
-    if (ONLY && doc.status !== ONLY) continue;
-    
-    const row = normalise(
-      doc, 'PaymentTransaction',
-      doc.userId?._id || doc.userId,
-      doc.userId?.name || 'Unknown',
-      doc.userId?.email || '',
-      tierConfig, legacyShareMap
-    );
-    
-    seenIds.add(row.transactionId);
-    records.push({
-      ACTION: 'KEEP',
-      transactionId: row.transactionId,
-      source: row.source,
-      userEmail: row.userEmail,
-      userName: row.userName,
-      current_type: row.type,
-      current_tierKey: row.tierKey,
-      current_packageLabel: row.packageLabel,
-      current_status: row.status,
-      current_amount: row.amount,
-      current_currency: row.currency,
-      current_paymentMethod: row.paymentMethod,
-      current_shares: row.shares,
-      current_ownershipPct: row.ownershipPct,
-      current_earningKobo: row.earningKobo,
-      current_createdAt: row.createdAt,
-      FIX_type: row.type,
-      FIX_tierKey: row.tierKey,
-      FIX_packageLabel: row.packageLabel,
-      FIX_status: row.status,
-      FIX_amount: row.amount,
-      FIX_currency: row.currency,
-      FIX_paymentMethod: row.paymentMethod,
-      FIX_shares: row.shares,
-      FIX_ownershipPct: row.ownershipPct,
-      FIX_earningKobo: row.earningKobo,
-      note: '',
-    });
-  }
-  
-  // Add UserShare-only records
-  for (const doc of usDocs) {
-    for (const tx of doc.transactions || []) {
-      if (TYPE_FILTER && tx.type !== TYPE_FILTER) continue;
-      if (ONLY && tx.status !== ONLY) continue;
-      if (seenIds.has(tx.transactionId)) continue;
-      
-      const enrichedTx = {
-        ...tx,
-        currency: tx.currency || doc.currency || 'naira',
-        amount: parseFloat(tx.amount ?? tx.totalAmount ?? 0) || 0,
-      };
-      
-      const row = normalise(
-        enrichedTx, 'UserShare-Only',
-        doc.user?._id || doc.user,
-        doc.user?.name || 'Unknown',
-        doc.user?.email || '',
-        tierConfig, legacyShareMap
-      );
-      
-      records.push({
-        ACTION: 'CREATE',
-        transactionId: row.transactionId,
-        source: row.source,
-        userEmail: row.userEmail,
-        userName: row.userName,
-        current_type: row.type,
-        current_tierKey: row.tierKey,
-        current_packageLabel: row.packageLabel,
-        current_status: row.status,
-        current_amount: row.amount,
-        current_currency: row.currency,
-        current_paymentMethod: row.paymentMethod,
-        current_shares: row.shares,
-        current_ownershipPct: row.ownershipPct,
-        current_earningKobo: row.earningKobo,
-        current_createdAt: row.createdAt,
-        FIX_type: row.type,
-        FIX_tierKey: row.tierKey,
-        FIX_packageLabel: row.packageLabel,
-        FIX_status: row.status,
-        FIX_amount: row.amount,
-        FIX_currency: row.currency,
-        FIX_paymentMethod: row.paymentMethod,
-        FIX_shares: row.shares,
-        FIX_ownershipPct: row.ownershipPct,
-        FIX_earningKobo: row.earningKobo,
-        note: 'Only in UserShare',
-      });
-    }
-  }
-  
-  // Create workbook
-  const wb = XLSX.utils.book_new();
-  
-  // Transactions sheet
-  const ws = XLSX.utils.json_to_sheet(records);
-  XLSX.utils.book_append_sheet(wb, ws, 'Transactions');
-  
-  // Instructions sheet
-  const instructions = [
-    ['=== INSTRUCTIONS ==='],
-    [''],
-    ['ACTION column options:'],
-    ['  KEEP    - Do nothing (default)'],
-    ['  UPDATE  - Update this transaction with your FIX_* values'],
-    ['  DELETE  - Remove this transaction from both sources'],
-    ['  CREATE  - Create new PaymentTransaction from this UserShare record'],
-    [''],
-    ['For UPDATE: Edit any FIX_* column'],
-    ['For CREATE: Edit FIX_* columns to set values for new PaymentTransaction'],
-    [''],
-    ['Important:'],
-    ['1. Do NOT change transactionId'],
-    ['2. amount is in Naira or USDT'],
-    ['3. ownershipPct is a decimal (e.g., 0.0012345)'],
-    ['4. earningKobo is in kobo (₦1 = 100 kobo)'],
-  ];
-  const wsInstr = XLSX.utils.aoa_to_sheet(instructions);
-  XLSX.utils.book_append_sheet(wb, wsInstr, 'Instructions');
-  
-  // Tier reference sheet
-  const tierRef = [['Tier Key', 'Name', 'Price NGN', 'Price USDT', '% per Share', 'Earning per Phone (kobo)']];
-  if (tierConfig?.tiers) {
-    for (const [key, tier] of tierConfig.tiers) {
-      tierRef.push([key, tier.name, tier.priceNGN, tier.priceUSD, tier.percentPerShare, tier.earningPerPhone]);
-    }
-  }
-  const wsRef = XLSX.utils.aoa_to_sheet(tierRef);
-  XLSX.utils.book_append_sheet(wb, wsRef, 'Tier Reference');
-  
-  const filename = `audit-fixable-${Date.now()}.xlsx`;
-  XLSX.writeFile(wb, filename);
-  console.log(`✅ Exported to ${filename}`);
-  console.log(`📊 Total records: ${records.length}`);
-  console.log(`\n📝 Edit the file, then run:`);
-  console.log(`   node auditTransactions.js --apply-fix ${filename}`);
-  
-  return filename;
-}
-
-// ── Apply fixes from CSV/Excel file ─────────────────────────────────────────
-async function applyFixesFromFile(filename, dryRun = false) {
-  console.log(`\n📥 Loading fixes from ${filename}...`);
-  
-  let records = [];
-  const ext = path.extname(filename).toLowerCase();
-  
-  if (ext === '.csv') {
-    // Parse CSV
-    const content = fs.readFileSync(filename, 'utf8');
-    const lines = content.split('\n').filter(l => l.trim());
-    const headers = lines[0].split(',').map(h => h.replace(/^"|"$/g, '').trim());
-    
-    for (let i = 1; i < lines.length; i++) {
-      const values = [];
-      let inQuote = false;
-      let current = '';
-      
-      for (let j = 0; j < lines[i].length; j++) {
-        const char = lines[i][j];
-        if (char === '"') {
-          inQuote = !inQuote;
-        } else if (char === ',' && !inQuote) {
-          values.push(current.replace(/^"|"$/g, ''));
-          current = '';
-        } else {
-          current += char;
-        }
-      }
-      values.push(current.replace(/^"|"$/g, ''));
-      
-      const record = {};
-      headers.forEach((h, idx) => { record[h] = values[idx]; });
-      records.push(record);
-    }
-  } else if (ext === '.xlsx') {
-    if (!XLSX) {
-      console.error('❌ Excel support not available. Please install xlsx or use CSV export.');
-      process.exit(1);
-    }
-    const workbook = XLSX.readFile(filename);
-    const sheet = workbook.Sheets['Transactions'];
-    records = XLSX.utils.sheet_to_json(sheet);
-  } else {
-    console.error(`❌ Unsupported file type: ${ext}. Use .csv or .xlsx`);
-    process.exit(1);
-  }
-  
-  const results = {
-    updated: [],
-    deleted: [],
-    created: [],
-    errors: [],
-    dryRun
-  };
-  
-  for (const record of records) {
-    const action = record.ACTION || 'KEEP';
-    const txId = record.transactionId;
-    
-    if (!txId || txId === 'N/A') {
-      results.errors.push(`Skipped: missing transactionId`);
-      continue;
-    }
-    
-    if (action === 'UPDATE') {
-      // Build updates from FIX_* fields
-      const updates = [];
-      for (const [key, value] of Object.entries(record)) {
-        if (key.startsWith('FIX_') && value !== undefined && value !== '' && value !== 'null') {
-          const fieldName = key.substring(4);
-          const currentKey = `current_${fieldName}`;
-          const currentValue = record[currentKey];
-          
-          let parsedValue = value;
-          if (!isNaN(value) && value.trim() !== '') {
-            parsedValue = parseFloat(value);
-          }
-          
-          if (String(parsedValue) !== String(currentValue)) {
-            updates.push({ key: fieldName, value: parsedValue });
-          }
-        }
-      }
-      
-      if (updates.length > 0) {
-        console.log(`\n📝 ${txId}: ${updates.length} change(s)`);
-        const result = await applyFixToTransaction(txId, updates, dryRun);
-        if (result.paymentTransaction.updated || result.userShare.updated) {
-          results.updated.push({ txId, updates });
-        }
-        if (result.errors.length) {
-          results.errors.push(...result.errors);
-        }
-      }
-    } else if (action === 'DELETE') {
-      if (!dryRun) {
-        await PaymentTransaction.deleteOne({ transactionId: txId });
-        await UserShare.updateOne(
-          { 'transactions.transactionId': txId },
-          { $pull: { transactions: { transactionId: txId } } }
-        );
-        console.log(`   🗑️ Deleted: ${txId}`);
-      } else {
-        console.log(`   🗑️ Would delete: ${txId}`);
-      }
-      results.deleted.push(txId);
-    } else if (action === 'CREATE') {
-      if (!dryRun) {
-        const user = await User.findOne({ email: record.userEmail });
-        if (user) {
-          const newTx = {
-            transactionId: txId,
-            userId: user._id,
-            type: record.FIX_type || record.current_type,
-            tierKey: record.FIX_tierKey || record.current_tierKey,
-            packageLabel: record.FIX_packageLabel || record.current_packageLabel,
-            status: record.FIX_status || record.current_status || 'completed',
-            amount: parseFloat(record.FIX_amount || record.current_amount || 0),
-            currency: record.FIX_currency || record.current_currency || 'naira',
-            paymentMethod: record.FIX_paymentMethod || record.current_paymentMethod || 'manual',
-            shares: parseFloat(record.FIX_shares || record.current_shares || 1),
-            ownershipPct: parseFloat(record.FIX_ownershipPct || record.current_ownershipPct || 0),
-            earningKobo: parseFloat(record.FIX_earningKobo || record.current_earningKobo || 0),
-            adminNotes: `Created from audit fix`,
-            verifiedBy: 'system-audit',
-            verifiedAt: new Date(),
-          };
-          await PaymentTransaction.create(newTx);
-          console.log(`   ✨ Created PaymentTransaction: ${txId}`);
-          results.created.push(txId);
-        } else {
-          results.errors.push(`User not found for ${txId}: ${record.userEmail}`);
-        }
-      } else {
-        console.log(`   ✨ Would create: ${txId}`);
-        results.created.push(txId);
-      }
-    }
-  }
-  
-  // Summary
-  console.log('\n' + '═'.repeat(50));
-  console.log(`📊 FIX SUMMARY ${dryRun ? '(DRY RUN - no changes made)' : ''}`);
-  console.log('═'.repeat(50));
-  console.log(`   ✅ Updated: ${results.updated.length}`);
-  console.log(`   🗑️ Deleted: ${results.deleted.length}`);
-  console.log(`   ✨ Created: ${results.created.length}`);
-  console.log(`   ❌ Errors: ${results.errors.length}`);
-  
-  if (results.errors.length > 0) {
-    console.log('\nErrors:');
-    results.errors.forEach(e => console.log(`   - ${e}`));
-  }
-  
-  return results;
-}
-
-// ── Fix single transaction via CLI ─────────────────────────────────────────
-async function fixSingleTransaction(txId, updates) {
-  console.log(`\n🔧 Fixing transaction: ${txId}`);
-  console.log(`   Updates:`, updates);
-  
-  if (DRY_RUN) {
-    console.log(`   [DRY RUN] Would apply these changes`);
-    return;
-  }
-  
-  const result = await applyFixToTransaction(txId, updates, false);
-  
-  if (result.paymentTransaction.updated || result.userShare.updated) {
-    console.log(`\n✅ Transaction ${txId} fixed successfully`);
-  } else {
-    console.log(`\n⚠️ No changes made to ${txId}`);
-  }
-}
-
-// ── Build report (same as v3) ───────────────────────────────────────────────
-function buildReport(ptRows, usRows, statusFilter) {
-  const allIds = new Set([
-    ...Object.keys(ptRows).filter(id => !statusFilter || ptRows[id].status === statusFilter),
-    ...Object.keys(usRows).filter(id => !statusFilter || usRows[id].status === statusFilter),
-  ]);
-
-  const report = { summary: {}, inBothSources: [], ptOnly: [], usOnly: [], discrepancies: [], completeness: [] };
-
-  for (const txId of allIds) {
-    const ptRow = ptRows[txId];
-    const usRow = usRows[txId];
-    const ptOk = ptRow && (!statusFilter || ptRow.status === statusFilter);
-    const usOk = usRow && (!statusFilter || usRow.status === statusFilter);
-
-    if (ptOk && usOk) {
-      const issues = diff(ptRow, usRow);
-      const entry = { transactionId: txId, ptRow, usRow, discrepancies: issues, isUniform: issues.length === 0 };
-      report.inBothSources.push(entry);
-      if (issues.length) report.discrepancies.push(entry);
-    } else if (ptOk) {
-      report.ptOnly.push({ ...ptRow, isUniform: null, discrepancyFields: 'PT only' });
-    } else if (usOk) {
-      report.usOnly.push({ ...usRow, isUniform: null, discrepancyFields: 'US only' });
-    }
-  }
-
-  report.summary = {
-    totalUniqueTransactions: report.inBothSources.length + report.ptOnly.length + report.usOnly.length,
-    inBothSources: report.inBothSources.length,
-    uniform: report.inBothSources.filter(r => r.isUniform).length,
-    withDiscrepancies: report.discrepancies.length,
-    ptOnly: report.ptOnly.length,
-    usOnly: report.usOnly.length,
-  };
-  return report;
-}
-
-// ── Diff function ───────────────────────────────────────────────────────────
-const COMPARABLE = ['type', 'tierKey', 'packageLabel', 'status', 'amount', 'currency', 'paymentMethod', 'shares', 'ownershipPct', 'earningKobo'];
+const COMPARABLE = [
+  'type', 'tierKey', 'packageLabel', 'status',
+  'amount', 'currency', 'paymentMethod',
+  'shares', 'ownershipPct', 'earningKobo',
+];
 
 const diff = (a, b) => {
   const issues = [];
@@ -818,11 +121,434 @@ const diff = (a, b) => {
   return issues;
 };
 
-// ── Write report (simplified for v4) ────────────────────────────────────────
+// ── HTML helpers ──────────────────────────────────────────────────────────────
+const STATUS_COLORS = { completed: '#16a34a', pending: '#d97706', failed: '#dc2626', cancelled: '#6b7280' };
+
+const statusBadge = (s) => {
+  const c = STATUS_COLORS[s?.toLowerCase()] || '#6b7280';
+  return `<span style="background:${c};color:#fff;padding:2px 9px;border-radius:9999px;font-size:11px;font-weight:600">${esc(s || '—')}</span>`;
+};
+
+const matchBadge = (ok) =>
+  ok ? `<span style="background:#dcfce7;color:#166534;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:700">✓ Match</span>`
+     : `<span style="background:#fee2e2;color:#991b1b;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:700">✗ Mismatch</span>`;
+
+const sourcePill = (src) => {
+  const c = src === 'PaymentTransaction' ? '#1d4ed8' : '#7c3aed';
+  const l = src === 'PaymentTransaction' ? 'PT' : 'US';
+  return `<span style="background:${c};color:#fff;padding:1px 7px;border-radius:4px;font-size:10px;font-weight:700">${l}</span>`;
+};
+
+// ── Side-by-side comparison rows ──────────────────────────────────────────────
+function buildComparisonRows(inBothSources) {
+  if (!inBothSources.length) {
+    return `<tr><td colspan="14" style="padding:20px;text-align:center;color:#9ca3af">No transactions found in both sources for this status.</td></tr>`;
+  }
+
+  const base = 'padding:7px 10px;font-size:12px';
+
+  return inBothSources.map(({ ptRow, usRow, discrepancies, isUniform }) => {
+    const diffFields = new Set(discrepancies.map(d => d.field));
+    const cellStyle = (field, extra = '') =>
+      diffFields.has(field)
+        ? `${base}${extra};background:#fee2e2;color:#991b1b;font-weight:700`
+        : `${base}${extra}`;
+
+    const renderRow = (row, isPT) => {
+      const bg = isPT
+        ? (isUniform ? '#f0f9ff' : '#fffbeb')
+        : (isUniform ? '#faf5ff' : '#fffbeb');
+      return `<tr style="background:${bg};border-bottom:1px solid #f3f4f6">
+        <td style="${base};font-family:monospace;font-size:11px;white-space:nowrap">
+          ${isPT ? `<b>${esc(row.transactionId)}</b>` : ''}
+        </td>
+        <td style="${base}">${sourcePill(row.source)}</td>
+        <td style="${base}">${esc(row.userName)}<br><span style="color:#9ca3af;font-size:10px">${esc(row.userEmail)}</span></td>
+        <td style="${cellStyle('type')}">${esc(row.type)}</td>
+        <td style="${base}">${statusBadge(row.status)}</td>
+        <td style="${cellStyle('amount', ';text-align:right')}">${row.currency === 'naira' ? '₦' : '$'}${fmtAmt(row.amount)}</td>
+        <td style="${cellStyle('currency')}">${esc(row.currency)}</td>
+        <td style="${cellStyle('paymentMethod')}">${esc(row.paymentMethod)}</td>
+        <td style="${cellStyle('tierKey')}">${esc(row.tierKey) || '—'}</td>
+        <td style="${cellStyle('packageLabel')}">${esc(row.packageLabel) || '—'}</td>
+        <td style="${cellStyle('shares', ';text-align:center')}">${row.shares}</td>
+        <td style="${cellStyle('ownershipPct', ';text-align:right')}">${fmtPct(row.ownershipPct)}</td>
+        <td style="${cellStyle('earningKobo', ';text-align:right')}">${(row.earningKobo || 0).toLocaleString()}</td>
+        <td style="${base};white-space:nowrap">${esc(row.createdAt)}</td>
+      </tr>`;
+    };
+
+    const sepRow = `<tr style="background:${isUniform ? '#f0fdf4' : '#fff1f2'};border-bottom:2px solid ${isUniform ? '#86efac' : '#fca5a5'}">
+      <td colspan="14" style="padding:3px 10px;font-size:11px">
+        ${matchBadge(isUniform)}
+        ${!isUniform ? ` &nbsp; Differs on: <b>${discrepancies.map(d => d.field).join(', ')}</b>` : ''}
+      </td>
+    </tr>`;
+
+    return renderRow(ptRow, true) + renderRow(usRow, false) + sepRow;
+  }).join('');
+}
+
+// ── Single-source rows (PT-only or US-only) ───────────────────────────────────
+function buildSingleRows(rows) {
+  if (!rows.length) return `<tr><td colspan="10" style="padding:20px;text-align:center;color:#9ca3af">None.</td></tr>`;
+  const b = 'padding:7px 10px;font-size:12px';
+  return rows.map(r => `<tr style="background:#fff;border-bottom:1px solid #f3f4f6">
+    <td style="${b};font-family:monospace;font-size:11px">${esc(r.transactionId)}</td>
+    <td style="${b}">${esc(r.userName)}<br><span style="color:#9ca3af;font-size:10px">${esc(r.userEmail)}</span></td>
+    <td style="${b}">${esc(r.type)}</td>
+    <td style="${b}">${statusBadge(r.status)}</td>
+    <td style="${b};text-align:right">${r.currency === 'naira' ? '₦' : '$'}${fmtAmt(r.amount)}</td>
+    <td style="${b}">${esc(r.paymentMethod)}</td>
+    <td style="${b}">${esc(r.tierKey) || '—'}</td>
+    <td style="${b}">${esc(r.packageLabel) || '—'}</td>
+    <td style="${b};text-align:center">${r.shares}</td>
+    <td style="${b};white-space:nowrap">${esc(r.createdAt)}</td>
+  </tr>`).join('');
+}
+
+// ── Completeness rows ─────────────────────────────────────────────────────────
+function buildCompletenessRows(rows) {
+  if (!rows.length) return '<tr><td colspan="2" style="padding:20px;text-align:center;color:#9ca3af">No data.</td></tr>';
+  return rows.map(c => {
+    const pct = parseFloat(c.pct);
+    const col = pct >= 90 ? '#16a34a' : pct >= 60 ? '#d97706' : '#dc2626';
+    return `<tr style="border-bottom:1px solid #f3f4f6">
+      <td style="padding:8px 14px;font-family:monospace;font-size:12px">${esc(c.field)}</td>
+      <td style="padding:8px 14px">
+        <div style="display:flex;align-items:center;gap:10px">
+          <div style="background:#f3f4f6;border-radius:4px;flex:1;height:12px;overflow:hidden">
+            <div style="background:${col};width:${Math.min(pct, 100)}%;height:100%;border-radius:4px"></div>
+          </div>
+          <span style="font-size:12px;font-weight:600;color:${col};min-width:52px">${c.pct}%</span>
+          <span style="font-size:11px;color:#9ca3af">${c.populated}/${c.total}</span>
+        </div>
+      </td>
+    </tr>`;
+  }).join('');
+}
+
+// ── HTML page builder ─────────────────────────────────────────────────────────
+function buildHTML(report, statusLabel, generated) {
+  const s = report.summary;
+  const statusColor = STATUS_COLORS[statusLabel] || '#374151';
+  const TH = 'padding:9px 10px;background:#f9fafb;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:#6b7280;border-bottom:2px solid #e5e7eb;white-space:nowrap;text-align:left';
+
+  const card = (label, value, sub, color) =>
+    `<div style="background:#fff;border:1px solid #e5e7eb;border-radius:10px;padding:18px 22px;min-width:140px;flex:1">
+       <div style="font-size:26px;font-weight:800;color:${color}">${value}</div>
+       <div style="font-size:13px;font-weight:600;color:#374151;margin-top:2px">${label}</div>
+       ${sub ? `<div style="font-size:11px;color:#9ca3af;margin-top:3px">${sub}</div>` : ''}
+     </div>`;
+
+  const totalRevenue = [...report.ptOnly, ...report.inBothSources.map(e => e.ptRow)]
+    .filter(r => r.status === 'completed')
+    .reduce((sum, r) => sum + (r.amount || 0), 0);
+
+  const compRows    = buildComparisonRows(report.inBothSources);
+  const ptOnlyRows  = buildSingleRows(report.ptOnly);
+  const usOnlyRows  = buildSingleRows(report.usOnly);
+  const compRows2   = buildCompletenessRows(report.completeness || []);
+
+  const discrepancyBlocks = report.discrepancies.length === 0
+    ? `<div style="text-align:center;padding:50px;color:#16a34a;font-size:16px;font-weight:600">✅ No mismatches — all matched transactions are uniform.</div>`
+    : report.discrepancies.map(entry => `
+      <div style="border:1px solid #fca5a5;border-radius:10px;padding:18px;margin-bottom:20px;background:#fff7f7">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:8px;margin-bottom:14px">
+          <div>
+            <code style="font-size:13px;font-weight:700">${esc(entry.transactionId)}</code>
+            <span style="margin-left:10px;font-size:13px;color:#374151;font-weight:600">${esc(entry.ptRow.userName)}</span>
+            <span style="margin-left:6px;font-size:12px;color:#9ca3af">${esc(entry.ptRow.userEmail)}</span>
+          </div>
+          <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+            ${statusBadge(entry.ptRow.status)}
+            <span style="background:#fee2e2;color:#dc2626;padding:3px 10px;border-radius:6px;font-size:12px;font-weight:700">
+              ${entry.discrepancies.length} field${entry.discrepancies.length > 1 ? 's' : ''} differ
+            </span>
+          </div>
+        </div>
+        <table style="width:100%;border-collapse:collapse;margin-bottom:10px">
+          <thead><tr>
+            <th style="padding:8px 12px;background:#fef2f2;font-size:11px;font-weight:700;text-align:left;border-bottom:1px solid #fecaca;width:160px;text-transform:uppercase">Field</th>
+            <th style="padding:8px 12px;background:#eff6ff;font-size:11px;font-weight:700;text-align:left;border-bottom:1px solid #fecaca;text-transform:uppercase">PaymentTransaction (PT)</th>
+            <th style="padding:8px 12px;background:#faf5ff;font-size:11px;font-weight:700;text-align:left;border-bottom:1px solid #fecaca;text-transform:uppercase">UserShare (US)</th>
+            <th style="padding:8px 12px;background:#fef2f2;font-size:11px;font-weight:700;text-align:left;border-bottom:1px solid #fecaca;text-transform:uppercase">Match?</th>
+          </tr></thead>
+          <tbody>
+            ${COMPARABLE.map(field => {
+              const ptVal  = entry.ptRow[field];
+              const usVal  = entry.usRow[field];
+              const differs = entry.discrepancies.some(d => d.field === field);
+              return `<tr style="border-bottom:1px solid #fef2f2${differs ? ';background:#fff5f5' : ''}">
+                <td style="padding:7px 12px;font-family:monospace;font-size:12px;font-weight:600;color:${differs ? '#b91c1c' : '#374151'}">${esc(field)}</td>
+                <td style="padding:7px 12px;font-size:12px${differs ? ';background:#f0fdf4;color:#15803d;font-weight:700' : ''}">${esc(ptVal ?? '—')}</td>
+                <td style="padding:7px 12px;font-size:12px${differs ? ';background:#fff1f2;color:#be123c;font-weight:700' : ''}">${esc(usVal ?? '—')}</td>
+                <td style="padding:7px 12px;font-size:12px">${differs
+                  ? '<span style="color:#dc2626;font-weight:700">✗ Different</span>'
+                  : '<span style="color:#16a34a;font-weight:700">✓ Same</span>'}</td>
+              </tr>`;
+            }).join('')}
+          </tbody>
+        </table>
+        <div style="font-size:12px;color:#6b7280;display:flex;gap:16px;flex-wrap:wrap">
+          <span>Created: <b>${esc(entry.ptRow.createdAt)}</b></span>
+          <span>Updated: <b>${esc(entry.ptRow.updatedAt)}</b></span>
+          <span>Verified: <b>${esc(entry.ptRow.verifiedAt)}</b></span>
+        </div>
+      </div>`).join('');
+
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Audit — ${esc(statusLabel.toUpperCase())} — ${esc(generated)}</title>
+<style>
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:#f3f4f6;color:#111827}
+  table{width:100%;border-collapse:collapse}
+  code{background:#f3f4f6;padding:1px 4px;border-radius:3px;font-size:11px}
+  .card{background:#fff;border:1px solid #e5e7eb;border-radius:12px;padding:24px;margin-bottom:24px;overflow:hidden}
+  .scroll{overflow-x:auto}
+  .tab-btn{padding:8px 18px;border:none;background:#f3f4f6;border-radius:6px;font-size:13px;font-weight:600;cursor:pointer;color:#374151;transition:.15s}
+  .tab-btn.active{background:#1d4ed8;color:#fff}
+  .tab-pane{display:none}.tab-pane.active{display:block}
+  @media print{body{background:#fff}.card{border:none}button{display:none}}
+</style>
+</head>
+<body>
+<div style="max-width:1500px;margin:0 auto;padding:28px 20px">
+
+  <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:24px;flex-wrap:wrap;gap:12px">
+    <div>
+      <div style="display:flex;align-items:center;gap:12px">
+        <div style="font-size:22px;font-weight:800;color:#111827">Transaction Audit Report</div>
+        <span style="background:${statusColor};color:#fff;padding:4px 14px;border-radius:9999px;font-size:13px;font-weight:700;text-transform:uppercase">${esc(statusLabel)}</span>
+      </div>
+      <div style="font-size:13px;color:#9ca3af;margin-top:5px">
+        Generated: ${esc(generated)} &nbsp;·&nbsp; status=<b>${esc(statusLabel)}</b>${TYPE_FILTER ? ` type=<b>${esc(TYPE_FILTER)}</b>` : ''}
+      </div>
+    </div>
+    <div style="display:flex;gap:10px;flex-wrap:wrap">
+      <button onclick="downloadCSV()" style="padding:9px 18px;background:#1d4ed8;color:#fff;border:none;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer">⬇ Download CSV</button>
+      <button onclick="window.print()" style="padding:9px 18px;background:#374151;color:#fff;border:none;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer">🖨 Print</button>
+    </div>
+  </div>
+
+  <div style="display:flex;flex-wrap:wrap;gap:14px;margin-bottom:24px">
+    ${card('Total Unique', s.totalUniqueTransactions, 'across both sources', '#1d4ed8')}
+    ${card('In Both Sources', s.inBothSources, 'PT + UserShare', '#374151')}
+    ${card('✓ Uniform', s.uniform, 'fields match exactly', '#16a34a')}
+    ${card('✗ Mismatches', s.withDiscrepancies, 'need investigation', '#dc2626')}
+    ${card('PT Only', s.ptOnly, 'missing from UserShare', '#2563eb')}
+    ${card('UserShare Only', s.usOnly, 'missing from PaymentTx', '#7c3aed')}
+    ${statusLabel === 'completed' ? card('Total Revenue', '₦' + fmtAmt(totalRevenue), 'completed PT transactions', '#059669') : ''}
+  </div>
+
+  <div style="display:flex;gap:8px;margin-bottom:20px;flex-wrap:wrap">
+    <button class="tab-btn active" onclick="showTab('comparison',this)">Side-by-Side (${s.inBothSources})</button>
+    <button class="tab-btn" onclick="showTab('discrepancies',this)">Mismatches Only (${s.withDiscrepancies})</button>
+    <button class="tab-btn" onclick="showTab('ptonly',this)">PT Only (${s.ptOnly})</button>
+    <button class="tab-btn" onclick="showTab('usonly',this)">UserShare Only (${s.usOnly})</button>
+    ${statusLabel === 'completed' ? `<button class="tab-btn" onclick="showTab('completeness',this)">Field Completeness</button>` : ''}
+  </div>
+
+  <!-- Side-by-Side -->
+  <div id="tab-comparison" class="tab-pane active">
+    <div class="card">
+      <h2 style="font-size:17px;font-weight:700;margin-bottom:10px">Side-by-Side Comparison</h2>
+      <p style="font-size:13px;color:#6b7280;margin-bottom:12px">
+        Each transaction in <b>both</b> sources shows as <b>two rows</b>:
+        <span style="background:#1d4ed8;color:#fff;padding:1px 6px;border-radius:3px;font-size:11px">PT</span> then
+        <span style="background:#7c3aed;color:#fff;padding:1px 6px;border-radius:3px;font-size:11px">US</span>.
+        Cells <span style="background:#fee2e2;color:#991b1b;padding:1px 5px;border-radius:3px;font-weight:700">highlighted red</span>
+        disagree between the two sources.
+      </p>
+      <div style="margin-bottom:12px">
+        <input oninput="filterTable('comp-tbody',this.value)" placeholder="Search ID, user, tier, method…"
+          style="padding:7px 12px;border:1px solid #d1d5db;border-radius:6px;font-size:13px;width:300px">
+      </div>
+      <div class="scroll">
+        <table>
+          <thead><tr>
+            <th style="${TH}">Transaction ID</th>
+            <th style="${TH}">Src</th>
+            <th style="${TH}">User</th>
+            <th style="${TH}">Type</th>
+            <th style="${TH}">Status</th>
+            <th style="${TH}">Amount</th>
+            <th style="${TH}">Currency</th>
+            <th style="${TH}">Pay Method</th>
+            <th style="${TH}">Tier Key</th>
+            <th style="${TH}">Package</th>
+            <th style="${TH}">Qty</th>
+            <th style="${TH}">Ownership%</th>
+            <th style="${TH}">Earning(₦)</th>
+            <th style="${TH}">Created At</th>
+          </tr></thead>
+          <tbody id="comp-tbody">${compRows}</tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- Mismatches -->
+  <div id="tab-discrepancies" class="tab-pane">
+    <div class="card">
+      <h2 style="font-size:17px;font-weight:700;margin-bottom:10px">Mismatches — Field-by-Field Detail</h2>
+      <p style="font-size:13px;color:#6b7280;margin-bottom:20px">
+        Every comparable field is shown for each mismatched transaction. Green = PT value, Red = US value when they differ.
+      </p>
+      ${discrepancyBlocks}
+    </div>
+  </div>
+
+  <!-- PT Only -->
+  <div id="tab-ptonly" class="tab-pane">
+    <div class="card">
+      <h2 style="font-size:17px;font-weight:700;margin-bottom:8px">PaymentTransaction Only</h2>
+      <p style="font-size:13px;color:#6b7280;margin-bottom:16px">
+        Exist in <b>PaymentTransaction</b> but <b>no matching UserShare record</b>. Share ownership was never recorded.
+      </p>
+      <div class="scroll"><table>
+        <thead><tr>
+          <th style="${TH}">Transaction ID</th><th style="${TH}">User</th>
+          <th style="${TH}">Type</th><th style="${TH}">Status</th>
+          <th style="${TH}">Amount</th><th style="${TH}">Pay Method</th>
+          <th style="${TH}">Tier Key</th><th style="${TH}">Package</th>
+          <th style="${TH}">Qty</th><th style="${TH}">Created At</th>
+        </tr></thead>
+        <tbody>${ptOnlyRows}</tbody>
+      </table></div>
+    </div>
+  </div>
+
+  <!-- UserShare Only -->
+  <div id="tab-usonly" class="tab-pane">
+    <div class="card">
+      <h2 style="font-size:17px;font-weight:700;margin-bottom:8px">UserShare Only</h2>
+      <p style="font-size:13px;color:#6b7280;margin-bottom:16px">
+        Exist in <b>UserShare</b> but <b>no PaymentTransaction</b>. Legacy records, admin grants, or pre-PT data.
+      </p>
+      <div class="scroll"><table>
+        <thead><tr>
+          <th style="${TH}">Transaction ID</th><th style="${TH}">User</th>
+          <th style="${TH}">Type</th><th style="${TH}">Status</th>
+          <th style="${TH}">Amount</th><th style="${TH}">Pay Method</th>
+          <th style="${TH}">Tier Key</th><th style="${TH}">Package</th>
+          <th style="${TH}">Qty</th><th style="${TH}">Created At</th>
+        </tr></thead>
+        <tbody>${usOnlyRows}</tbody>
+      </table></div>
+    </div>
+  </div>
+
+  ${statusLabel === 'completed' ? `
+  <!-- Completeness -->
+  <div id="tab-completeness" class="tab-pane">
+    <div class="card">
+      <h2 style="font-size:17px;font-weight:700;margin-bottom:8px">Field Completeness</h2>
+      <p style="font-size:13px;color:#6b7280;margin-bottom:16px">
+        % of completed PaymentTransactions that have each field populated.
+        <span style="color:#16a34a">Green ≥ 90%</span> ·
+        <span style="color:#d97706">Amber 60–89%</span> ·
+        <span style="color:#dc2626">Red &lt; 60%</span>
+      </p>
+      <table style="max-width:720px"><thead><tr>
+        <th style="${TH};width:220px">Field</th>
+        <th style="${TH}">Coverage</th>
+      </tr></thead><tbody>${compRows2}</tbody></table>
+    </div>
+  </div>` : ''}
+
+  <div style="text-align:center;font-size:11px;color:#9ca3af;margin-top:32px;padding-bottom:20px">
+    auditTransactions.js v2 &nbsp;·&nbsp; ${esc(generated)} &nbsp;·&nbsp; ${esc(statusLabel)}
+  </div>
+</div>
+
+<script>
+function showTab(name, btn) {
+  document.querySelectorAll('.tab-pane').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+  document.getElementById('tab-' + name).classList.add('active');
+  btn.classList.add('active');
+}
+function filterTable(tbodyId, q) {
+  q = q.toLowerCase();
+  document.getElementById(tbodyId).querySelectorAll('tr').forEach(r => {
+    r.style.display = r.textContent.toLowerCase().includes(q) ? '' : 'none';
+  });
+}
+const CSV_DATA = ${JSON.stringify('__CSV_PLACEHOLDER__')};
+function downloadCSV() {
+  const blob = new Blob([CSV_DATA], { type: 'text/csv' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'audit-${statusLabel}.csv';
+  a.click();
+}
+</script>
+</body>
+</html>`;
+}
+
+// ── CSV builder ───────────────────────────────────────────────────────────────
+function buildCSV(rows) {
+  const fields = [
+    'source','transactionId','userName','userEmail','userId',
+    'type','tierKey','packageLabel','status',
+    'amount','currency','paymentMethod',
+    'shares','ownershipPct','earningKobo',
+    'hasProof','adminAction','adminNote',
+    'createdAt','updatedAt','verifiedAt',
+    'isUniform','discrepancyFields',
+  ];
+  const esc2 = (v) => { const s = String(v ?? '').replace(/"/g, '""'); return /[",\n\r]/.test(s) ? `"${s}"` : s; };
+  return [fields.join(','), ...rows.map(r => fields.map(f => esc2(r[f] ?? '')).join(','))].join('\n');
+}
+
+// ── Build per-status report ───────────────────────────────────────────────────
+function buildReport(ptRows, usRows, statusFilter) {
+  const allIds = new Set([
+    ...Object.keys(ptRows).filter(id => !statusFilter || ptRows[id].status === statusFilter),
+    ...Object.keys(usRows).filter(id => !statusFilter || usRows[id].status === statusFilter),
+  ]);
+
+  const report = { summary: {}, inBothSources: [], ptOnly: [], usOnly: [], discrepancies: [], completeness: [] };
+
+  for (const txId of allIds) {
+    const ptRow = ptRows[txId];
+    const usRow = usRows[txId];
+    const ptOk  = ptRow && (!statusFilter || ptRow.status === statusFilter);
+    const usOk  = usRow && (!statusFilter || usRow.status === statusFilter);
+
+    if (ptOk && usOk) {
+      const issues = diff(ptRow, usRow);
+      const entry  = { transactionId: txId, ptRow, usRow, discrepancies: issues, isUniform: issues.length === 0 };
+      report.inBothSources.push(entry);
+      if (issues.length) report.discrepancies.push(entry);
+    } else if (ptOk) {
+      report.ptOnly.push({ ...ptRow, isUniform: null, discrepancyFields: 'PT only' });
+    } else if (usOk) {
+      report.usOnly.push({ ...usRow, isUniform: null, discrepancyFields: 'US only' });
+    }
+  }
+
+  report.summary = {
+    totalUniqueTransactions : report.inBothSources.length + report.ptOnly.length + report.usOnly.length,
+    inBothSources           : report.inBothSources.length,
+    uniform                 : report.inBothSources.filter(r => r.isUniform).length,
+    withDiscrepancies       : report.discrepancies.length,
+    ptOnly                  : report.ptOnly.length,
+    usOnly                  : report.usOnly.length,
+  };
+  return report;
+}
+
+// ── Write report to disk ──────────────────────────────────────────────────────
 function writeReport(report, statusLabel, generated, outDir) {
   fs.mkdirSync(outDir, { recursive: true });
-  
-  // Simple CSV output for now (full HTML same as v3)
+
   const csvRows = [
     ...report.ptOnly,
     ...report.usOnly,
@@ -831,141 +557,130 @@ function writeReport(report, statusLabel, generated, outDir) {
       { ...e.usRow, isUniform: e.isUniform, discrepancyFields: e.discrepancies.map(d => d.field).join(';') },
     ]),
   ];
-  
-  const fields = ['source', 'transactionId', 'userName', 'userEmail', 'type', 'tierKey', 'packageLabel', 'status', 'amount', 'currency', 'paymentMethod', 'shares', 'ownershipPct', 'earningKobo', 'createdAt'];
-  const csv = [fields.join(','), ...csvRows.map(r => fields.map(f => csvEscape(r[f] ?? '')).join(','))].join('\n');
-  
+
+  const csv  = buildCSV(csvRows);
+  let   html = buildHTML(report, statusLabel, generated);
+  html = html.replace('"__CSV_PLACEHOLDER__"', JSON.stringify(csv));
+
   const slug = `audit-${statusLabel}`;
-  fs.writeFileSync(path.join(outDir, `${slug}.csv`), csv, 'utf8');
-  
+  fs.writeFileSync(path.join(outDir, `${slug}.html`), html, 'utf8');
+  fs.writeFileSync(path.join(outDir, `${slug}.csv`),  csv,  'utf8');
+  if (statusLabel === 'all') fs.writeFileSync(path.join(outDir, `${slug}.json`), JSON.stringify(report, null, 2), 'utf8');
+
   const s = report.summary;
-  console.log(`  ✅ [${statusLabel.toUpperCase()}] total=${s.totalUniqueTransactions} both=${s.inBothSources} uniform=${s.uniform} mismatch=${s.withDiscrepancies} pt-only=${s.ptOnly} us-only=${s.usOnly}`);
+  console.log(`  ✅  [${statusLabel.toUpperCase()}]  total=${s.totalUniqueTransactions}  both=${s.inBothSources}  uniform=${s.uniform}  mismatch=${s.withDiscrepancies}  pt-only=${s.ptOnly}  us-only=${s.usOnly}`);
+  console.log(`       → ${path.join(outDir, slug)}.html / .csv${statusLabel === 'all' ? ' / .json' : ''}\n`);
 }
 
-// ── Main function ──────────────────────────────────────────────────────────
+// ── Main ──────────────────────────────────────────────────────────────────────
 async function main() {
-  console.log('🔌 Connecting to MongoDB...');
+  console.log('🔌  Connecting to MongoDB…');
+  // Note: useNewUrlParser / useUnifiedTopology are removed — deprecated since driver v4
   await mongoose.connect(process.env.MONGO_URI || process.env.MONGODB_URI);
-  console.log('✅ Connected\n');
-  
-  // Load configurations
+  console.log('✅  Connected\n');
+
+  // TierConfig is optional
   let tierConfig = null;
   if (TierConfig) {
     try {
       tierConfig = typeof TierConfig.getCurrentConfig === 'function'
         ? await TierConfig.getCurrentConfig()
         : await TierConfig.findOne().lean();
-      console.log(`📦 TierConfig loaded — ${tierConfig?.tiers?.size ?? 0} tiers`);
     } catch (err) {
-      console.warn('⚠️ TierConfig load failed:', err.message);
+      console.warn('⚠️  TierConfig load failed:', err.message);
     }
   }
-  
-  const legacyShareMap = new Map();
-  if (ShareModel) {
-    try {
-      const shareDocs = await ShareModel.find({}).lean();
-      for (const doc of shareDocs) {
-        legacyShareMap.set(doc._id.toString(), doc);
-      }
-      console.log(`📦 Legacy Share model loaded — ${legacyShareMap.size} records`);
-    } catch (err) {
-      console.warn('⚠️ Legacy Share model load failed:', err.message);
-    }
-  }
-  
-  // Handle fix operations
-  if (FIX_TRANSACTION) {
-    await fixSingleTransaction(FIX_TRANSACTION, SET_FIELDS);
-    await mongoose.disconnect();
-    return;
-  }
-  
-  if (EXPORT_FIX) {
-    await exportToExcel(tierConfig, legacyShareMap);
-    await mongoose.disconnect();
-    return;
-  }
-  
-  if (EXPORT_CSV) {
-    await exportToCSV(tierConfig, legacyShareMap);
-    await mongoose.disconnect();
-    return;
-  }
-  
-  if (APPLY_FIX && FIX_FILE) {
-    await applyFixesFromFile(FIX_FILE, DRY_RUN);
-    await mongoose.disconnect();
-    return;
-  }
-  
-  // Normal audit mode
-  console.log('📥 Loading PaymentTransaction...');
+
   const ptQuery = {};
   if (TYPE_FILTER) ptQuery.type = TYPE_FILTER;
-  
+
+  // ── Load PaymentTransaction ─────────────────────────────────────────────────
+  console.log('📥  Loading PaymentTransaction…');
   let ptDocs;
   try {
     ptDocs = await PaymentTransaction.find(ptQuery).populate('userId', 'name email username').lean();
   } catch (err) {
+    console.warn('⚠️  populate(userId) failed — trying without populate:', err.message);
     ptDocs = await PaymentTransaction.find(ptQuery).lean();
   }
   console.log(`    ${ptDocs.length} records`);
-  
-  console.log('📥 Loading UserShare...');
+
+  // ── Load UserShare ──────────────────────────────────────────────────────────
+  console.log('📥  Loading UserShare…');
   let usDocs;
   try {
     usDocs = await UserShare.find({}).populate('user', 'name email username').lean();
   } catch (err) {
+    console.warn('⚠️  populate(user) failed — trying without populate:', err.message);
     usDocs = await UserShare.find({}).lean();
   }
   console.log(`    ${usDocs.length} user documents\n`);
-  
-  // Normalise data
+
+  // ── Normalise ───────────────────────────────────────────────────────────────
   const ptRows = {};
   for (const doc of ptDocs) {
-    const row = normalise(doc, 'PaymentTransaction', doc.userId?._id || doc.userId, doc.userId?.name || 'Unknown', doc.userId?.email || '', tierConfig, legacyShareMap);
+    const row = normalise(
+      doc, 'PaymentTransaction',
+      doc.userId?._id || doc.userId,
+      doc.userId?.name || doc.userId?.email || doc.userName || 'Unknown',
+      doc.userId?.email || doc.userEmail || '',
+      tierConfig,
+    );
     ptRows[row.transactionId] = row;
   }
-  
+
   const usRows = {};
   for (const doc of usDocs) {
-    for (const tx of doc.transactions || []) {
+    const txList = doc.transactions || [];
+    for (const tx of txList) {
       if (TYPE_FILTER && tx.type !== TYPE_FILTER) continue;
-      const enrichedTx = { ...tx, currency: tx.currency || doc.currency || 'naira', amount: parseFloat(tx.amount ?? tx.totalAmount ?? 0) || 0 };
-      const row = normalise(enrichedTx, 'UserShare', doc.user?._id || doc.user, doc.user?.name || 'Unknown', doc.user?.email || '', tierConfig, legacyShareMap);
+      const row = normalise(
+        tx, 'UserShare',
+        doc.user?._id || doc.user || doc.userId,
+        doc.user?.name || doc.user?.email || doc.userName || 'Unknown',
+        doc.user?.email || doc.userEmail || '',
+        tierConfig,
+      );
       usRows[row.transactionId] = row;
     }
   }
-  
+
+  // ── Field completeness for completed transactions ───────────────────────────
+  const completedPT = ptDocs.filter(d => d.status === 'completed');
+  const checkFields = [
+    'transactionId','type','tierKey','packageLabel','status',
+    'amount','currency','paymentMethod','shares',
+    'ownershipPct','earningKobo','createdAt',
+    'paymentProofCloudinaryUrl','verifiedBy','verifiedAt',
+  ];
+  const completeness = checkFields.map(field => {
+    const populated = completedPT.filter(d => d[field] != null && d[field] !== '').length;
+    return { field, populated, total: completedPT.length, pct: completedPT.length ? ((populated / completedPT.length) * 100).toFixed(1) : '0.0' };
+  });
+
   const generated = new Date().toISOString().replace('T', ' ').slice(0, 19) + ' UTC';
-  const outBase = path.join(process.cwd(), 'audit-output');
-  
-  console.log('📊 Building reports...\n');
-  
+  const outBase   = path.join(process.cwd(), 'audit-output');
+
+  console.log('📊  Building reports…\n');
+
   for (const status of STATUSES) {
-    const report = buildReport(ptRows, usRows, status);
-    writeReport(report, status, generated, path.join(outBase, `audit-${status}`));
+    const rpt = buildReport(ptRows, usRows, status);
+    if (status === 'completed') rpt.completeness = completeness;
+    writeReport(rpt, status, generated, path.join(outBase, `audit-${status}`));
   }
-  
+
   if (!ONLY) {
     const all = buildReport(ptRows, usRows, null);
+    all.completeness = completeness;
     writeReport(all, 'all', generated, path.join(outBase, 'audit-all'));
   }
-  
-  console.log('\n✅ Done. Output folder:', outBase);
-  console.log('\n💡 To fix discrepancies:');
-  console.log('   1. Export: node auditTransactions.js --export-csv');
-  console.log('   2. Edit the CSV file (change ACTION to UPDATE and fix values)');
-  console.log('   3. Apply: node auditTransactions.js --apply-fix your-file.csv --dry-run');
-  console.log('   4. Apply for real: node auditTransactions.js --apply-fix your-file.csv');
-  
+
+  console.log('✅  Done.  Output folder:', outBase);
   await mongoose.disconnect();
 }
 
-// Run it
 main().catch(err => {
-  console.error('❌ Error:', err.message);
+  console.error('❌  Error:', err.message);
   console.error(err.stack);
   mongoose.disconnect();
   process.exit(1);

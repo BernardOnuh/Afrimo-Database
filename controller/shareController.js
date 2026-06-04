@@ -2312,65 +2312,74 @@ exports.sendCertificateEmail = async (req, res) => {
   }
 };
 
-// ==================== CHECK PENDING PAYMENT ====================
+// ─────────────────────────────────────────────────────────────────────────────
+// DROP-IN REPLACEMENT for shareController.checkPendingPayment
+//
+// The route already exists in shareRoutes.js:
+//   router.get('/user/pending-payment', protect, shareController.checkPendingPayment);
+//
 
-exports.checkPendingPayment = async (req, res) => {
+
+exports. checkPendingPayment = async (req, res) => {
   try {
     const userId = req.user.id;
 
-    const pendingPaymentTx = await PaymentTransaction.findOne({
+    // ── 1. Genuinely pending → BLOCKS new purchase ────────────────────────
+    const pending = await PaymentTransaction.findOne({
       userId,
-      type: 'share',
-      paymentMethod: { $regex: '^manual_' },
-      status: 'pending'
-    });
+      type: { $in: ['share', 'regular'] },  // match your actual type values
+      status: 'pending',
+    }).sort({ createdAt: -1 }).lean();
 
-    if (pendingPaymentTx) {
-      return res.status(200).json({
+    if (pending) {
+      return res.json({
         success: true,
         hasPending: true,
         pendingTransaction: {
-          transactionId: pendingPaymentTx.transactionId,
-          amount: pendingPaymentTx.amount,
-          shares: pendingPaymentTx.shares,
-          currency: pendingPaymentTx.currency,
-          date: pendingPaymentTx.createdAt,
-          status: 'pending'
-        }
+          transactionId: pending.transactionId,
+          amount:        pending.amount,
+          packageLabel:  pending.packageLabel,
+          currency:      pending.currency,
+          status:        'pending',         // always literal 'pending' here
+          date:          pending.createdAt,
+        },
       });
     }
 
-    const userShares = await UserShare.findOne({
-      user: userId,
-      'transactions.status': 'pending',
-      'transactions.paymentMethod': { $regex: '^manual_' }
-    });
+    // ── 2. Recently rejected/failed → INFO ONLY, does NOT block ──────────
+    // Only show if it happened in the last 7 days to avoid stale notices
+    const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
 
-    if (userShares) {
-      const pendingTx = userShares.transactions.find(t => t.status === 'pending' && t.paymentMethod?.startsWith('manual_'));
-      if (pendingTx) {
-        return res.status(200).json({
-          success: true,
-          hasPending: true,
-          pendingTransaction: {
-            transactionId: pendingTx.transactionId,
-            amount: pendingTx.totalAmount,
-            shares: pendingTx.shares,
-            currency: pendingTx.currency,
-            date: pendingTx.createdAt,
-            status: 'pending'
-          }
-        });
-      }
+    const rejected = await PaymentTransaction.findOne({
+      userId,
+      type: { $in: ['share', 'regular'] },
+      status: { $in: ['failed', 'rejected'] },
+      createdAt: { $gte: sevenDaysAgo },
+    }).sort({ createdAt: -1 }).lean();
+
+    if (rejected) {
+      return res.json({
+        success: true,
+        hasPending: true,           // tells frontend to show a notice
+        pendingTransaction: {
+          transactionId: rejected.transactionId,
+          amount:        rejected.amount,
+          packageLabel:  rejected.packageLabel,
+          currency:      rejected.currency,
+          status:        rejected.status,   // 'failed' or 'rejected' → non-blocking
+          date:          rejected.createdAt,
+        },
+      });
     }
 
-    res.status(200).json({ success: true, hasPending: false });
-  } catch (error) {
-    console.error('Error checking pending payment:', error);
-    res.status(500).json({ success: false, message: 'Failed to check pending payment' });
+    // ── 3. Nothing relevant → clear to purchase ───────────────────────────
+    return res.json({ success: true, hasPending: false });
+
+  } catch (err) {
+    console.error('checkPendingPayment error:', err);
+    res.status(500).json({ success: false, message: err.message });
   }
 };
-
 // ==================== SUBMIT MANUAL PAYMENT ====================
 
 exports.submitManualPayment = async (req, res) => {
@@ -2404,7 +2413,7 @@ exports.submitManualPayment = async (req, res) => {
     if (!priceAmount) {
       return res.status(400).json({ success: false, message: `Tier not available in ${currency}` });
     }
-    
+
     const existing = await PaymentTransaction.findOne({
       userId,
       type: 'share',
