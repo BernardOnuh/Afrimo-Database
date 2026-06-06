@@ -1566,7 +1566,7 @@ exports.adminCancelManualPayment = async (req, res) => {
       console.error('Referral rollback error:', e.message);
     }
 
-    tx.status = 'pending';
+    tx.status = 'cancelled';
     tx.adminNotes = `CANCELLED: ${cancelReason || 'Admin cancelled'}`;
     await tx.save();
 

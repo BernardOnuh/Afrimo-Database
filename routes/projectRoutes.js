@@ -10,6 +10,264 @@ const { protect, adminProtect } = require('../middleware/auth');
  *   description: Project statistics and analytics endpoints
  */
 
+// ─── /project/user-stats/:userId ─────────────────────────────────────────────
+
+/**
+ * @swagger
+ * /project/user-stats/{userId}:
+ *   get:
+ *     summary: Get a specific user's project statistics (Admin only)
+ *     description: >
+ *       Returns identical stats to /project/user-stats but for any user,
+ *       identified by their MongoDB ObjectId. Also returns the user's
+ *       basic profile info (name, email, username, createdAt).
+ *     tags: [Project]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: userId
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: MongoDB ObjectId of the target user
+ *         example: "664f1a2b3c4d5e6f7a8b9c0d"
+ *     responses:
+ *       200:
+ *         description: User statistics retrieved successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 user:
+ *                   type: object
+ *                   description: Basic profile of the looked-up user
+ *                   properties:
+ *                     _id:
+ *                       type: string
+ *                     name:
+ *                       type: string
+ *                       example: "Jane Smith"
+ *                     email:
+ *                       type: string
+ *                       example: "jane@example.com"
+ *                     username:
+ *                       type: string
+ *                       example: "janesmith"
+ *                     createdAt:
+ *                       type: string
+ *                       format: date-time
+ *                 stats:
+ *                   $ref: '#/components/schemas/UserProjectStats'
+ *       403:
+ *         $ref: '#/components/responses/ForbiddenError'
+ *       404:
+ *         description: User not found
+ *       401:
+ *         $ref: '#/components/responses/UnauthorizedError'
+ *       500:
+ *         $ref: '#/components/responses/ServerError'
+ */
+router.get('/user-stats/:userId', protect, adminProtect, projectController.getAdminUserProjectStats);
+
+
+/**
+ * @swagger
+ * /project/user-transactions/{userId}:
+ *   get:
+ *     summary: Get detailed transaction breakdown for a specific user (Admin only)
+ *     description: >
+ *       Returns all transactions (completed, pending, failed) for a user,
+ *       grouped by status and broken down by payment method.
+ *       Merges data from both PaymentTransaction and legacy UserShare records.
+ *     tags: [Project]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: userId
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: MongoDB ObjectId of the target user
+ *         example: "664f1a2b3c4d5e6f7a8b9c0d"
+ *     responses:
+ *       200:
+ *         description: Transaction breakdown retrieved successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 user:
+ *                   type: object
+ *                   properties:
+ *                     _id:
+ *                       type: string
+ *                     name:
+ *                       type: string
+ *                       example: "Iprete Johnson O."
+ *                     email:
+ *                       type: string
+ *                       example: "iprestyno100@gmail.com"
+ *                     username:
+ *                       type: string
+ *                       example: "iprete"
+ *                     createdAt:
+ *                       type: string
+ *                       format: date-time
+ *                 summary:
+ *                   type: object
+ *                   properties:
+ *                     total:
+ *                       type: integer
+ *                       description: Total number of transactions across all statuses
+ *                       example: 29
+ *                     completed:
+ *                       type: integer
+ *                       example: 4
+ *                     pending:
+ *                       type: integer
+ *                       example: 25
+ *                     failed:
+ *                       type: integer
+ *                       example: 0
+ *                     completedNaira:
+ *                       type: number
+ *                       description: Total Naira amount from completed transactions only
+ *                       example: 300005
+ *                     completedUSDT:
+ *                       type: number
+ *                       description: Total USDT amount from completed transactions only
+ *                       example: 0
+ *                     byPaymentMethod:
+ *                       type: object
+ *                       description: Completed transaction totals grouped by payment method
+ *                       additionalProperties:
+ *                         type: object
+ *                         properties:
+ *                           count:
+ *                             type: integer
+ *                             example: 3
+ *                           totalNaira:
+ *                             type: number
+ *                             example: 200000
+ *                           totalUSDT:
+ *                             type: number
+ *                             example: 0
+ *                       example:
+ *                         bank_transfer:
+ *                           count: 3
+ *                           totalNaira: 200000
+ *                           totalUSDT: 0
+ *                         paystack:
+ *                           count: 1
+ *                           totalNaira: 100005
+ *                           totalUSDT: 0
+ *                 transactions:
+ *                   type: object
+ *                   properties:
+ *                     completed:
+ *                       type: array
+ *                       items:
+ *                         $ref: '#/components/schemas/TransactionDetail'
+ *                     pending:
+ *                       type: array
+ *                       items:
+ *                         $ref: '#/components/schemas/TransactionDetail'
+ *                     failed:
+ *                       type: array
+ *                       items:
+ *                         $ref: '#/components/schemas/TransactionDetail'
+ *       401:
+ *         $ref: '#/components/responses/UnauthorizedError'
+ *       403:
+ *         $ref: '#/components/responses/ForbiddenError'
+ *       404:
+ *         description: User not found
+ *       500:
+ *         $ref: '#/components/responses/ServerError'
+ */
+
+/**
+ * @swagger
+ * components:
+ *   schemas:
+ *     TransactionDetail:
+ *       type: object
+ *       properties:
+ *         transactionId:
+ *           type: string
+ *           example: "TXN-B8556960-958419"
+ *         source:
+ *           type: string
+ *           enum: [PaymentTransaction, UserShare]
+ *           description: Which collection this transaction came from
+ *           example: "PaymentTransaction"
+ *         type:
+ *           type: string
+ *           enum: [share, co-founder]
+ *           example: "share"
+ *         status:
+ *           type: string
+ *           enum: [completed, pending, failed, rejected, cancelled]
+ *           example: "completed"
+ *         paymentMethod:
+ *           type: string
+ *           example: "bank_transfer"
+ *         currency:
+ *           type: string
+ *           enum: [naira, usdt]
+ *           example: "naira"
+ *         amount:
+ *           type: number
+ *           description: Transaction amount in the transaction's currency
+ *           example: 100000
+ *         ownershipPct:
+ *           type: number
+ *           format: float
+ *           description: Ownership percentage granted by this transaction
+ *           example: 0.00005
+ *         earningKobo:
+ *           type: integer
+ *           description: Projected earnings in kobo from this transaction
+ *           example: 30
+ *         earningNaira:
+ *           type: string
+ *           description: Projected earnings in Naira (earningKobo ÷ 100)
+ *           example: "0.30"
+ *         tierKey:
+ *           type: string
+ *           nullable: true
+ *           example: "premium"
+ *         shares:
+ *           type: number
+ *           nullable: true
+ *           example: 1
+ *         date:
+ *           type: string
+ *           format: date-time
+ *           example: "2026-05-20T07:42:38.419Z"
+ *         paymentProof:
+ *           type: string
+ *           nullable: true
+ *           description: URL or path to uploaded payment proof
+ *           example: null
+ */
+router.get(
+    '/user-transactions/:userId',
+    protect,
+    adminProtect,
+    projectController.getAdminUserTransactionBreakdown
+  );
+  
 // ─── /project/stats ───────────────────────────────────────────────────────────
 
 /**
@@ -439,5 +697,7 @@ router.get('/user-stats', protect, projectController.getUserProjectStats);
  *         $ref: '#/components/responses/ServerError'
  */
 router.get('/analytics', protect, adminProtect, projectController.getProjectAnalytics);
+
+
 
 module.exports = router;

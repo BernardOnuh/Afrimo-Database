@@ -401,3 +401,303 @@ exports.getProjectAnalytics = async (req, res) => {
     res.status(500).json({ success: false, message: 'Failed to fetch project analytics', error: process.env.NODE_ENV === 'development' ? error.message : undefined });
   }
 };
+
+// ─────────────────────────────────────────────────────────────────────────────
+
+exports.getAdminUserProjectStats = async (req, res) => {
+  try {
+    // ── Admin guard ───────────────────────────────────────────────────────────
+    const admin = await User.findById(req.user.id);
+    if (!admin?.isAdmin) {
+      return res.status(403).json({ success: false, message: 'Unauthorized: Admin access required' });
+    }
+
+    const { userId } = req.params;
+
+    // ── Verify the target user exists ─────────────────────────────────────────
+    const targetUser = await User.findById(userId).select('name email username createdAt isAdmin').lean();
+    if (!targetUser) {
+      return res.status(404).json({ success: false, message: 'User not found' });
+    }
+
+    const EMPTY_STATS = {
+      ownership: {
+        totalOwnershipPct     : 0,
+        regularOwnershipPct   : 0,
+        cofounderOwnershipPct : 0,
+        pendingOwnershipPct   : 0,
+        formattedOwnership    : '0.0000000%',
+        formattedPending      : '0.0000000%'
+      },
+      earnings: {
+        totalEarningKobo    : 0,
+        regularEarningKobo  : 0,
+        cofounderEarningKobo: 0,
+        totalEarningNaira   : '0.00'
+      },
+      transactions: { regular: 0, cofounder: 0, total: 0, completed: 0, pending: 0, failed: 0 },
+      investment: {
+        totalNaira: 0, totalUSDT: 0,
+        completedNaira: 0, completedUSDT: 0,
+        pendingNaira: 0, pendingUSDT: 0
+      },
+      referrals: {
+        totalReferred: 0, totalEarnings: 0,
+        generation1: { count: 0, earnings: 0 },
+        generation2: { count: 0, earnings: 0 },
+        generation3: { count: 0, earnings: 0 }
+      }
+    };
+
+    const [regularPTxs, cofounderPTxs, userShare, referralStats, tierConfig] = await Promise.all([
+      PaymentTransaction.find({ userId, type: 'share'      }).lean(),
+      PaymentTransaction.find({ userId, type: 'co-founder' }).lean(),
+      UserShare.findOne({ user: userId }).lean(),
+      Referral.findOne({ user: userId }),
+      TierConfig.getCurrentConfig()
+    ]);
+
+    const hasAnyData = regularPTxs.length || cofounderPTxs.length || userShare;
+    if (!hasAnyData) {
+      return res.status(200).json({
+        success: true,
+        user: targetUser,
+        stats: EMPTY_STATS
+      });
+    }
+
+    // ── Deduplicate legacy txs ────────────────────────────────────────────────
+    const ptxIds = new Set([
+      ...regularPTxs.map(t => t.transactionId),
+      ...cofounderPTxs.map(t => t.transactionId)
+    ]);
+    const legacyTxs = (userShare?.transactions || []).filter(
+      t => !ptxIds.has(t.transactionId)
+    );
+
+    // ── Accumulators ──────────────────────────────────────────────────────────
+    let regularOwnershipPct = 0, cofounderOwnershipPct = 0, pendingOwnershipPct = 0;
+    let regularEarningKobo  = 0, cofounderEarningKobo  = 0;
+    let completedCount = 0, pendingCount = 0, failedCount = 0;
+    let totalNaira = 0,    totalUSDT = 0;
+    let completedNaira = 0, completedUSDT = 0;
+    let pendingNaira = 0,   pendingUSDT = 0;
+    let regularCompleted = 0, regularPending = 0, regularFailed = 0;
+    let cofounderCompleted = 0, cofounderPending = 0, cofounderFailed = 0;
+
+    const resolveAmount = (tx) => {
+      let amt = parseFloat(tx.amount ?? tx.totalAmount ?? 0) || 0;
+      if (amt === 0 && tx.tierKey) {
+        const tier = tierConfig.tiers.get(tx.tierKey);
+        if (tier) {
+          const currency = (tx.currency || 'naira').toLowerCase();
+          const price    = currency === 'usdt' ? tier.priceUSD : tier.priceNGN;
+          const shares   = parseFloat(tx.shares) || 1;
+          amt = (price || 0) * shares;
+        }
+      }
+      return amt;
+    };
+
+    const processTx = (tx, isCofounder) => {
+      const status   = tx.status;
+      const pct      = parseFloat(tx.ownershipPct) || 0;
+      const earn     = parseFloat(tx.earningKobo)  || 0;
+      const amt      = resolveAmount(tx);
+      const currency = (tx.currency || 'naira').toLowerCase();
+
+      if (currency === 'naira') totalNaira += amt;
+      else if (currency === 'usdt') totalUSDT += amt;
+
+      if (status === 'completed') {
+        completedCount++;
+        if (currency === 'naira') completedNaira += amt;
+        else if (currency === 'usdt') completedUSDT += amt;
+
+        if (isCofounder) { cofounderCompleted++; cofounderOwnershipPct += pct; cofounderEarningKobo += earn; }
+        else             { regularCompleted++;   regularOwnershipPct   += pct; regularEarningKobo   += earn; }
+
+      } else if (status === 'pending') {
+        pendingCount++;
+        if (currency === 'naira') pendingNaira += amt;
+        else if (currency === 'usdt') pendingUSDT += amt;
+        isCofounder ? cofounderPending++ : regularPending++;
+        pendingOwnershipPct += pct;
+
+      } else {
+        failedCount++;
+        isCofounder ? cofounderFailed++ : regularFailed++;
+      }
+    };
+
+    regularPTxs.forEach(t   => processTx(t, false));
+    cofounderPTxs.forEach(t => processTx(t, true));
+    legacyTxs.forEach(t => {
+      processTx(t, t.type === 'co-founder' || t.paymentMethod === 'co-founder');
+    });
+
+    const regularCount   = regularCompleted   + regularPending   + regularFailed;
+    const cofounderCount = cofounderCompleted + cofounderPending + cofounderFailed;
+    const totalOwnershipPct = parseFloat((regularOwnershipPct + cofounderOwnershipPct).toFixed(7));
+    const totalEarningKobo  = regularEarningKobo + cofounderEarningKobo;
+
+    const refStats = referralStats || {
+      totalEarnings: 0, referredUsers: 0,
+      generation1: { count: 0, earnings: 0 },
+      generation2: { count: 0, earnings: 0 },
+      generation3: { count: 0, earnings: 0 }
+    };
+
+    res.status(200).json({
+      success: true,
+      user: targetUser,            // ← extra field only on the admin version
+      stats: {
+        ownership: {
+          totalOwnershipPct,
+          regularOwnershipPct      : +regularOwnershipPct.toFixed(7),
+          cofounderOwnershipPct    : +cofounderOwnershipPct.toFixed(7),
+          pendingOwnershipPct      : +pendingOwnershipPct.toFixed(7),
+          formattedOwnership       : totalOwnershipPct.toFixed(7) + '%',
+          formattedPending         : (+pendingOwnershipPct.toFixed(7)) + '%'
+        },
+        earnings: {
+          totalEarningKobo,
+          regularEarningKobo,
+          cofounderEarningKobo,
+          totalEarningNaira : (totalEarningKobo / 100).toFixed(2)
+        },
+        transactions: {
+          regular   : regularCount,
+          cofounder : cofounderCount,
+          total     : regularCount + cofounderCount,
+          completed : completedCount,
+          pending   : pendingCount,
+          failed    : failedCount
+        },
+        investment: {
+          totalNaira, totalUSDT,
+          completedNaira, completedUSDT,
+          pendingNaira,   pendingUSDT
+        },
+        referrals: {
+          totalReferred : refStats.referredUsers || 0,
+          totalEarnings : refStats.totalEarnings || 0,
+          generation1   : refStats.generation1   || { count: 0, earnings: 0 },
+          generation2   : refStats.generation2   || { count: 0, earnings: 0 },
+          generation3   : refStats.generation3   || { count: 0, earnings: 0 }
+        },
+        summary: {
+          ownership        : `${totalOwnershipPct.toFixed(7)}% total (${regularOwnershipPct.toFixed(7)}% regular + ${cofounderOwnershipPct.toFixed(7)}% co-founder)`,
+          pendingOwnership : pendingOwnershipPct > 0 ? `${pendingOwnershipPct.toFixed(7)}% pending verification` : null,
+          investmentSummary: `₦${totalNaira.toLocaleString()} total (₦${completedNaira.toLocaleString()} confirmed + ₦${pendingNaira.toLocaleString()} pending)`,
+          statusBreakdown  : `${completedCount} completed, ${pendingCount} pending, ${failedCount} failed`
+        }
+      }
+    });
+
+  } catch (error) {
+    console.error('Error fetching admin user project stats:', error);
+    res.status(500).json({ success: false, message: 'Failed to fetch user project statistics', error: process.env.NODE_ENV === 'development' ? error.message : undefined });
+  }
+};
+
+exports.getAdminUserTransactionBreakdown = async (req, res) => {
+  try {
+    const admin = await User.findById(req.user.id);
+    if (!admin?.isAdmin) {
+      return res.status(403).json({ success: false, message: 'Admin access required' });
+    }
+
+    const { userId } = req.params;
+
+    const targetUser = await User.findById(userId)
+      .select('name email username createdAt').lean();
+    if (!targetUser) {
+      return res.status(404).json({ success: false, message: 'User not found' });
+    }
+
+    const [regularTxs, cofounderTxs, userShare] = await Promise.all([
+      PaymentTransaction.find({ userId, type: 'share' })
+        .sort({ createdAt: -1 }).lean(),
+      PaymentTransaction.find({ userId, type: 'co-founder' })
+        .sort({ createdAt: -1 }).lean(),
+      UserShare.findOne({ user: userId }).lean()
+    ]);
+
+    // Merge and deduplicate with UserShare legacy txs
+    const ptxIds = new Set([
+      ...regularTxs.map(t => t.transactionId),
+      ...cofounderTxs.map(t => t.transactionId)
+    ]);
+    const legacyTxs = (userShare?.transactions || [])
+      .filter(t => !ptxIds.has(t.transactionId))
+      .map(t => ({ ...t, _source: 'UserShare' }));
+
+    const allTxs = [
+      ...regularTxs.map(t => ({ ...t, _source: 'PaymentTransaction' })),
+      ...cofounderTxs.map(t => ({ ...t, _source: 'PaymentTransaction' })),
+      ...legacyTxs
+    ].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+
+    // Group by status
+    const completed = allTxs.filter(t => t.status === 'completed');
+    const pending   = allTxs.filter(t => t.status === 'pending');
+    const failed    = allTxs.filter(t => !['completed','pending'].includes(t.status));
+
+    const formatTx = (t) => ({
+      transactionId  : t.transactionId,
+      source         : t._source,
+      type           : t.type,
+      status         : t.status,
+      paymentMethod  : t.paymentMethod,
+      currency       : t.currency || 'naira',
+      amount         : t.amount || t.totalAmount || 0,
+      ownershipPct   : t.ownershipPct || 0,
+      earningKobo    : t.earningKobo  || 0,
+      earningNaira   : ((t.earningKobo || 0) / 100).toFixed(2),
+      tierKey        : t.tierKey || null,
+      shares         : t.shares  || null,
+      date           : t.createdAt,
+      paymentProof   : t.paymentProof || null
+    });
+
+    // Completed totals
+    const completedNaira = completed
+      .filter(t => (t.currency || 'naira') === 'naira')
+      .reduce((s, t) => s + (t.amount || t.totalAmount || 0), 0);
+    const completedUSDT = completed
+      .filter(t => t.currency === 'usdt')
+      .reduce((s, t) => s + (t.amount || t.totalAmount || 0), 0);
+
+    res.status(200).json({
+      success: true,
+      user: targetUser,
+      summary: {
+        total     : allTxs.length,
+        completed : completed.length,
+        pending   : pending.length,
+        failed    : failed.length,
+        completedNaira,
+        completedUSDT,
+        // Per payment method breakdown
+        byPaymentMethod: completed.reduce((acc, t) => {
+          const method = t.paymentMethod || 'unknown';
+          if (!acc[method]) acc[method] = { count: 0, totalNaira: 0, totalUSDT: 0 };
+          acc[method].count++;
+          if ((t.currency || 'naira') === 'naira') acc[method].totalNaira += (t.amount || 0);
+          else acc[method].totalUSDT += (t.amount || 0);
+          return acc;
+        }, {})
+      },
+      transactions: {
+        completed : completed.map(formatTx),
+        pending   : pending.map(formatTx),
+        failed    : failed.map(formatTx)
+      }
+    });
+
+  } catch (error) {
+    console.error('Error fetching transaction breakdown:', error);
+    res.status(500).json({ success: false, message: 'Failed to fetch transaction breakdown' });
+  }
+};

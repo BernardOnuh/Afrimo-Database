@@ -14,7 +14,7 @@ const path = require('path');
 const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
 const compression = require('compression');
-const cron = require('node-cron');
+const cron = require('node-cron'); 
 const fs = require('fs');
 const setupSwagger = require('./middleware/swagger');
 
@@ -518,7 +518,6 @@ app.get('/api/db-status', (req, res) => {
 // ✅ FIXED: API monitoring middleware - better error handling
 app.use('/api', (req, res, next) => {
   const allowedWithoutDB = [
-    '/api/cors-test', 
     '/api/system/info', 
     '/api/simple-test',
     '/api/db-status',
@@ -562,6 +561,7 @@ app.use('/api', (req, res, next) => {
 app.use('/api/users', require('./routes/userRoutes'));
 app.use('/api/shares/tiers', require('./routes/tierRoutes'));
 app.use('/api/shares', require('./routes/shareRoutes'));
+app.use('/api/v2/transactions', require('./routes/transactionV2Routes'));
 app.use('/api/cofounder', require('./routes/coFounderShareRoutes'));
 app.use('/api/project', require('./routes/projectRoutes'));
 app.use('/api/leaderboard', require('./routes/leaderboardRoutes'));
