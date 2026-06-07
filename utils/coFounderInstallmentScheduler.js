@@ -12,6 +12,7 @@ class CoFounderInstallmentScheduler {
   /**
    * Schedule co-founder installment penalty checks
    */
+  
   scheduleCoFounderInstallmentPenalties() {
     console.log('Setting up co-founder installment penalty scheduler...');
 
