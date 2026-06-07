@@ -107,7 +107,7 @@ const corsOptions = {
       'http://localhost:5000',
       'http://localhost:5001',
       'http://localhost:8080',
-      'https://afrimobile-d240af77c383.herokuapp.com',
+      'https://afrimo-database-829f07d09c94.herokuapp.com/',
       'https://www.afrimobil.com',
       'https://afrimobil.com',
       'https://www.afrimobiletech.com',
@@ -1080,7 +1080,7 @@ if (AppConfig.IS_PRODUCTION) {
 // Startup information display
 function displayStartupInfo() {
   const baseUrl = AppConfig.IS_PRODUCTION 
-    ? 'https://afrimobile-d240af77c383.herokuapp.com'
+    ? 'https://afrimo-database-829f07d09c94.herokuapp.com/'
     : `http://localhost:${AppConfig.PORT}`;
 
   console.log('\n' + '='.repeat(80));
