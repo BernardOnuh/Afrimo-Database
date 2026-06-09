@@ -119,11 +119,11 @@ exports.listFranchises = async (req, res) => {
       .lean();
 
     const result = franchises.map(f => ({
-      _id:             f._id,
-      businessName:    f.businessName,
+      _id:                 f._id,
+      businessName:        f.businessName,
       businessDescription: f.businessDescription,
-      creditBalance:   f.creditBalance,
-      totalSales:      f.totalSales,
+      creditBalance:       f.creditBalance,        // ← already here, good
+      totalSales:          f.totalSales,
       vendor: {
         name:     f.user.name,
         username: f.user.username,

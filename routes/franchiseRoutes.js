@@ -53,15 +53,48 @@ router.get('/packages', fc.getPackages);
  * /franchise/list:
  *   get:
  *     tags: [Franchise - Public]
- *     summary: List active franchises
- *     description: Returns all active franchises with their bank details so buyers know where to pay.
- *     security:
- *       - bearerAuth: []
+ *     summary: List active franchises with available credit
+ *     description: |
+ *       Public endpoint — no authentication required.
+ *       Returns all active franchises including their current credit balance
+ *       so buyers can see which vendors have capacity to fulfil purchases.
  *     responses:
  *       200:
  *         description: Franchise list returned
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 franchises:
+ *                   type: array
+ *                   items:
+ *                     type: object
+ *                     properties:
+ *                       _id:
+ *                         type: string
+ *                       businessName:
+ *                         type: string
+ *                       businessDescription:
+ *                         type: string
+ *                       creditBalance:
+ *                         type: number
+ *                         description: Available credit in Naira — shows buying capacity
+ *                       totalSales:
+ *                         type: number
+ *                       vendor:
+ *                         type: object
+ *                         properties:
+ *                           name:
+ *                             type: string
+ *                           username:
+ *                             type: string
+ *                       bankDetails:
+ *                         type: object
  */
-router.get('/list', protect, fc.listFranchises);
+router.get('/list', fc.listFranchises);   // ← no protect
 
 /**
  * @swagger
