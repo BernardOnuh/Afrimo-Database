@@ -16,6 +16,12 @@ const ReferralTransaction = require('../models/ReferralTransaction');
 const Referral = require('../models/Referral');
 const TierConfig = require('../models/TierConfig');
 
+// ── V2 additions ──────────────────────────────────────────────────────────────
+const TransactionV2        = require('../models/TransactionV2');
+const UserShareV2          = require('../models/UserShareV2');
+const writeToV2            = require('../helpers/writeToV2');
+const recalculateUserShare = require('../helpers/recalculateUserShare');
+
 // Generate a unique transaction ID
 const generateTransactionId = () => {
   return `TXN-${crypto.randomBytes(4).toString('hex').toUpperCase()}-${Date.now().toString().slice(-6)}`;
@@ -261,252 +267,11 @@ exports.updateSharePricing = async (req, res) => {
   }
 };
 
-/**
- * @desc    Admin: Get all share tiers
- * @route   GET /api/shares/admin/tiers
- * @access  Private (Admin)
- */
-exports.getAllTiers = async (req, res) => {
-  try {
-    const admin = await User.findById(req.user.id);
-    if (!admin || !admin.isAdmin) {
-      return res.status(403).json({
-        success: false,
-        message: 'Unauthorized: Admin access required'
-      });
-    }
-    
-    const config = await TierConfig.getCurrentConfig();
-    const tiers = [];
-    
-    for (const [key, tier] of config.tiers) {
-      tiers.push({
-        key,
-        name: tier.name,
-        type: tier.type,
-        priceNGN: tier.priceNGN,
-        priceUSD: tier.priceUSD,
-        percentPerShare: tier.percentPerShare,
-        earningPerPhone: tier.earningPerPhone,
-        sharesIncluded: tier.sharesIncluded || 1,
-        active: tier.active,
-        description: tier.description || '',
-        priceHistory: tier.priceHistory || [],
-        createdAt: tier.createdAt,
-        updatedAt: tier.updatedAt
-      });
-    }
-    
-    res.status(200).json({
-      success: true,
-      tiers,
-      lastUpdated: config.lastUpdated,
-      lastUpdatedBy: config.lastUpdatedBy
-    });
-  } catch (error) {
-    console.error('Error getting tiers:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Failed to get tiers',
-      error: process.env.NODE_ENV === 'development' ? error.message : undefined
-    });
-  }
-};
 
-/**
- * @desc    Admin: Create a new share tier
- * @route   POST /api/shares/admin/tiers
- * @access  Private (Admin)
- */
-exports.createTier = async (req, res) => {
-  try {
-    const { tierKey, name, priceNaira, priceUSDT, percentPerShare, earningPerPhone, description } = req.body;
-    const adminId = req.user.id;
-    
-    const admin = await User.findById(adminId);
-    if (!admin || !admin.isAdmin) {
-      return res.status(403).json({
-        success: false,
-        message: 'Unauthorized: Admin access required'
-      });
-    }
-    
-    if (!tierKey || !name || !priceNaira || !percentPerShare || !earningPerPhone) {
-      return res.status(400).json({
-        success: false,
-        message: 'tierKey, name, priceNaira, percentPerShare, and earningPerPhone are required'
-      });
-    }
-    
-    const config = await TierConfig.getCurrentConfig();
-    
-    if (config.tiers.has(tierKey)) {
-      return res.status(400).json({
-        success: false,
-        message: `Tier '${tierKey}' already exists`
-      });
-    }
-    
-    const newTier = {
-      name,
-      type: 'share',
-      priceNGN: parseFloat(priceNaira),
-      priceUSD: priceUSDT ? parseFloat(priceUSDT) : 0,
-      percentPerShare: parseFloat(percentPerShare),
-      earningPerPhone: parseInt(earningPerPhone),
-      sharesIncluded: 1,
-      active: true,
-      description: description || '',
-      priceHistory: [],
-      createdAt: new Date(),
-      updatedAt: new Date()
-    };
-    
-    config.tiers.set(tierKey, newTier);
-    config.lastUpdated = new Date();
-    config.lastUpdatedBy = adminId;
-    await config.save();
-    
-    res.status(201).json({
-      success: true,
-      message: `Tier '${tierKey}' created successfully`,
-      tier: {
-        key: tierKey,
-        ...newTier
-      }
-    });
-  } catch (error) {
-    console.error('Error creating tier:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Failed to create tier',
-      error: process.env.NODE_ENV === 'development' ? error.message : undefined
-    });
-  }
-};
 
-/**
- * @desc    Admin: Update tier status (activate/deactivate)
- * @route   PUT /api/shares/admin/tiers/:tierKey
- * @access  Private (Admin)
- */
-exports.updateTierStatus = async (req, res) => {
-  try {
-    const { tierKey } = req.params;
-    const { active, reason } = req.body;
-    const adminId = req.user.id;
-    
-    const admin = await User.findById(adminId);
-    if (!admin || !admin.isAdmin) {
-      return res.status(403).json({
-        success: false,
-        message: 'Unauthorized: Admin access required'
-      });
-    }
-    
-    if (active === undefined) {
-      return res.status(400).json({
-        success: false,
-        message: 'active status is required'
-      });
-    }
-    
-    const TierConfig = require('../models/TierConfig');
-    const config = await TierConfig.getCurrentConfig();
-    
-    if (!config.tiers.has(tierKey)) {
-      return res.status(404).json({
-        success: false,
-        message: `Tier '${tierKey}' not found`
-      });
-    }
-    
-    const tier = config.tiers.get(tierKey);
-    tier.active = active;
-    tier.updatedAt = new Date();
-    
-    config.tiers.set(tierKey, tier);
-    config.lastUpdated = new Date();
-    config.lastUpdatedBy = adminId;
-    await config.save();
-    
-    res.status(200).json({
-      success: true,
-      message: `Tier '${tierKey}' ${active ? 'activated' : 'deactivated'} successfully`,
-      tier: {
-        key: tierKey,
-        name: tier.name,
-        active: tier.active
-      }
-    });
-  } catch (error) {
-    console.error('Error updating tier status:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Failed to update tier status',
-      error: process.env.NODE_ENV === 'development' ? error.message : undefined
-    });
-  }
-};
 
-/**
- * @desc    Admin: Delete a share tier
- * @route   DELETE /api/shares/admin/tiers/:tierKey
- * @access  Private (Admin)
- */
-exports.deleteTier = async (req, res) => {
-  try {
-    const { tierKey } = req.params;
-    const adminId = req.user.id;
-    
-    const admin = await User.findById(adminId);
-    if (!admin || !admin.isAdmin) {
-      return res.status(403).json({
-        success: false,
-        message: 'Unauthorized: Admin access required'
-      });
-    }
-    
-    const config = await TierConfig.getCurrentConfig();
-    
-    if (!config.tiers.has(tierKey)) {
-      return res.status(404).json({
-        success: false,
-        message: `Tier '${tierKey}' not found`
-      });
-    }
-    
-    // Check if tier has any completed transactions
-    const hasTransactions = await PaymentTransaction.exists({
-      tierKey: tierKey,
-      status: 'completed'
-    });
-    
-    if (hasTransactions) {
-      return res.status(400).json({
-        success: false,
-        message: 'Cannot delete tier that has completed transactions. Deactivate it instead.'
-      });
-    }
-    
-    config.tiers.delete(tierKey);
-    config.lastUpdated = new Date();
-    config.lastUpdatedBy = adminId;
-    await config.save();
-    
-    res.status(200).json({
-      success: true,
-      message: `Tier '${tierKey}' deleted successfully`
-    });
-  } catch (error) {
-    console.error('Error deleting tier:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Failed to delete tier',
-      error: process.env.NODE_ENV === 'development' ? error.message : undefined
-    });
-  }
-};
+
+
 
 // ==================== ADMIN SHARE MANAGEMENT ====================
 
@@ -519,148 +284,115 @@ exports.adminAddShares = async (req, res) => {
   try {
     const { userId, shares, note, tierKey, packageId } = req.body;
     const adminId = req.user.id;
-    
+ 
     const admin = await User.findById(adminId);
     if (!admin || !admin.isAdmin) {
-      return res.status(403).json({
-        success: false,
-        message: 'Unauthorized: Admin access required'
-      });
+      return res.status(403).json({ success: false, message: 'Unauthorized: Admin access required' });
     }
-    
     if (!userId) {
-      return res.status(400).json({
-        success: false,
-        message: 'Please provide userId'
-      });
+      return res.status(400).json({ success: false, message: 'Please provide userId' });
     }
-    
+ 
     const user = await User.findById(userId);
     if (!user) {
-      return res.status(404).json({
-        success: false,
-        message: 'User not found'
-      });
+      return res.status(404).json({ success: false, message: 'User not found' });
     }
-    
-    const config = await TierConfig.getCurrentConfig();
-    let selectedTierKey = tierKey || packageId;
-    let tierData = null;
-    
+ 
+    const config          = await TierConfig.getCurrentConfig();
+    let selectedTierKey   = tierKey || packageId;
+    let tierData          = null;
+ 
     if (!selectedTierKey) {
       for (const [key, tier] of config.tiers) {
         if (tier.type === 'share' && tier.active === true) {
           selectedTierKey = key;
-          tierData = tier;
+          tierData        = tier;
           break;
         }
       }
       if (!tierData) {
-        return res.status(400).json({
-          success: false,
-          message: 'No active share tiers available'
-        });
+        return res.status(400).json({ success: false, message: 'No active share tiers available' });
       }
     } else {
       tierData = config.tiers.get(selectedTierKey);
       if (!tierData) {
-        return res.status(400).json({
-          success: false,
-          message: `Invalid tier: ${selectedTierKey}`
-        });
+        return res.status(400).json({ success: false, message: `Invalid tier: ${selectedTierKey}` });
       }
       if (tierData.type !== 'share') {
-        return res.status(400).json({
-          success: false,
-          message: 'Specified tier is not a regular share tier'
-        });
+        return res.status(400).json({ success: false, message: 'Specified tier is not a regular share tier' });
       }
     }
-    
-    const shareCount = shares ? parseInt(shares) : (tierData.sharesIncluded || 1);
+ 
+    const shareCount       = shares ? parseInt(shares) : (tierData.sharesIncluded || 1);
     const totalAmountNaira = tierData.priceNGN * shareCount;
-    const transactionId = generateTransactionId();
-    
-    const transactionData = {
+    const transactionId    = `TXN-${crypto.randomBytes(4).toString('hex').toUpperCase()}-${Date.now().toString().slice(-6)}`;
+ 
+    const sharedTxData = {
       transactionId,
-      type: 'share',
-      tierKey: selectedTierKey,
-      packageId: selectedTierKey,
-      packageLabel: tierData.name,
-      shares: shareCount,
-      ownershipPct: tierData.percentPerShare * shareCount,
-      earningKobo: tierData.earningPerPhone * shareCount,
-      pricePerShare: tierData.priceNGN,
-      currency: 'naira',
-      totalAmount: totalAmountNaira,
-      paymentMethod: 'admin_override',
-      status: 'completed',
-      adminAction: true,
-      adminNote: note || `Admin added ${shareCount} ${tierData.name} shares`,
-      metadata: {
-        tierKey: selectedTierKey,
-        tierName: tierData.name,
-        percentPerShare: tierData.percentPerShare,
-        earningPerPhone: tierData.earningPerPhone
-      }
+      type          : 'share',
+      tierKey       : selectedTierKey,
+      packageId     : selectedTierKey,
+      packageLabel  : tierData.name,
+      shares        : shareCount,
+      ownershipPct  : tierData.percentPerShare,   // per-share
+      earningKobo   : tierData.earningPerPhone,   // per-share
+      pricePerShare : tierData.priceNGN,
+      currency      : 'naira',
+      totalAmount   : totalAmountNaira,
+      paymentMethod : 'admin_override',
+      status        : 'completed',
+      adminAction   : true,
+      adminNote     : note || `Admin added ${shareCount} ${tierData.name} shares`,
+      metadata      : { tierKey: selectedTierKey, tierName: tierData.name }
     };
-    
-    await UserShare.addTransaction(userId, transactionData);
-    
+ 
+    // ── V1 writes ─────────────────────────────────────────────────────────
+    await UserShare.addTransaction(userId, {
+      ...sharedTxData,
+      ownershipPct : tierData.percentPerShare * shareCount,   // V1 expects total
+      earningKobo  : tierData.earningPerPhone  * shareCount
+    });
+ 
     await PaymentTransaction.create({
       userId,
-      transactionId,
-      type: 'share',
-      tierKey: selectedTierKey,
-      packageId: selectedTierKey,
-      packageLabel: tierData.name,
-      shares: shareCount,
-      ownershipPct: tierData.percentPerShare * shareCount,
-      earningKobo: tierData.earningPerPhone * shareCount,
-      amount: totalAmountNaira,
-      currency: 'naira',
-      paymentMethod: 'admin_override',
-      status: 'completed',
-      adminNotes: note || `Admin added ${shareCount} ${tierData.name} shares`,
-      verifiedBy: adminId,
-      verifiedAt: new Date(),
-      metadata: {
-        adminAction: true,
-        tierKey: selectedTierKey
-      }
+      ...sharedTxData,
+      amount       : totalAmountNaira,
+      ownershipPct : tierData.percentPerShare * shareCount,
+      earningKobo  : tierData.earningPerPhone  * shareCount,
+      adminNotes   : sharedTxData.adminNote,
+      verifiedBy   : adminId,
+      verifiedAt   : new Date()
     });
-    
+ 
+    // ── V2 write ──────────────────────────────────────────────────────────
+    await writeToV2({ ...sharedTxData, userId, enteredBy: adminId });
+ 
+    // ── Referral ──────────────────────────────────────────────────────────
     try {
-      if (user.referralInfo && user.referralInfo.code) {
-        await processReferralCommission(
-          userId,
-          totalAmountNaira,
-          'share',
-          transactionId,
-          shareCount
-        );
+      if (user.referralInfo?.code) {
+        await processReferralCommission(userId, totalAmountNaira, 'share', transactionId, shareCount);
       }
     } catch (referralError) {
       console.error('Error processing referral commissions:', referralError);
     }
-    
+ 
+    // ── Email ─────────────────────────────────────────────────────────────
     if (user.email) {
       try {
         await sendEmail({
-          email: user.email,
-          subject: 'AfriMobile - Share Package Added to Your Account',
-          html: `
+          email   : user.email,
+          subject : 'AfriMobile - Share Package Added to Your Account',
+          html    : `
             <h2>Share Package Added</h2>
             <p>Dear ${user.name},</p>
-            <p>We are pleased to inform you that a share package has been added to your account:</p>
+            <p>A share package has been added to your account:</p>
             <ul>
               <li><strong>Package:</strong> ${tierData.name}</li>
               <li><strong>Quantity:</strong> ${shareCount}</li>
-              <li><strong>Ownership Percentage:</strong> ${(tierData.percentPerShare * shareCount * 100).toFixed(7)}%</li>
+              <li><strong>Ownership:</strong> ${(tierData.percentPerShare * shareCount * 100).toFixed(7)}%</li>
               <li><strong>Earning per Phone:</strong> ₦${(tierData.earningPerPhone * shareCount / 100).toFixed(2)}</li>
             </ul>
             <p>Transaction Reference: ${transactionId}</p>
-            <p>Thank you for being part of AfriMobile!</p>
             ${note ? `<p>Note: ${note}</p>` : ''}
           `
         });
@@ -668,29 +400,25 @@ exports.adminAddShares = async (req, res) => {
         console.error('Failed to send shares added email:', emailError);
       }
     }
-    
+ 
     res.status(200).json({
-      success: true,
-      message: `Successfully added ${shareCount} ${tierData.name} share package(s) to user`,
-      data: {
+      success : true,
+      message : `Successfully added ${shareCount} ${tierData.name} share package(s) to user`,
+      data    : {
         transactionId,
         userId,
-        shares: shareCount,
-        packageName: tierData.name,
-        tierKey: selectedTierKey,
+        shares      : shareCount,
+        packageName : tierData.name,
+        tierKey     : selectedTierKey,
         ownershipPct: tierData.percentPerShare * shareCount,
-        earningKobo: tierData.earningPerPhone * shareCount,
-        totalAmount: totalAmountNaira
+        earningKobo : tierData.earningPerPhone  * shareCount,
+        totalAmount : totalAmountNaira
       }
     });
-    
+ 
   } catch (error) {
     console.error('Error adding shares to user:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Failed to add shares to user',
-      error: process.env.NODE_ENV === 'development' ? error.message : undefined
-    });
+    res.status(500).json({ success: false, message: 'Failed to add shares to user' });
   }
 };
 
@@ -743,92 +471,68 @@ exports.updateCompanyWallet = async (req, res) => {
 
 exports.getUserShares = async (req, res) => {
   try {
-    const record = await UserShare.findOne({ user: req.user.id });
-    const paymentTransactions = await PaymentTransaction.find({
-      userId: req.user.id,
-      type: 'share'
-    }).lean();
-
-    if (!record && paymentTransactions.length === 0) {
+    const userId = req.user.id;
+ 
+    // ── Snapshot ──────────────────────────────────────────────────────────
+    const snapshot = await UserShareV2.findOne({ user: userId }).lean();
+ 
+    // ── All V2 transactions ───────────────────────────────────────────────
+    const txs = await TransactionV2.find({ userId })
+      .sort({ createdAt: -1 })
+      .lean();
+ 
+    if (!snapshot && txs.length === 0) {
       return res.json({
-        success: true,
-        totalOwnershipPct: 0,
-        totalEarningKobo: 0,
-        formattedOwnership: '0.0000000%',
-        breakdown: {
-          regular: { ownershipPct: 0, earningKobo: 0, transactions: 0 },
-          cofounder: { ownershipPct: 0, earningKobo: 0, transactions: 0 }
+        success            : true,
+        totalOwnershipPct  : 0,
+        totalEarningKobo   : 0,
+        formattedOwnership : '0.0000000%',
+        breakdown          : {
+          regular    : { ownershipPct: 0, earningKobo: 0, transactions: 0 },
+          cofounder  : { ownershipPct: 0, earningKobo: 0, transactions: 0 }
         },
         transactions: []
       });
     }
-
-    const summary = record ? record.getOwnershipSummary() : { totalOwnershipPct: 0, totalEarningKobo: 0 };
-    const breakdown = await UserShare.getUserBreakdown(req.user.id);
-
-    const allTransactions = [];
-    
-    if (record) {
-      record.transactions.forEach(t => {
-        allTransactions.push({
-          transactionId: t.transactionId,
-          type: t.type || 'share',
-          tierKey: t.tierKey,
-          packageLabel: t.packageLabel,
-          ownershipPct: t.ownershipPct,
-          earningKobo: t.earningKobo,
-          amount: t.totalAmount || t.amount || 0,
-          currency: t.currency || 'naira',
-          paymentMethod: (t.paymentMethod || '').replace('manual_', ''),
-          status: t.status,
-          date: t.createdAt,
-          source: 'UserShare'
-        });
-      });
-    }
-    
-    const userShareTxIds = allTransactions.map(t => t.transactionId);
-    paymentTransactions.forEach(tx => {
-      if (!userShareTxIds.includes(tx.transactionId)) {
-        allTransactions.push({
-          transactionId: tx.transactionId,
-          type: tx.type || 'share',
-          tierKey: tx.tierKey,
-          packageLabel: tx.packageLabel,
-          ownershipPct: tx.ownershipPct,
-          earningKobo: tx.earningKobo,
-          amount: tx.amount || 0,
-          currency: tx.currency || 'naira',
-          paymentMethod: (tx.paymentMethod || '').replace('manual_', ''),
-          status: tx.status,
-          date: tx.createdAt,
-          source: 'PaymentTransaction'
-        });
-      }
-    });
-
-    allTransactions.sort((a, b) => new Date(b.date) - new Date(a.date));
-
+ 
+    const totalOwnershipPct  = snapshot?.totalOwnershipPct  || 0;
+    const totalEarningKobo   = snapshot?.totalEarningKobo   || 0;
+ 
+    const transactions = txs.map(t => ({
+      transactionId : t.transactionId,
+      type          : t.type,
+      tierKey       : t.tierKey,
+      packageLabel  : t.tierKey,           // V2 doesn't store packageLabel — use tierKey
+      ownershipPct  : t.ownershipPct,
+      earningKobo   : t.earningKobo,
+      amount        : t.totalAmount,
+      currency      : t.currency,
+      paymentMethod : (t.paymentMethod || '').replace('manual_', ''),
+      status        : t.status,
+      date          : t.createdAt,
+      source        : 'V2'
+    }));
+ 
     res.json({
-      success: true,
-      totalOwnershipPct: summary.totalOwnershipPct || record?.totalOwnershipPct || 0,
-      totalEarningKobo: summary.totalEarningKobo || record?.totalEarningKobo || 0,
-      formattedOwnership: ((record?.totalOwnershipPct || 0) * 100).toFixed(7) + '%',
-      breakdown: {
+      success           : true,
+      totalOwnershipPct,
+      totalEarningKobo,
+      formattedOwnership: (totalOwnershipPct * 100).toFixed(7) + '%',
+      breakdown         : {
         regular: {
-          ownershipPct: breakdown.regular.ownershipPct,
-          earningKobo: breakdown.regular.earningKobo,
-          transactions: breakdown.regular.transactions
+          ownershipPct  : snapshot?.regularOwnershipPct   || 0,
+          earningKobo   : 0,   // not broken out by type in snapshot; add if needed
+          transactions  : txs.filter(t => t.type !== 'co-founder' && t.status === 'completed').length
         },
         cofounder: {
-          ownershipPct: breakdown.cofounder.ownershipPct,
-          earningKobo: breakdown.cofounder.earningKobo,
-          transactions: breakdown.cofounder.transactions
+          ownershipPct  : snapshot?.cofounderOwnershipPct || 0,
+          earningKobo   : 0,
+          transactions  : txs.filter(t => t.type === 'co-founder' && t.status === 'completed').length
         }
       },
-      transactions: allTransactions
+      transactions
     });
-
+ 
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }
@@ -921,64 +625,7 @@ exports.getTransactionStatus = async (req, res) => {
   }
 };
 
-/**
- * @desc    Admin: Get all tiers (both regular and co-founder)
- * @route   GET /api/shares/admin/tiers
- * @access  Private (Admin)
- */
-exports.getAllTiers = async (req, res) => {
-  try {
-    const admin = await User.findById(req.user.id);
-    if (!admin || !admin.isAdmin) {
-      return res.status(403).json({
-        success: false,
-        message: 'Unauthorized: Admin access required'
-      });
-    }
-    
-    const TierConfig = require('../models/TierConfig');
-    const config = await TierConfig.getCurrentConfig();
-    const shareTiers = [];
-    const cofounderTiers = [];
-    
-    for (const [key, tier] of config.tiers) {
-      const tierData = {
-        key,
-        name: tier.name,
-        type: tier.type,
-        priceNGN: tier.priceNGN,
-        priceUSD: tier.priceUSD,
-        percentPerShare: tier.percentPerShare,
-        earningPerPhone: tier.earningPerPhone,
-        sharesIncluded: tier.sharesIncluded || 1,
-        active: tier.active,
-        description: tier.description || '',
-        priceHistory: tier.priceHistory || []
-      };
-      
-      if (tier.type === 'share' || tier.type === 'regular') {
-        shareTiers.push(tierData);
-      } else if (tier.type === 'co-founder' || tier.type === 'cofounder') {
-        cofounderTiers.push(tierData);
-      }
-    }
-    
-    res.status(200).json({
-      success: true,
-      tiers: {
-        share: shareTiers,
-        cofounder: cofounderTiers
-      }
-    });
-  } catch (error) {
-    console.error('Error getting tiers:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Failed to get tiers',
-      error: process.env.NODE_ENV === 'development' ? error.message : undefined
-    });
-  }
-};
+
 
 
 /**
@@ -1055,66 +702,6 @@ exports.createTier = async (req, res) => {
 };
 
 
-/**
- * @desc    Admin: Delete a share tier
- * @route   DELETE /api/shares/admin/tiers/:tierKey
- * @access  Private (Admin)
- */
-exports.deleteTier = async (req, res) => {
-  try {
-    const { tierKey } = req.params;
-    const adminId = req.user.id;
-    
-    const admin = await User.findById(adminId);
-    if (!admin || !admin.isAdmin) {
-      return res.status(403).json({
-        success: false,
-        message: 'Unauthorized: Admin access required'
-      });
-    }
-    
-    const TierConfig = require('../models/TierConfig');
-    const config = await TierConfig.getCurrentConfig();
-    
-    if (!config.tiers.has(tierKey)) {
-      return res.status(404).json({
-        success: false,
-        message: `Tier '${tierKey}' not found`
-      });
-    }
-    
-    // Check if tier has any completed transactions
-    const PaymentTransaction = require('../models/Transaction');
-    const hasTransactions = await PaymentTransaction.exists({
-      tierKey: tierKey,
-      status: 'completed'
-    });
-    
-    if (hasTransactions) {
-      return res.status(400).json({
-        success: false,
-        message: 'Cannot delete tier that has completed transactions. Deactivate it instead.'
-      });
-    }
-    
-    config.tiers.delete(tierKey);
-    config.lastUpdated = new Date();
-    config.lastUpdatedBy = adminId;
-    await config.save();
-    
-    res.status(200).json({
-      success: true,
-      message: `Tier '${tierKey}' deleted successfully`
-    });
-  } catch (error) {
-    console.error('Error deleting tier:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Failed to delete tier',
-      error: process.env.NODE_ENV === 'development' ? error.message : undefined
-    });
-  }
-};
 
 
 // ==================== ADMIN STATISTICS ====================
@@ -1333,74 +920,62 @@ exports.getShareStatistics = async (req, res) => {
 exports.getAllTransactions = async (req, res) => {
   try {
     const adminId = req.user.id;
-    
-    const admin = await User.findById(adminId);
+    const admin   = await User.findById(adminId);
     if (!admin || !admin.isAdmin) {
-      return res.status(403).json({
-        success: false,
-        message: 'Unauthorized: Admin access required'
-      });
+      return res.status(403).json({ success: false, message: 'Unauthorized: Admin access required' });
     }
-    
+ 
     const { status, page = 1, limit = 20, paymentMethod } = req.query;
-    const skip = (parseInt(page) - 1) * parseInt(limit);
-    
+    const skip  = (parseInt(page) - 1) * parseInt(limit);
+ 
     const query = {
-      type: 'share',
-      ...(status && { status }),
+      ...(status        && { status }),
       ...(paymentMethod && { paymentMethod: { $regex: paymentMethod, $options: 'i' } })
     };
-    
-    const transactions = await PaymentTransaction.find(query)
+ 
+    const transactions = await TransactionV2.find(query)
       .populate('userId', 'name email phone username')
       .sort({ createdAt: -1 })
       .skip(skip)
       .limit(parseInt(limit))
       .lean();
-    
-    const totalCount = await PaymentTransaction.countDocuments(query);
-    
+ 
+    const totalCount = await TransactionV2.countDocuments(query);
+ 
     const formatted = transactions.map(tx => ({
-      transactionId: tx.transactionId,
-      user: {
-        id: tx.userId?._id || tx.userId,
-        name: tx.userId?.name || 'Unknown',
-        email: tx.userId?.email || '',
-        phone: tx.userId?.phone || ''
+      transactionId : tx.transactionId,
+      user          : {
+        id    : tx.userId?._id || tx.userId,
+        name  : tx.userId?.name  || 'Unknown',
+        email : tx.userId?.email || '',
+        phone : tx.userId?.phone || ''
       },
-      shares: tx.shares,
-      totalAmount: tx.amount,
-      currency: tx.currency,
-      paymentMethod: tx.paymentMethod?.replace('manual_', '').replace('admin_override', 'admin'),
-      status: tx.status,
-      date: tx.createdAt,
-      tierKey: tx.tierKey,
-      packageLabel: tx.packageLabel,
-      ownershipPct: tx.ownershipPct,
-      earningKobo: tx.earningKobo,
-      paymentProof: tx.paymentProofCloudinaryUrl ? {
-        directUrl: tx.paymentProofCloudinaryUrl,
-        originalName: tx.paymentProofOriginalName
-      } : null,
-      adminNote: tx.adminNotes
+      shares        : tx.shares,
+      totalAmount   : tx.totalAmount,
+      currency      : tx.currency,
+      paymentMethod : (tx.paymentMethod || '').replace('manual_', '').replace('admin_override', 'admin'),
+      status        : tx.status,
+      date          : tx.createdAt,
+      tierKey       : tx.tierKey,
+      ownershipPct  : tx.ownershipPct,
+      earningKobo   : tx.earningKobo,
+      paymentProof  : tx.paymentProof ? { directUrl: tx.paymentProof } : null,
+      adminNote     : tx.note
     }));
-    
+ 
     res.status(200).json({
-      success: true,
-      transactions: formatted,
-      pagination: {
-        currentPage: parseInt(page),
-        totalPages: Math.ceil(totalCount / parseInt(limit)),
+      success      : true,
+      transactions : formatted,
+      pagination   : {
+        currentPage : parseInt(page),
+        totalPages  : Math.ceil(totalCount / parseInt(limit)),
         totalCount
       }
     });
+ 
   } catch (error) {
     console.error('Error fetching transactions:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Failed to fetch transactions',
-      error: process.env.NODE_ENV === 'development' ? error.message : undefined
-    });
+    res.status(500).json({ success: false, message: 'Failed to fetch transactions' });
   }
 };
 
@@ -1412,65 +987,59 @@ exports.adminGetManualTransactions = async (req, res) => {
     if (!admin?.isAdmin) {
       return res.status(403).json({ success: false, message: 'Admin required' });
     }
-
+ 
     const { status, page = 1, limit = 20, fromDate, toDate } = req.query;
-
+ 
     const query = {
-      type: 'share',
       paymentMethod: { $regex: /^manual_/i }
     };
-
-    if (status) query.status = status;
+    if (status)   query.status = status;
     if (fromDate || toDate) {
       query.createdAt = {};
       if (fromDate) query.createdAt.$gte = new Date(fromDate);
-      if (toDate) query.createdAt.$lte = new Date(toDate);
+      if (toDate)   query.createdAt.$lte = new Date(toDate);
     }
-
-    const transactions = await PaymentTransaction.find(query)
+ 
+    const transactions = await TransactionV2.find(query)
       .populate('userId', 'name email phone username')
       .sort({ createdAt: -1 })
       .skip((parseInt(page) - 1) * parseInt(limit))
       .limit(parseInt(limit));
-
-    const totalCount = await PaymentTransaction.countDocuments(query);
-
+ 
+    const totalCount = await TransactionV2.countDocuments(query);
+ 
     const formatted = transactions.map(tx => ({
-      id: tx._id,
-      transactionId: tx.transactionId,
-      user: {
-        id: tx.userId._id,
-        name: tx.userId.name,
-        email: tx.userId.email,
-        phone: tx.userId.phone
+      id            : tx._id,
+      transactionId : tx.transactionId,
+      user          : {
+        id    : tx.userId?._id,
+        name  : tx.userId?.name,
+        email : tx.userId?.email,
+        phone : tx.userId?.phone
       },
-      packageLabel: tx.packageLabel,
-      tierKey: tx.tierKey,
-      ownershipPct: tx.ownershipPct,
-      earningKobo: tx.earningKobo,
-      amount: tx.amount,
-      currency: tx.currency,
-      paymentMethod: tx.paymentMethod?.replace('manual_', ''),
-      status: tx.status,
-      date: tx.createdAt,
-      paymentProof: tx.paymentProofCloudinaryUrl ? {
-        directUrl: tx.paymentProofCloudinaryUrl,
-        originalName: tx.paymentProofOriginalName
-      } : null,
-      manualPaymentDetails: tx.manualPaymentDetails || {},
-      adminNote: tx.adminNotes
+      packageLabel  : tx.tierKey,
+      tierKey       : tx.tierKey,
+      ownershipPct  : tx.ownershipPct,
+      earningKobo   : tx.earningKobo,
+      amount        : tx.totalAmount,
+      currency      : tx.currency,
+      paymentMethod : tx.paymentMethod?.replace('manual_', ''),
+      status        : tx.status,
+      date          : tx.createdAt,
+      paymentProof  : tx.paymentProof ? { directUrl: tx.paymentProof } : null,
+      adminNote     : tx.note
     }));
-
+ 
     res.json({
-      success: true,
+      success     : true,
       transactions: formatted,
-      pagination: {
-        currentPage: parseInt(page),
-        totalPages: Math.ceil(totalCount / parseInt(limit)),
+      pagination  : {
+        currentPage : parseInt(page),
+        totalPages  : Math.ceil(totalCount / parseInt(limit)),
         totalCount
       }
     });
-
+ 
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }
@@ -1479,12 +1048,13 @@ exports.adminGetManualTransactions = async (req, res) => {
 exports.adminVerifyManualPayment = async (req, res) => {
   try {
     const { transactionId, approved, adminNote } = req.body;
-
+ 
     const admin = await User.findById(req.user.id);
     if (!admin?.isAdmin) {
       return res.status(403).json({ success: false, message: 'Admin required' });
     }
-
+ 
+    // ── Update V1 ─────────────────────────────────────────────────────────
     const tx = await PaymentTransaction.findOne({ transactionId, type: 'share' });
     if (!tx) {
       return res.status(404).json({ success: false, message: 'Transaction not found' });
@@ -1492,13 +1062,25 @@ exports.adminVerifyManualPayment = async (req, res) => {
     if (tx.status !== 'pending') {
       return res.status(400).json({ success: false, message: `Transaction already ${tx.status}` });
     }
-
-    tx.status = approved ? 'completed' : 'failed';
+ 
+    tx.status     = approved ? 'completed' : 'failed';
     tx.adminNotes = adminNote;
     tx.verifiedBy = req.user.id;
     tx.verifiedAt = new Date();
     await tx.save();
-
+ 
+    // ── Update V2 ─────────────────────────────────────────────────────────
+    await TransactionV2.findOneAndUpdate(
+      { transactionId },
+      {
+        status    : approved ? 'completed' : 'failed',
+        note      : adminNote,
+        enteredBy : req.user.id
+      }
+    );
+    await recalculateUserShare(tx.userId);
+ 
+    // ── UserShare approval ────────────────────────────────────────────────
     if (approved) {
       await UserShare.approveTransaction(tx.userId, transactionId);
       try {
@@ -1509,14 +1091,15 @@ exports.adminVerifyManualPayment = async (req, res) => {
     } else {
       await UserShare.rejectTransaction(tx.userId, transactionId, 'failed');
     }
-
+ 
+    // ── Email user ────────────────────────────────────────────────────────
     const user = await User.findById(tx.userId);
     if (user?.email) {
       try {
         await sendEmail({
-          email: user.email,
-          subject: `Share Payment ${approved ? 'Approved' : 'Declined'}`,
-          html: `
+          email   : user.email,
+          subject : `Share Payment ${approved ? 'Approved' : 'Declined'}`,
+          html    : `
             <h2>Payment ${approved ? 'Approved ✅' : 'Declined ❌'}</h2>
             <p>Dear ${user.name},</p>
             <p>Your payment of ${tx.currency === 'naira' ? '₦' : '$'}${tx.amount.toLocaleString()} 
@@ -1529,13 +1112,13 @@ exports.adminVerifyManualPayment = async (req, res) => {
         console.error('Email error:', e.message);
       }
     }
-
+ 
     res.json({
-      success: true,
-      message: `Payment ${approved ? 'approved' : 'declined'} successfully`,
-      status: tx.status
+      success : true,
+      message : `Payment ${approved ? 'approved' : 'declined'} successfully`,
+      status  : tx.status
     });
-
+ 
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }
@@ -1544,39 +1127,45 @@ exports.adminVerifyManualPayment = async (req, res) => {
 exports.adminCancelManualPayment = async (req, res) => {
   try {
     const { transactionId, cancelReason } = req.body;
-
+ 
     const admin = await User.findById(req.user.id);
     if (!admin?.isAdmin) {
       return res.status(403).json({ success: false, message: 'Admin required' });
     }
-
+ 
     const tx = await PaymentTransaction.findOne({ transactionId, type: 'share' });
     if (!tx) {
       return res.status(404).json({ success: false, message: 'Transaction not found' });
     }
     if (tx.status !== 'completed') {
-      return res.status(400).json({ success: false, message: `Cannot cancel a transaction that is not completed` });
+      return res.status(400).json({ success: false, message: 'Cannot cancel a transaction that is not completed' });
     }
-
+ 
+    // ── V1 ────────────────────────────────────────────────────────────────
     await UserShare.rejectTransaction(tx.userId, transactionId, 'pending');
-
     try {
       await rollbackReferralCommission(tx.userId, transactionId, tx.amount, tx.currency, 'share', 'PaymentTransaction');
     } catch (e) {
       console.error('Referral rollback error:', e.message);
     }
-
-    tx.status = 'cancelled';
+    tx.status     = 'cancelled';
     tx.adminNotes = `CANCELLED: ${cancelReason || 'Admin cancelled'}`;
     await tx.save();
-
+ 
+    // ── V2 ────────────────────────────────────────────────────────────────
+    await TransactionV2.findOneAndUpdate(
+      { transactionId },
+      { status: 'cancelled', note: `CANCELLED: ${cancelReason || 'Admin cancelled'}` }
+    );
+    await recalculateUserShare(tx.userId);
+ 
     const user = await User.findById(tx.userId);
     if (user?.email) {
       try {
         await sendEmail({
-          email: user.email,
-          subject: 'Payment Approval Cancelled',
-          html: `
+          email   : user.email,
+          subject : 'Payment Approval Cancelled',
+          html    : `
             <p>Dear ${user.name},</p>
             <p>Your payment approval for <strong>${tx.packageLabel}</strong> has been temporarily reversed.</p>
             <p>Reason: ${cancelReason || 'Administrative review required'}</p>
@@ -1587,9 +1176,9 @@ exports.adminCancelManualPayment = async (req, res) => {
         console.error('Email error:', e.message);
       }
     }
-
+ 
     res.json({ success: true, message: 'Payment approval cancelled', status: 'pending' });
-
+ 
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }
@@ -1598,171 +1187,93 @@ exports.adminCancelManualPayment = async (req, res) => {
 exports.adminDeleteManualPayment = async (req, res) => {
   try {
     const { transactionId } = req.params;
-    const adminId = req.user.id;
-    
+    const adminId           = req.user.id;
+ 
     const admin = await User.findById(adminId);
     if (!admin || !admin.isAdmin) {
-      return res.status(403).json({
-        success: false,
-        message: 'Unauthorized: Admin access required'
-      });
+      return res.status(403).json({ success: false, message: 'Unauthorized: Admin access required' });
     }
-    
-    if (!transactionId) {
-      return res.status(400).json({
-        success: false,
-        message: 'Transaction ID is required'
-      });
+ 
+    const paymentTransaction = await PaymentTransaction.findOne({ transactionId, type: 'share' });
+    const v2tx               = await TransactionV2.findOne({ transactionId });
+    const userShareRecord    = await UserShare.findOne({ 'transactions.transactionId': transactionId });
+ 
+    if (!paymentTransaction && !v2tx && !userShareRecord) {
+      return res.status(404).json({ success: false, message: 'Transaction not found' });
     }
-    
-    const paymentTransaction = await PaymentTransaction.findOne({
-      transactionId,
-      type: 'share'
-    });
-    
-    const userShareRecord = await UserShare.findOne({
-      'transactions.transactionId': transactionId
-    });
-    
-    if (!paymentTransaction && !userShareRecord) {
-      return res.status(404).json({
-        success: false,
-        message: 'Transaction not found'
-      });
-    }
-    
-    let transactionDetails = {};
-    let cloudinaryIds = [];
-    
-    if (paymentTransaction) {
-      transactionDetails = {
-        shares: paymentTransaction.shares,
-        amount: paymentTransaction.amount,
-        currency: paymentTransaction.currency,
-        status: paymentTransaction.status,
-        tierBreakdown: paymentTransaction.tierBreakdown,
-        userId: paymentTransaction.userId
-      };
-      
-      if (paymentTransaction.paymentProofCloudinaryId) {
-        cloudinaryIds.push(paymentTransaction.paymentProofCloudinaryId);
-      }
-    }
-    
-    if (userShareRecord) {
-      const transaction = userShareRecord.transactions.find(
-        t => t.transactionId === transactionId
-      );
-      
-      if (transaction) {
-        if (!transactionDetails.shares) {
-          transactionDetails = {
-            shares: transaction.shares,
-            amount: transaction.totalAmount,
-            currency: transaction.currency,
-            status: transaction.status,
-            tierBreakdown: transaction.tierBreakdown,
-            userId: userShareRecord.user
-          };
-        }
-        
-        if (transaction.paymentProofCloudinaryId && 
-            !cloudinaryIds.includes(transaction.paymentProofCloudinaryId)) {
-          cloudinaryIds.push(transaction.paymentProofCloudinaryId);
-        }
-      }
-    }
-    
-    if (transactionDetails.status === 'completed') {
+ 
+    const userId = v2tx?.userId || paymentTransaction?.userId;
+    const status = v2tx?.status || paymentTransaction?.status;
+    const amount = v2tx?.totalAmount || paymentTransaction?.amount;
+    const currency = v2tx?.currency || paymentTransaction?.currency;
+ 
+    // ── Rollback referral if completed ────────────────────────────────────
+    if (status === 'completed') {
       try {
-        await rollbackReferralCommission(
-          transactionDetails.userId,
-          transactionId,
-          transactionDetails.amount,
-          transactionDetails.currency,
-          'share',
-          'PaymentTransaction'
-        );
-      } catch (referralError) {
-        console.error('Error rolling back share referral commissions:', referralError);
+        await rollbackReferralCommission(userId, transactionId, amount, currency, 'share', 'PaymentTransaction');
+      } catch (e) {
+        console.error('Referral rollback error:', e);
       }
     }
-    
-    for (const cloudinaryId of cloudinaryIds) {
-      try {
-        await deleteFromCloudinary(cloudinaryId);
-        console.log(`Share payment proof file deleted from Cloudinary: ${cloudinaryId}`);
-      } catch (fileError) {
-        console.error('Error deleting share payment proof file from Cloudinary:', fileError);
-      }
+ 
+    // ── Cloudinary cleanup ────────────────────────────────────────────────
+    const proofId = paymentTransaction?.paymentProofCloudinaryId;
+    if (proofId) {
+      try { await deleteFromCloudinary(proofId); } catch (e) { console.error('Cloudinary error:', e); }
     }
-    
+ 
+    // ── Delete from V1 ────────────────────────────────────────────────────
     if (paymentTransaction) {
       await PaymentTransaction.deleteOne({ _id: paymentTransaction._id });
-      console.log('Share PaymentTransaction record deleted');
     }
-    
     if (userShareRecord) {
       userShareRecord.transactions = userShareRecord.transactions.filter(
         t => t.transactionId !== transactionId
       );
       await userShareRecord.save();
-      console.log('Share UserShare record updated');
     }
-    
-    const user = await User.findById(transactionDetails.userId);
-    
-    if (user && user.email) {
+ 
+    // ── Delete from V2 ────────────────────────────────────────────────────
+    if (v2tx) {
+      await TransactionV2.deleteOne({ transactionId });
+      await recalculateUserShare(userId);
+    }
+ 
+    // ── Email ─────────────────────────────────────────────────────────────
+    const user = await User.findById(userId);
+    if (user?.email) {
       try {
         await sendEmail({
-          email: user.email,
-          subject: 'AfriMobile - Share Transaction Deleted',
-          html: `
+          email   : user.email,
+          subject : 'AfriMobile - Share Transaction Deleted',
+          html    : `
             <h2>Transaction Deletion Notice</h2>
             <p>Dear ${user.name},</p>
-            <p>Your share manual payment transaction has been deleted from our system.</p>
-            <p>Transaction Details:</p>
-            <ul>
-              <li>Transaction ID: ${transactionId}</li>
-              <li>Shares: ${transactionDetails.shares}</li>
-              <li>Amount: ${transactionDetails.currency === 'naira' ? '₦' : '$'}${transactionDetails.amount}</li>
-              <li>Previous Status: ${transactionDetails.status}</li>
-            </ul>
-            ${transactionDetails.status === 'completed' ? 
-              `<p>Since this was a completed transaction, the shares have been removed from your account and any related commissions have been reversed.</p>` : 
-              `<p>This transaction was pending verification when it was deleted.</p>`
+            <p>Your share transaction <strong>${transactionId}</strong> has been deleted.</p>
+            ${status === 'completed'
+              ? '<p>Since this was a completed transaction, the shares have been removed from your account and any related commissions have been reversed.</p>'
+              : '<p>This transaction was pending verification when it was deleted.</p>'
             }
             <p>If you believe this was done in error, please contact our support team.</p>
           `
         });
-      } catch (emailError) {
-        console.error('Failed to send deletion notification email:', emailError);
+      } catch (e) {
+        console.error('Email error:', e);
       }
     }
-    
+ 
     res.status(200).json({
-      success: true,
-      message: 'Share manual payment transaction deleted successfully',
-      data: {
-        transactionId,
-        deletedTransaction: {
-          shares: transactionDetails.shares,
-          amount: transactionDetails.amount,
-          currency: transactionDetails.currency,
-          previousStatus: transactionDetails.status
-        },
-        cloudinaryFilesDeleted: cloudinaryIds.length
-      }
+      success : true,
+      message : 'Share manual payment transaction deleted successfully',
+      data    : { transactionId, previousStatus: status }
     });
+ 
   } catch (error) {
     console.error('Error deleting share manual payment transaction:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Failed to delete manual payment transaction',
-      error: process.env.NODE_ENV === 'development' ? error.message : undefined
-    });
+    res.status(500).json({ success: false, message: 'Failed to delete manual payment transaction' });
   }
 };
+
 
 // ==================== ADMIN REPORTS ====================
 
@@ -2320,61 +1831,54 @@ exports.sendCertificateEmail = async (req, res) => {
 //
 
 
-exports. checkPendingPayment = async (req, res) => {
+exports.checkPendingPayment = async (req, res) => {
   try {
     const userId = req.user.id;
-
-    // ── 1. Genuinely pending → BLOCKS new purchase ────────────────────────
-    const pending = await PaymentTransaction.findOne({
+ 
+    const pending = await TransactionV2.findOne({
       userId,
-      type: { $in: ['share', 'regular'] },  // match your actual type values
-      status: 'pending',
+      status: 'pending'
     }).sort({ createdAt: -1 }).lean();
-
+ 
     if (pending) {
       return res.json({
-        success: true,
-        hasPending: true,
-        pendingTransaction: {
-          transactionId: pending.transactionId,
-          amount:        pending.amount,
-          packageLabel:  pending.packageLabel,
-          currency:      pending.currency,
-          status:        'pending',         // always literal 'pending' here
-          date:          pending.createdAt,
-        },
+        success            : true,
+        hasPending         : true,
+        pendingTransaction : {
+          transactionId : pending.transactionId,
+          amount        : pending.totalAmount,
+          packageLabel  : pending.tierKey,
+          currency      : pending.currency,
+          status        : 'pending',
+          date          : pending.createdAt
+        }
       });
     }
-
-    // ── 2. Recently rejected/failed → INFO ONLY, does NOT block ──────────
-    // Only show if it happened in the last 7 days to avoid stale notices
+ 
     const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
-
-    const rejected = await PaymentTransaction.findOne({
+    const rejected     = await TransactionV2.findOne({
       userId,
-      type: { $in: ['share', 'regular'] },
-      status: { $in: ['failed', 'rejected'] },
-      createdAt: { $gte: sevenDaysAgo },
+      status    : { $in: ['failed', 'rejected'] },
+      createdAt : { $gte: sevenDaysAgo }
     }).sort({ createdAt: -1 }).lean();
-
+ 
     if (rejected) {
       return res.json({
-        success: true,
-        hasPending: true,           // tells frontend to show a notice
-        pendingTransaction: {
-          transactionId: rejected.transactionId,
-          amount:        rejected.amount,
-          packageLabel:  rejected.packageLabel,
-          currency:      rejected.currency,
-          status:        rejected.status,   // 'failed' or 'rejected' → non-blocking
-          date:          rejected.createdAt,
-        },
+        success            : true,
+        hasPending         : true,
+        pendingTransaction : {
+          transactionId : rejected.transactionId,
+          amount        : rejected.totalAmount,
+          packageLabel  : rejected.tierKey,
+          currency      : rejected.currency,
+          status        : rejected.status,
+          date          : rejected.createdAt
+        }
       });
     }
-
-    // ── 3. Nothing relevant → clear to purchase ───────────────────────────
+ 
     return res.json({ success: true, hasPending: false });
-
+ 
   } catch (err) {
     console.error('checkPendingPayment error:', err);
     res.status(500).json({ success: false, message: err.message });
@@ -2386,107 +1890,107 @@ exports.submitManualPayment = async (req, res) => {
   try {
     const { packageId, currency, paymentMethod, bankName, accountName, reference } = req.body;
     const userId = req.user.id;
-
+ 
     if (!userId) {
       return res.status(401).json({ success: false, message: 'Authentication required' });
     }
-
     if (!req.file || !req.file.path) {
       return res.status(400).json({ success: false, message: 'Payment proof is required' });
     }
-
+ 
     const tierKey = req.body.tierKey || req.body.tier || packageId;
-    
-    const config = await TierConfig.getCurrentConfig();
+    const config  = await TierConfig.getCurrentConfig();
+ 
     if (!config.tiers.has(tierKey)) {
       return res.status(400).json({ success: false, message: `Invalid tier: ${tierKey}` });
     }
-    
+ 
     const tierData = config.tiers.get(tierKey);
-    
-    // ✅ FIXED: Accept both 'share' and 'regular' tier types
     if (!['share', 'regular'].includes(tierData.type) || tierData.active === false) {
       return res.status(400).json({ success: false, message: 'Invalid or inactive tier' });
     }
-    
+ 
     const priceAmount = currency === 'naira' ? tierData.priceNGN : tierData.priceUSD;
     if (!priceAmount) {
       return res.status(400).json({ success: false, message: `Tier not available in ${currency}` });
     }
-
-    const existing = await PaymentTransaction.findOne({
-      userId,
-      type: 'share',
-      status: 'pending'
-    });
-    if (existing) {
+ 
+    // Block if a pending V2 transaction already exists
+    const existingV2 = await TransactionV2.findOne({ userId, status: 'pending' });
+    if (existingV2) {
       return res.status(400).json({
         success: false,
         message: 'You already have a pending payment awaiting approval',
         pendingTransaction: {
-          transactionId: existing.transactionId,
-          amount: existing.amount,
-          packageLabel: existing.packageLabel,
-          date: existing.createdAt
+          transactionId: existingV2.transactionId,
+          amount       : existingV2.totalAmount,
+          packageLabel : existingV2.tierKey,
+          date         : existingV2.createdAt
         }
       });
     }
-
+ 
     const transactionId = `TXN-${crypto.randomBytes(4).toString('hex').toUpperCase()}-${Date.now().toString().slice(-6)}`;
-
-    const txData = {
+ 
+    const sharedTxData = {
       transactionId,
-      type: 'share',
+      type          : 'share',
       tierKey,
-      packageId: tierKey,
-      packageLabel: tierData.name,
-      ownershipPct: tierData.percentPerShare,
-      earningKobo: tierData.earningPerPhone,
-      amount: priceAmount,
+      packageId     : tierKey,
+      packageLabel  : tierData.name,
+      ownershipPct  : tierData.percentPerShare,   // per-share value
+      earningKobo   : tierData.earningPerPhone,   // per-share value
+      amount        : priceAmount,
+      totalAmount   : priceAmount,
       currency,
-      paymentMethod: `manual_${paymentMethod}`,
-      status: 'pending',
-      shares: 1,
-      manualPaymentDetails: { bankName, accountName, reference },
-      paymentProofCloudinaryUrl: req.file.path,
-      paymentProofCloudinaryId: req.file.filename,
-      paymentProofOriginalName: req.file.originalname,
-      paymentProofFileSize: req.file.size
+      paymentMethod : `manual_${paymentMethod}`,
+      status        : 'pending',
+      shares        : 1,
+      manualPaymentDetails : { bankName, accountName, reference },
+      paymentProofCloudinaryUrl : req.file.path,
+      paymentProofCloudinaryId  : req.file.filename,
+      paymentProofOriginalName  : req.file.originalname,
+      paymentProofFileSize      : req.file.size
     };
-
-    await PaymentTransaction.create({ userId, ...txData });
-    await UserShare.addTransaction(userId, txData);
-
-    const user = await User.findById(userId);
+ 
+    // ── V1 writes (keep for legacy compatibility) ─────────────────────────
+    await PaymentTransaction.create({ userId, ...sharedTxData });
+    await UserShare.addTransaction(userId, sharedTxData);
+ 
+    // ── V2 write ──────────────────────────────────────────────────────────
+    await writeToV2({ ...sharedTxData, userId });
+ 
+    // Notify admins
+    const user   = await User.findById(userId);
     const admins = await User.find({ isAdmin: true, email: { $exists: true } });
     for (const admin of admins) {
       await sendEmail({
-        email: admin.email,
-        subject: 'New Share Payment Submitted',
-        html: `
+        email   : admin.email,
+        subject : 'New Share Payment Submitted',
+        html    : `
           <h2>New Manual Payment Requires Review</h2>
           <p><strong>User:</strong> ${user?.name} (${user?.email})</p>
           <p><strong>Transaction ID:</strong> ${transactionId}</p>
           <p><strong>Package:</strong> ${tierData.name}</p>
           <p><strong>Amount:</strong> ${currency === 'naira' ? '₦' : '$'}${priceAmount.toLocaleString()}</p>
-          <p><strong>Ownership:</strong> ${(tierData.percentPerShare * 100).toFixed(7)}%</p>
+          <p><strong>Ownership per share:</strong> ${(tierData.percentPerShare * 100).toFixed(7)}%</p>
         `
       });
     }
-
+ 
     res.json({
-      success: true,
-      message: 'Payment submitted successfully. Awaiting admin verification.',
-      data: {
+      success : true,
+      message : 'Payment submitted successfully. Awaiting admin verification.',
+      data    : {
         transactionId,
-        packageLabel: tierData.name,
-        ownershipPct: tierData.percentPerShare,
-        amount: priceAmount,
+        packageLabel : tierData.name,
+        ownershipPct : tierData.percentPerShare,
+        amount       : priceAmount,
         currency,
-        status: 'pending'
+        status       : 'pending'
       }
     });
-
+ 
   } catch (error) {
     console.error('submitManualPayment error:', error);
     res.status(500).json({ success: false, message: error.message });
@@ -2579,6 +2083,385 @@ exports.getPaymentProof = async (req, res) => {
     });
   }
 };
+
+/**
+ * @desc    Admin: Get all share tiers (both regular and co-founder)
+ * @route   GET /api/shares/admin/tiers
+ * @access  Private (Admin)
+ * CORRECTED: Single, comprehensive version
+ */
+exports.getAllTiers = async (req, res) => {
+  try {
+    const admin = await User.findById(req.user.id);
+    if (!admin || !admin.isAdmin) {
+      return res.status(403).json({
+        success: false,
+        message: 'Unauthorized: Admin access required'
+      });
+    }
+    
+    const config = await TierConfig.getCurrentConfig();
+    const shareTiers = [];
+    const cofounderTiers = [];
+    
+    for (const [key, tier] of config.tiers) {
+      const tierData = {
+        key,
+        name: tier.name,
+        type: tier.type,
+        priceNGN: tier.priceNGN,
+        priceUSD: tier.priceUSD,
+        percentPerShare: tier.percentPerShare,
+        earningPerPhone: tier.earningPerPhone,
+        sharesIncluded: tier.sharesIncluded || 1,
+        active: tier.active,
+        description: tier.description || '',
+        priceHistory: tier.priceHistory || [],
+        createdAt: tier.createdAt,
+        updatedAt: tier.updatedAt
+      };
+      
+      if (tier.type === 'share' || tier.type === 'regular') {
+        shareTiers.push(tierData);
+      } else if (tier.type === 'co-founder' || tier.type === 'cofounder') {
+        cofounderTiers.push(tierData);
+      }
+    }
+    
+    res.status(200).json({
+      success: true,
+      tiers: {
+        share: shareTiers,
+        cofounder: cofounderTiers
+      },
+      totalTiers: shareTiers.length + cofounderTiers.length,
+      lastUpdated: config.lastUpdated,
+      lastUpdatedBy: config.lastUpdatedBy
+    });
+  } catch (error) {
+    console.error('Error getting tiers:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to get tiers',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+};
+ 
+/**
+ * @desc    Admin: Create a new share tier
+ * @route   POST /api/shares/admin/tiers/create
+ * @access  Private (Admin)
+ * CORRECTED: Single, comprehensive version
+ */
+exports.createTier = async (req, res) => {
+  try {
+    const { tierKey, name, type, priceNaira, priceUSDT, percentPerShare, earningPerPhone, sharesIncluded, description } = req.body;
+    const adminId = req.user.id;
+    
+    const admin = await User.findById(adminId);
+    if (!admin || !admin.isAdmin) {
+      return res.status(403).json({
+        success: false,
+        message: 'Unauthorized: Admin access required'
+      });
+    }
+    
+    if (!tierKey || !name || !priceNaira || !percentPerShare || !earningPerPhone) {
+      return res.status(400).json({
+        success: false,
+        message: 'tierKey, name, priceNaira, percentPerShare, and earningPerPhone are required'
+      });
+    }
+    
+    const config = await TierConfig.getCurrentConfig();
+    
+    if (config.tiers.has(tierKey)) {
+      return res.status(400).json({
+        success: false,
+        message: `Tier '${tierKey}' already exists`
+      });
+    }
+    
+    const newTier = {
+      name,
+      type: type || 'share',
+      priceNGN: parseFloat(priceNaira),
+      priceUSD: priceUSDT ? parseFloat(priceUSDT) : 0,
+      percentPerShare: parseFloat(percentPerShare),
+      earningPerPhone: parseInt(earningPerPhone),
+      sharesIncluded: sharesIncluded ? parseInt(sharesIncluded) : 1,
+      active: true,
+      description: description || '',
+      priceHistory: [],
+      createdAt: new Date(),
+      updatedAt: new Date()
+    };
+    
+    config.tiers.set(tierKey, newTier);
+    config.lastUpdated = new Date();
+    config.lastUpdatedBy = adminId;
+    await config.save();
+    
+    res.status(201).json({
+      success: true,
+      message: `Tier '${tierKey}' created successfully`,
+      tier: {
+        key: tierKey,
+        ...newTier
+      }
+    });
+  } catch (error) {
+    console.error('Error creating tier:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to create tier',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+};
+ 
+/**
+ * @desc    Admin: Update tier status (activate/deactivate)
+ * @route   PUT /api/shares/admin/tiers/:tierKey
+ * @access  Private (Admin)
+ */
+exports.updateTierStatus = async (req, res) => {
+  try {
+    const { tierKey } = req.params;
+    const { active, reason } = req.body;
+    const adminId = req.user.id;
+    
+    const admin = await User.findById(adminId);
+    if (!admin || !admin.isAdmin) {
+      return res.status(403).json({
+        success: false,
+        message: 'Unauthorized: Admin access required'
+      });
+    }
+    
+    if (active === undefined) {
+      return res.status(400).json({
+        success: false,
+        message: 'active status is required'
+      });
+    }
+    
+    const config = await TierConfig.getCurrentConfig();
+    
+    if (!config.tiers.has(tierKey)) {
+      return res.status(404).json({
+        success: false,
+        message: `Tier '${tierKey}' not found`
+      });
+    }
+    
+    const tier = config.tiers.get(tierKey);
+    tier.active = active;
+    tier.updatedAt = new Date();
+    
+    config.tiers.set(tierKey, tier);
+    config.lastUpdated = new Date();
+    config.lastUpdatedBy = adminId;
+    await config.save();
+    
+    res.status(200).json({
+      success: true,
+      message: `Tier '${tierKey}' ${active ? 'activated' : 'deactivated'} successfully`,
+      tier: {
+        key: tierKey,
+        name: tier.name,
+        active: tier.active,
+        type: tier.type
+      }
+    });
+  } catch (error) {
+    console.error('Error updating tier status:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to update tier status',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+};
+ 
+/**
+ * @desc    Admin: Edit tier details (name, prices, earnings, description, etc.)
+ * @route   PUT /api/shares/admin/tiers/:tierKey/edit
+ * @access  Private (Admin)
+ * CRITICAL FIX: This function must update the tier in TierConfig correctly
+ */
+exports.editTier = async (req, res) => {
+  try {
+    const { tierKey } = req.params;
+    const adminId = req.user.id;
+ 
+    const admin = await User.findById(adminId);
+    if (!admin || !admin.isAdmin) {
+      return res.status(403).json({
+        success: false,
+        message: 'Unauthorized: Admin access required'
+      });
+    }
+ 
+    const config = await TierConfig.getCurrentConfig();
+ 
+    if (!config.tiers.has(tierKey)) {
+      return res.status(404).json({
+        success: false,
+        message: `Tier '${tierKey}' not found`
+      });
+    }
+ 
+    const tier = config.tiers.get(tierKey);
+    const {
+      name,
+      priceNGN,
+      priceUSD,
+      percentPerShare,
+      earningPerPhone,
+      sharesIncluded,
+      description,
+      reason
+    } = req.body;
+ 
+    // Check if any changes are being made
+    const hasChanges = [name, priceNGN, priceUSD, percentPerShare, earningPerPhone, sharesIncluded, description].some(field => field !== undefined);
+    
+    if (!hasChanges) {
+      return res.status(400).json({
+        success: false,
+        message: 'No fields to update'
+      });
+    }
+ 
+    // Track price history if prices are changing
+    const priceChanged =
+      (priceNGN !== undefined && parseFloat(priceNGN) !== tier.priceNGN) ||
+      (priceUSD !== undefined && parseFloat(priceUSD) !== tier.priceUSD);
+ 
+    if (priceChanged) {
+      if (!tier.priceHistory) tier.priceHistory = [];
+      tier.priceHistory.push({
+        oldPriceNaira: tier.priceNGN,
+        oldPriceUSDT:  tier.priceUSD,
+        newPriceNaira: priceNGN !== undefined ? parseFloat(priceNGN) : tier.priceNGN,
+        newPriceUSDT:  priceUSD !== undefined ? parseFloat(priceUSD) : tier.priceUSD,
+        changedBy: adminId,
+        reason: reason || 'Admin tier edit',
+        date: new Date()
+      });
+    }
+ 
+    // Apply only the fields that were sent (IMPORTANT: Update tier object directly)
+    if (name !== undefined) tier.name = name;
+    if (priceNGN !== undefined) tier.priceNGN = parseFloat(priceNGN);
+    if (priceUSD !== undefined) tier.priceUSD = parseFloat(priceUSD);
+    if (percentPerShare !== undefined) tier.percentPerShare = parseFloat(percentPerShare);
+    if (earningPerPhone !== undefined) tier.earningPerPhone = parseInt(earningPerPhone);
+    if (sharesIncluded !== undefined) tier.sharesIncluded = parseInt(sharesIncluded);
+    if (description !== undefined) tier.description = description;
+ 
+    tier.updatedAt = new Date();
+ 
+    // CRITICAL: Use markModified for Maps to ensure they're saved
+    config.tiers.set(tierKey, tier);
+    config.markModified('tiers');
+    config.lastUpdated = new Date();
+    config.lastUpdatedBy = adminId;
+    
+    // Save with explicit validation
+    await config.save();
+ 
+    res.status(200).json({
+      success: true,
+      message: `Tier '${tierKey}' updated successfully`,
+      tier: {
+        key: tierKey,
+        name: tier.name,
+        type: tier.type,
+        priceNGN: tier.priceNGN,
+        priceUSD: tier.priceUSD,
+        percentPerShare: tier.percentPerShare,
+        earningPerPhone: tier.earningPerPhone,
+        sharesIncluded: tier.sharesIncluded,
+        description: tier.description,
+        active: tier.active,
+        priceHistory: tier.priceHistory || [],
+        updatedAt: tier.updatedAt
+      }
+    });
+  } catch (error) {
+    console.error('Error editing tier:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to edit tier',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+};
+ 
+/**
+ * @desc    Admin: Delete a share tier
+ * @route   DELETE /api/shares/admin/tiers/:tierKey
+ * @access  Private (Admin)
+ * CORRECTED: Single, comprehensive version
+ */
+exports.deleteTier = async (req, res) => {
+  try {
+    const { tierKey } = req.params;
+    const adminId = req.user.id;
+    
+    const admin = await User.findById(adminId);
+    if (!admin || !admin.isAdmin) {
+      return res.status(403).json({
+        success: false,
+        message: 'Unauthorized: Admin access required'
+      });
+    }
+    
+    const config = await TierConfig.getCurrentConfig();
+    
+    if (!config.tiers.has(tierKey)) {
+      return res.status(404).json({
+        success: false,
+        message: `Tier '${tierKey}' not found`
+      });
+    }
+    
+    // Check if tier has any completed transactions
+    const hasTransactions = await PaymentTransaction.exists({
+      tierKey: tierKey,
+      status: 'completed'
+    });
+    
+    if (hasTransactions) {
+      return res.status(400).json({
+        success: false,
+        message: 'Cannot delete tier that has completed transactions. Deactivate it instead.'
+      });
+    }
+    
+    config.tiers.delete(tierKey);
+    config.markModified('tiers');
+    config.lastUpdated = new Date();
+    config.lastUpdatedBy = adminId;
+    await config.save();
+    
+    res.status(200).json({
+      success: true,
+      message: `Tier '${tierKey}' deleted successfully`
+    });
+  } catch (error) {
+    console.error('Error deleting tier:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to delete tier',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+};
+
 
 exports.getPaymentProofDirect = async (req, res) => {
   try {

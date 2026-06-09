@@ -527,7 +527,7 @@ const getSwaggerSpec = () => {
   }
 
   // Add custom server if BASE_URL is different from production
-  if (process.env.BASE_URL && process.env.BASE_URL !== 'https://afrimo-database-829f07d09c94.herokuapp.com/') {
+  if (process.env.BASE_URL && process.env.BASE_URL !== 'https://afrimo-database-829f07d09c94.herokuapp.com') {
     servers.unshift({
       url: `${process.env.BASE_URL}/api`,
       description: 'Custom server'

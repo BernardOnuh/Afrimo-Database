@@ -25,6 +25,10 @@ const PaymentTransaction = require('../models/Transaction');
 const { sendEmail }    = require('../utils/emailService');
 const { deleteFromCloudinary } = require('../config/cloudinary');
 const crypto           = require('crypto');
+const TransactionV2        = require('../models/TransactionV2');
+const UserShareV2          = require('../models/UserShareV2');
+const writeToV2            = require('../helpers/writeToV2');
+const recalculateUserShare = require('../helpers/recalculateUserShare');
 
 const genTxId  = (prefix = 'FRN') =>
   `${prefix}-${crypto.randomBytes(4).toString('hex').toUpperCase()}-${Date.now().toString().slice(-6)}`;
@@ -56,24 +60,32 @@ console.log('Full tier object:', JSON.stringify(t));
 
 // ─── Helper: release shares to a user (no referral commissions) ───────────────
 const releaseShares = async ({ userId, tierKey, tierData, companyPrice, currency, transactionId, source }) => {
+  const type = tierData.type === 'co-founder' ? 'co-founder' : 'share';
+
   const txData = {
     transactionId,
-    type:         tierData.type === 'co-founder' ? 'co-founder' : 'share',
-    packageId:    tierKey,
-    packageLabel: tierData.name,
-    ownershipPct: tierData.percentPerShare,
-    earningKobo:  tierData.earningPerPhone,
-    amount:       companyPrice,
+    type,
+    tierKey,
+    packageId    : tierKey,
+    packageLabel : tierData.name,
+    ownershipPct : tierData.percentPerShare,   // per-share
+    earningKobo  : tierData.earningPerPhone,   // per-share
+    shares       : tierData.sharesIncluded || 1,
+    amount       : companyPrice,
+    totalAmount  : companyPrice,
     currency,
     paymentMethod: source === 'franchise_self' ? 'franchise_credit' : 'franchise',
-    status: 'completed',
+    status       : 'completed',
   };
 
+  // ── V1 ────────────────────────────────────────────────────────────────────
   await PaymentTransaction.create({ userId, ...txData });
   await UserShare.addTransaction(userId, txData);
   await UserShare.approveTransaction(userId, transactionId);
-};
 
+  // ── V2 ────────────────────────────────────────────────────────────────────
+  await writeToV2({ ...txData, userId });
+};
 // ═══════════════════════════════════════════════════════════════════
 // PUBLIC
 // ═══════════════════════════════════════════════════════════════════
