@@ -1163,6 +1163,102 @@ const getReferralEarnings = async (req, res) => {
   }
 };
 
+
+/**
+ * ADMIN ENDPOINT: See who referred a specific user
+ * GET /api/referral/admin/who-referred/:userId
+ * 
+ * Input: User ID
+ * Output: Complete referrer chain (who referred them, who referred their referrer, etc.)
+ */
+const adminSeeWhoReferred = async (req, res) => {
+  try {
+    // Verify admin
+    if (!req.user.isAdmin) {
+      return res.status(403).json({
+        success: false,
+        message: 'Unauthorized: Admin access required'
+      });
+    }
+ 
+    const { userId } = req.params;
+ 
+    // Find the user
+    const user = await User.findById(userId).select('_id userName email name referralInfo createdAt');
+ 
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
+    }
+ 
+    // Build the referrer chain (who referred this person, who referred their referrer, etc.)
+    const referrerChain = [];
+    let currentUser = user;
+ 
+    for (let generation = 1; generation <= 3; generation++) {
+      // Check if current user has a referrer
+      if (!currentUser.referralInfo?.code) {
+        break;
+      }
+ 
+      // Find the referrer by their username
+      const referrer = await User.findOne({ userName: currentUser.referralInfo.code })
+        .select('_id userName email name referralInfo createdAt');
+ 
+      if (!referrer) {
+        break;
+      }
+ 
+      // Add to chain
+      referrerChain.push({
+        generation,
+        userId: referrer._id,
+        userName: referrer.userName,
+        email: referrer.email,
+        name: referrer.name,
+        joinedDate: referrer.createdAt
+      });
+ 
+      // Move up to next level
+      currentUser = referrer;
+    }
+ 
+    // Format response
+    res.status(200).json({
+      success: true,
+      targetUser: {
+        id: user._id,
+        userName: user.userName,
+        email: user.email,
+        name: user.name,
+        joinedDate: user.createdAt,
+        referralCode: user.referralInfo?.code || null
+      },
+      whoReferredThem: {
+        hasReferrer: referrerChain.length > 0,
+        directReferrer: referrerChain.length > 0 ? referrerChain[0] : null,
+        completeChain: referrerChain,
+        depth: referrerChain.length
+      },
+      summary: {
+        message: referrerChain.length === 0 
+          ? `${user.userName} has no referrer (organic user)` 
+          : `${user.userName} was referred by ${referrerChain[0].userName}`
+      }
+    });
+ 
+  } catch (error) {
+    console.error('Error in adminSeeWhoReferred:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch referrer information',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+};
+
 // Admin route to adjust referral commission settings
 const updateReferralSettings = async (req, res) => {
   try {
@@ -1648,6 +1744,7 @@ module.exports = {
   processCofounderReferralCommission, // NEW: Added co-founder specific function
   // Export middleware for user signup
   processSignup,
+  adminSeeWhoReferred,
   // Export function for purchase processing
   processPurchase
 };

@@ -1,7 +1,8 @@
-const User = require('../models/User');
-const Withdrawal = require('../models/Withdrawal');
+const User          = require('../models/User');
+const Withdrawal    = require('../models/Withdrawal');
 const TransactionV2 = require('../models/TransactionV2');
-const UserShareV2 = require('../models/UserShareV2');
+const UserShareV2   = require('../models/UserShareV2');
+const TransactionV1 = require('../models/Transaction');   // used to recover original createdAt
 
 // controllers/adminAnalyticsController.js
 
@@ -96,7 +97,7 @@ exports.getOverview = async (req, res) => {
       };
     };
 
-    // ── Helper: build recent activity from V2 ─────────────────────────────
+    // ── Helper: build recent activity, recovering original dates from V1 ──
     const buildRecentActivity = async (txFilter = {}, wdFilter = {}) => {
       const [rawTransactions, rawWithdrawals] = await Promise.all([
         TransactionV2.find(txFilter)
@@ -114,13 +115,38 @@ exports.getOverview = async (req, res) => {
           .lean()
       ]);
 
-      const taggedTransactions = rawTransactions.map(tx => ({
-        ...tx,
-        activityType: 'transaction',
-        // Normalise amount field name: V2 uses totalAmount
-        amount: tx.totalAmount || tx.amount || 0,
-        userId: tx.userId
-      }));
+      // Fetch original V1 dates for all V2 transactions in one query.
+      // During migration, V2 records were written with the migration timestamp,
+      // not the original transaction date. V1 still has the true createdAt.
+      const v2TransactionIds = rawTransactions
+        .map(tx => tx.transactionId)
+        .filter(Boolean);
+
+      const v1DateMap = {};
+      if (v2TransactionIds.length > 0) {
+        const v1Records = await TransactionV1.find(
+          { transactionId: { $in: v2TransactionIds } },
+          { transactionId: 1, createdAt: 1 }
+        ).lean();
+        for (const v1 of v1Records) {
+          v1DateMap[v1.transactionId] = v1.createdAt;
+        }
+      }
+
+      const taggedTransactions = rawTransactions.map(tx => {
+        // Use V1 createdAt if available — it is the true original date.
+        // Fall back to V2 createdAt only for genuinely new post-migration transactions
+        // (those won't have a V1 record, so v1DateMap lookup returns undefined).
+        const originalCreatedAt = v1DateMap[tx.transactionId] || tx.createdAt;
+
+        return {
+          ...tx,
+          activityType: 'transaction',
+          amount      : tx.totalAmount || tx.amount || 0,
+          userId      : tx.userId,
+          createdAt   : originalCreatedAt
+        };
+      });
 
       const taggedWithdrawals = rawWithdrawals.map(wd => ({
         ...wd,
@@ -231,9 +257,6 @@ exports.getOverview = async (req, res) => {
 
 // ── Transaction detail — reads from V2 (falls back to V1 for older records) ──
 
-const TransactionV1 = require('../models/Transaction');   // V1 kept for fallback
-const UserShare     = require('../models/UserShare');      // V1 UserShare fallback
-
 /**
  * @desc    Get transaction detail (full user info, payment proof, referrer, etc.)
  * @route   GET /api/admin/analytics/transaction/:transactionId
@@ -249,8 +272,30 @@ exports.getTransactionDetail = async (req, res) => {
       .lean();
 
     if (transaction) {
+      // ── Recover the true original createdAt ──────────────────────────────
+      // Priority 1: V1 record createdAt (most reliable)
+      const v1Record = await TransactionV1.findOne(
+        { transactionId: transaction.transactionId },
+        { createdAt: 1 }
+      ).lean();
+
+      if (v1Record?.createdAt) {
+        transaction = { ...transaction, createdAt: v1Record.createdAt };
+      } else if (transaction.note) {
+        // Priority 2: parse date from the note field e.g. "share| 2026-05-14"
+        // covers legacy migrations where V1 was already cleaned up
+        const dateMatch = transaction.note.match(/\d{4}-\d{2}-\d{2}/);
+        if (dateMatch) {
+          const parsedDate = new Date(dateMatch[0]);
+          if (!isNaN(parsedDate.getTime())) {
+            transaction = { ...transaction, createdAt: parsedDate };
+          }
+        }
+      }
+
       return await buildDetailResponseV2(res, transaction);
     }
+
 
     // ── Fall back to V1 ───────────────────────────────────────────────────
     transaction = await TransactionV1.findOne({ transactionId })
@@ -282,9 +327,6 @@ exports.getTransactionDetail = async (req, res) => {
 };
 
 async function buildDetailResponseV2(res, transaction) {
-  const User     = require('../models/User');
-  const UserShareV2 = require('../models/UserShareV2');
-
   const user = transaction.userId;
 
   // ── Referrer ──────────────────────────────────────────────────────────

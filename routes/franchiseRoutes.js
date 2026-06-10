@@ -96,6 +96,97 @@ router.get('/packages', fc.getPackages);
  */
 router.get('/list', fc.listFranchises);   // ← no protect
 
+
+/**
+ * @swagger
+ * /franchise/admin/{franchiseId}:
+ *   delete:
+ *     tags: [Franchise - Admin]
+ *     summary: Delete a franchise and all its transactions
+ *     description: |
+ *       Permanently deletes a franchise and **hard deletes all associated transactions**.
+ *       This action is irreversible. Revenue stats will automatically reflect the removal
+ *       if aggregated dynamically.
+ *     security:
+ *       - adminAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: franchiseId
+ *         required: true
+ *         schema:
+ *           type: string
+ *         example: "6745f752ce52dd63c0758370"
+ *     responses:
+ *       200:
+ *         description: Franchise and all transactions deleted successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 message:
+ *                   type: string
+ *                 deleted:
+ *                   type: object
+ *                   properties:
+ *                     franchiseId:
+ *                       type: string
+ *                     transactionsRemoved:
+ *                       type: integer
+ *       404:
+ *         description: Franchise not found
+ *       500:
+ *         description: Server error
+ */
+router.delete('/admin/:franchiseId', protect, adminProtect, fc.adminDeleteFranchise);
+
+/**
+ * @swagger
+ * /franchise/admin/{franchiseId}:
+ *   delete:
+ *     tags: [Franchise - Admin]
+ *     summary: Delete a franchise and all its transactions
+ *     description: |
+ *       Permanently deletes a franchise and hard deletes all associated transactions.
+ *       This action is irreversible. Revenue stats will automatically reflect the removal
+ *       since they are aggregated dynamically.
+ *     security:
+ *       - adminAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: franchiseId
+ *         required: true
+ *         schema:
+ *           type: string
+ *         example: "6745f752ce52dd63c0758370"
+ *     responses:
+ *       200:
+ *         description: Franchise and all transactions deleted successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 message:
+ *                   type: string
+ *                 deleted:
+ *                   type: object
+ *                   properties:
+ *                     franchiseId:
+ *                       type: string
+ *                     transactionsRemoved:
+ *                       type: integer
+ *       404:
+ *         description: Franchise not found
+ *       500:
+ *         description: Server error
+ */
+router.delete('/admin/:franchiseId', protect, adminProtect, fc.adminDeleteFranchise);
+
 /**
  * @swagger
  * /franchise/{franchiseId}/detail:

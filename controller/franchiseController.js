@@ -315,6 +315,35 @@ exports.registerFranchise = async (req, res) => {
   }
 };
 
+
+exports.adminDeleteFranchise = async (req, res) => {
+  try {
+    const { franchiseId } = req.params;
+
+    const franchise = await Franchise.findById(franchiseId);
+    if (!franchise) {
+      return res.status(404).json({ success: false, message: 'Franchise not found' });
+    }
+
+    // FranchiseTx is the correct import alias in this file
+    const txCount = await FranchiseTx.countDocuments({ franchise: franchiseId });
+    await FranchiseTx.deleteMany({ franchise: franchiseId });
+    await Franchise.findByIdAndDelete(franchiseId);
+
+    return res.status(200).json({
+      success: true,
+      message: 'Franchise and all associated transactions deleted successfully',
+      deleted: {
+        franchiseId,
+        transactionsRemoved: txCount
+      }
+    });
+
+  } catch (error) {
+    console.error('adminDeleteFranchise error:', error);
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
 /**
  * GET /franchise/my-profile
  */

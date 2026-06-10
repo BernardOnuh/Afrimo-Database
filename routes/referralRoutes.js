@@ -50,6 +50,178 @@ router.post('/settings', protect, adminProtect, referralController.updateReferra
 // Admin route to sync referral data for a specific user
 router.post('/admin/sync/:userId', protect, adminProtect, referralController.syncUserReferralData);
 
+/**
+ * @swagger
+ * /referral/admin/who-referred/{userId}:
+ *   get:
+ *     summary: Admin - See who referred a specific user
+ *     description: Admin endpoint to lookup who referred a specific user. Shows the complete referrer chain (direct referrer, who referred them, etc.)
+ *     tags:
+ *       - Referral - Admin
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: userId
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: The unique ID of the user to lookup
+ *         example: 65f4a2c1e9b8c2d3e4f5g6h7
+ *     responses:
+ *       200:
+ *         description: Successfully retrieved referrer information
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 targetUser:
+ *                   type: object
+ *                   properties:
+ *                     id:
+ *                       type: string
+ *                       example: 65f4a2c1e9b8c2d3e4f5g6h7
+ *                     userName:
+ *                       type: string
+ *                       example: john_doe
+ *                     email:
+ *                       type: string
+ *                       example: john@example.com
+ *                     name:
+ *                       type: string
+ *                       example: John Doe
+ *                     joinedDate:
+ *                       type: string
+ *                       format: date-time
+ *                       example: 2024-01-15T10:30:00.000Z
+ *                     referralCode:
+ *                       type: string
+ *                       nullable: true
+ *                       example: alice_smith
+ *                 whoReferredThem:
+ *                   type: object
+ *                   properties:
+ *                     hasReferrer:
+ *                       type: boolean
+ *                       example: true
+ *                     directReferrer:
+ *                       type: object
+ *                       nullable: true
+ *                       properties:
+ *                         generation:
+ *                           type: integer
+ *                           example: 1
+ *                         userId:
+ *                           type: string
+ *                           example: 65f4a2c1e9b8c2d3e4f5a1b2
+ *                         userName:
+ *                           type: string
+ *                           example: alice_smith
+ *                         email:
+ *                           type: string
+ *                           example: alice@example.com
+ *                         name:
+ *                           type: string
+ *                           example: Alice Smith
+ *                         joinedDate:
+ *                           type: string
+ *                           format: date-time
+ *                           example: 2023-12-10T08:15:00.000Z
+ *                     completeChain:
+ *                       type: array
+ *                       items:
+ *                         type: object
+ *                         properties:
+ *                           generation:
+ *                             type: integer
+ *                             example: 1
+ *                           userId:
+ *                             type: string
+ *                             example: 65f4a2c1e9b8c2d3e4f5a1b2
+ *                           userName:
+ *                             type: string
+ *                             example: alice_smith
+ *                           email:
+ *                             type: string
+ *                             example: alice@example.com
+ *                           name:
+ *                             type: string
+ *                             example: Alice Smith
+ *                           joinedDate:
+ *                             type: string
+ *                             format: date-time
+ *                             example: 2023-12-10T08:15:00.000Z
+ *                     depth:
+ *                       type: integer
+ *                       description: How many levels up the referrer chain (max 3)
+ *                       example: 2
+ *                 summary:
+ *                   type: object
+ *                   properties:
+ *                     message:
+ *                       type: string
+ *                       example: john_doe was referred by alice_smith
+ *       404:
+ *         description: User not found
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: false
+ *                 message:
+ *                   type: string
+ *                   example: User not found
+ *       403:
+ *         description: Unauthorized - Admin access required
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: false
+ *                 message:
+ *                   type: string
+ *                   example: Unauthorized - Admin access required
+ *       401:
+ *         description: Unauthorized - No authentication token
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: false
+ *                 message:
+ *                   type: string
+ *                   example: Unauthorized - No authentication token
+ *       500:
+ *         description: Server error
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: false
+ *                 message:
+ *                   type: string
+ *                   example: Failed to fetch referrer information
+ *                 error:
+ *                   type: string
+ */
+router.get('/admin/who-referred/:userId', protect, adminProtect, referralController.adminSeeWhoReferred);
+
 // =========================
 // NEW REFERRAL AUDIT & FIX ROUTES
 // =========================
