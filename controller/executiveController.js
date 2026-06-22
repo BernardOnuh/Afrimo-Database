@@ -51,20 +51,20 @@ async function computeShareInfo(userId) {
     const snapshot = await UserShareV2.findOne({ user: userId }).lean();
 
     if (snapshot) {
-      result.regularOwnershipPct   = snapshot.regularOwnershipPct   || 0;
-      result.cofounderOwnershipPct = snapshot.cofounderOwnershipPct || 0;
-      result.totalOwnershipPct     = snapshot.totalOwnershipPct     || 0;
-      result.totalEarningKobo      = snapshot.totalEarningKobo      || 0;
+      result.regularOwnershipPct = Number(snapshot.regularOwnershipPct) || 0;
+      result.cofounderOwnershipPct = Number(snapshot.cofounderOwnershipPct) || 0;
+      result.totalOwnershipPct = Number(snapshot.totalOwnershipPct) || 0;
+      result.totalEarningKobo = Number(snapshot.totalEarningKobo) || 0;
 
-      // Best-effort legacy counts from V1 for display purposes
+      // Also try to get legacy counts from V1 if available
       const userShares = await UserShare.findOne({ user: userId }).lean();
-      if (userShares) {
+      if (userShares && userShares.transactions) {
         (userShares.transactions || []).forEach(t => {
           if (t.status === 'completed') {
             if (t.paymentMethod === 'co-founder') {
-              result.coFounderShares += t.coFounderShares || t.shares || 0;
+              result.coFounderShares += Number(t.coFounderShares || t.shares || 0);
             } else {
-              result.regularShares += t.shares || 0;
+              result.regularShares += Number(t.shares || 0);
             }
           }
         });
@@ -75,40 +75,41 @@ async function computeShareInfo(userId) {
 
     // Fallback: derive everything from the legacy UserShare model
     const userShares = await UserShare.findOne({ user: userId }).lean();
-    if (!userShares) return result;
+    if (!userShares || !userShares.transactions) return result;
 
-    const coFounderConfig   = await CoFounderShare.findOne().lean();
-    const shareToRegularRatio = coFounderConfig?.shareToRegularRatio || 29;
-
-    let regularOwnershipPct   = 0;
+    let regularOwnershipPct = 0;
     let cofounderOwnershipPct = 0;
-    let regularEarningKobo    = 0;
-    let cofounderEarningKobo  = 0;
-    let regularShares         = 0;
-    let coFounderShares       = 0;
+    let regularEarningKobo = 0;
+    let cofounderEarningKobo = 0;
+    let regularShares = 0;
+    let coFounderShares = 0;
 
     (userShares.transactions || []).forEach(t => {
       if (t.status !== 'completed') return;
+      
+      const qty = Number(t.coFounderShares || t.shares || 0);
+      const ownershipPct = Number(t.percentPerShare || t.ownershipPct || 0);
+      const earningKobo = Number(t.earningKobo || 0);
+      
       if (t.paymentMethod === 'co-founder') {
-        const qty = t.coFounderShares || t.shares || 0;
-        coFounderShares       += qty;
-        cofounderOwnershipPct += t.percentPerShare || t.ownershipPct || 0;
-        cofounderEarningKobo  += t.earningKobo || 0;
+        coFounderShares += qty;
+        cofounderOwnershipPct += ownershipPct;
+        cofounderEarningKobo += earningKobo;
       } else {
-        regularShares         += t.shares || 0;
-        regularOwnershipPct   += t.percentPerShare || t.ownershipPct || 0;
-        regularEarningKobo    += t.earningKobo || 0;
+        regularShares += qty;
+        regularOwnershipPct += ownershipPct;
+        regularEarningKobo += earningKobo;
       }
     });
 
-    result.regularOwnershipPct   = regularOwnershipPct;
+    result.regularOwnershipPct = regularOwnershipPct;
     result.cofounderOwnershipPct = cofounderOwnershipPct;
-    result.totalOwnershipPct     = regularOwnershipPct + cofounderOwnershipPct;
-    result.regularEarningKobo    = regularEarningKobo;
-    result.cofounderEarningKobo  = cofounderEarningKobo;
-    result.totalEarningKobo      = regularEarningKobo + cofounderEarningKobo;
-    result.regularShares         = regularShares;
-    result.coFounderShares       = coFounderShares;
+    result.totalOwnershipPct = regularOwnershipPct + cofounderOwnershipPct;
+    result.regularEarningKobo = regularEarningKobo;
+    result.cofounderEarningKobo = cofounderEarningKobo;
+    result.totalEarningKobo = regularEarningKobo + cofounderEarningKobo;
+    result.regularShares = regularShares;
+    result.coFounderShares = coFounderShares;
 
   } catch (err) {
     console.warn('[EXECUTIVE] computeShareInfo error:', err.message);
@@ -406,9 +407,9 @@ exports.revokeActivationCode = async (req, res) => {
   }
 };
 
-// In executiveController.js - Update getApprovedExecutives
 
-// In executiveController.js - Enhanced getApprovedExecutives
+
+
 
 /**
  * @desc    Get all approved executives
@@ -427,7 +428,7 @@ exports.getApprovedExecutives = async (req, res) => {
 
     const [executives, totalCount] = await Promise.all([
       Executive.find(query)
-        .populate('userId', 'name email userName phone createdAt walletAddress') // Added more user fields
+        .populate('userId', 'name email userName phone createdAt walletAddress')
         .select('-approvalInfo -suspension')
         .sort({ 'shareInfo.totalOwnershipPct': -1 })
         .skip(skip)
@@ -436,21 +437,17 @@ exports.getApprovedExecutives = async (req, res) => {
       Executive.countDocuments(query)
     ]);
 
-    // Enrich executive data with additional computed fields
     const enrichedExecutives = await Promise.all(executives.map(async (exec) => {
       const userId = exec.userId?._id || exec.userId;
       
-      // Get detailed share info for each executive
       const shareInfo = await computeShareInfo(userId);
       
-      // Get total transactions count
       const TransactionV2 = require('../models/TransactionV2');
       const transactionCount = await TransactionV2.countDocuments({ 
         userId: userId,
         status: 'completed'
       });
       
-      // Get user's total investment
       const transactions = await TransactionV2.find({ 
         userId: userId,
         status: 'completed'
@@ -467,28 +464,28 @@ exports.getApprovedExecutives = async (req, res) => {
         }
       });
       
-      // Calculate total shares (legacy count for display)
-      const totalShares = (shareInfo.regularShares || 0) + (shareInfo.coFounderShares || 0);
+      // Ensure user has a name
+      if (exec.userId && !exec.userId.name) {
+        exec.userId.name = exec.userId.userName || exec.userId.email?.split('@')[0] || 'Executive';
+      }
+      
+      // Create clean shareInfo with ONLY the fields you want
+      const cleanShareInfo = {
+        totalOwnershipPct: Number(shareInfo.totalOwnershipPct || exec.shareInfo?.totalOwnershipPct || 0),
+        regularOwnershipPct: Number(shareInfo.regularOwnershipPct || exec.shareInfo?.regularOwnershipPct || 0),
+        cofounderOwnershipPct: Number(shareInfo.cofounderOwnershipPct || exec.shareInfo?.cofounderOwnershipPct || 0),
+        totalEarningKobo: Number(shareInfo.totalEarningKobo || exec.shareInfo?.totalEarningKobo || 0),
+        verifiedAt: exec.shareInfo?.verifiedAt || new Date(),
+        totalTransactions: Number(transactionCount),
+        totalInvestedNaira: Number(totalInvestedNaira),
+        totalInvestedUSDT: Number(totalInvestedUSDT)
+        // NO regularShares, coFounderShares, shareValue, totalShares
+      };
       
       return {
         ...exec,
-        shareInfo: {
-          ...exec.shareInfo,
-          totalShares: totalShares,
-          totalTransactions: transactionCount,
-          totalInvestedNaira: totalInvestedNaira,
-          totalInvestedUSDT: totalInvestedUSDT,
-          // Ensure all share info is present
-          totalOwnershipPct: exec.shareInfo?.totalOwnershipPct || shareInfo.totalOwnershipPct || 0,
-          regularOwnershipPct: exec.shareInfo?.regularOwnershipPct || shareInfo.regularOwnershipPct || 0,
-          cofounderOwnershipPct: exec.shareInfo?.cofounderOwnershipPct || shareInfo.cofounderOwnershipPct || 0,
-          totalEarningKobo: exec.shareInfo?.totalEarningKobo || shareInfo.totalEarningKobo || 0,
-          regularShares: exec.shareInfo?.regularShares || shareInfo.regularShares || 0,
-          coFounderShares: exec.shareInfo?.coFounderShares || shareInfo.coFounderShares || 0
-        },
-        // Add computed fields
+        shareInfo: cleanShareInfo,
         joinedDate: exec.createdAt || exec.userId?.createdAt || null,
-        // Ensure user data is complete
         userId: exec.userId || { 
           name: 'Executive', 
           email: '', 
@@ -519,8 +516,6 @@ exports.getApprovedExecutives = async (req, res) => {
   }
 };
 
-
-
 /**
  * @desc    Get a single executive by ID with full details (public)
  * @route   GET /api/executives/:executiveId
@@ -538,7 +533,7 @@ exports.getExecutiveByIdPublic = async (req, res) => {
     }
 
     const executive = await Executive.findById(executiveId)
-      .populate('userId', 'name email userName phone createdAt walletAddress')
+      .populate('userId', 'name fullName email userName phone createdAt walletAddress')
       .lean();
 
     if (!executive) {
@@ -553,6 +548,15 @@ exports.getExecutiveByIdPublic = async (req, res) => {
         success: false, 
         message: 'Executive profile is not publicly available' 
       });
+    }
+
+    // Ensure user has a display name (handles legacy docs that only saved fullName)
+    if (executive.userId && !executive.userId.name) {
+      executive.userId.name =
+        executive.userId.fullName ||
+        executive.userId.userName ||
+        executive.userId.email?.split('@')[0] ||
+        'Executive';
     }
 
     // Enrich with additional data
@@ -577,21 +581,22 @@ exports.getExecutiveByIdPublic = async (req, res) => {
       }
     });
 
+    // Clean shareInfo — internal-only fields (regularShares, coFounderShares,
+    // totalShares, shareValue) are intentionally excluded from the public response
+    const cleanShareInfo = {
+      totalOwnershipPct: Number(shareInfo.totalOwnershipPct || executive.shareInfo?.totalOwnershipPct || 0),
+      regularOwnershipPct: Number(shareInfo.regularOwnershipPct || executive.shareInfo?.regularOwnershipPct || 0),
+      cofounderOwnershipPct: Number(shareInfo.cofounderOwnershipPct || executive.shareInfo?.cofounderOwnershipPct || 0),
+      totalEarningKobo: Number(shareInfo.totalEarningKobo || executive.shareInfo?.totalEarningKobo || 0),
+      verifiedAt: executive.shareInfo?.verifiedAt || new Date(),
+      totalTransactions: Number(transactionCount),
+      totalInvestedNaira: Number(totalInvestedNaira),
+      totalInvestedUSDT: Number(totalInvestedUSDT)
+    };
+
     const enrichedExecutive = {
       ...executive,
-      shareInfo: {
-        ...executive.shareInfo,
-        totalShares: (shareInfo.regularShares || 0) + (shareInfo.coFounderShares || 0),
-        totalTransactions: transactionCount,
-        totalInvestedNaira: totalInvestedNaira,
-        totalInvestedUSDT: totalInvestedUSDT,
-        totalOwnershipPct: executive.shareInfo?.totalOwnershipPct || shareInfo.totalOwnershipPct || 0,
-        regularOwnershipPct: executive.shareInfo?.regularOwnershipPct || shareInfo.regularOwnershipPct || 0,
-        cofounderOwnershipPct: executive.shareInfo?.cofounderOwnershipPct || shareInfo.cofounderOwnershipPct || 0,
-        totalEarningKobo: executive.shareInfo?.totalEarningKobo || shareInfo.totalEarningKobo || 0,
-        regularShares: executive.shareInfo?.regularShares || shareInfo.regularShares || 0,
-        coFounderShares: executive.shareInfo?.coFounderShares || shareInfo.coFounderShares || 0
-      },
+      shareInfo: cleanShareInfo,
       joinedDate: executive.createdAt || executive.userId?.createdAt || null
     };
 
@@ -974,7 +979,7 @@ exports.completeProfile = async (req, res) => {
     // Compute share info
     const shareInfo = await computeShareInfo(userId);
 
-    // Update executive document
+    // Update executive document with ALL required fields
     execDoc.profileImage = profileImage;
     execDoc.location = {
       country,
@@ -992,15 +997,21 @@ exports.completeProfile = async (req, res) => {
       email,
       alternativeEmail: alternativeEmail || null
     };
+    
+    // Set shareInfo with all required fields
     execDoc.shareInfo = {
-      totalOwnershipPct: shareInfo.totalOwnershipPct,
-      regularOwnershipPct: shareInfo.regularOwnershipPct,
-      cofounderOwnershipPct: shareInfo.cofounderOwnershipPct,
-      totalEarningKobo: shareInfo.totalEarningKobo,
-      regularShares: shareInfo.regularShares,
-      coFounderShares: shareInfo.coFounderShares,
+      totalOwnershipPct: shareInfo.totalOwnershipPct || 0,
+      regularOwnershipPct: shareInfo.regularOwnershipPct || 0,
+      cofounderOwnershipPct: shareInfo.cofounderOwnershipPct || 0,
+      totalEarningKobo: shareInfo.totalEarningKobo || 0,
+      regularShares: shareInfo.regularShares || 0,
+      coFounderShares: shareInfo.coFounderShares || 0,
+      // Keep legacy fields for backward compatibility
+      totalShares: (shareInfo.regularShares || 0) + (shareInfo.coFounderShares || 0),
+      shareValue: 0,
       verifiedAt: new Date()
     };
+    
     execDoc.bio = bio || null;
     execDoc.expertise = expertise || [];
     execDoc.socialMedia = {
@@ -1021,6 +1032,7 @@ exports.completeProfile = async (req, res) => {
     await execDoc.save();
 
     console.log('[EXECUTIVE] Profile completed for user:', userId);
+
 
     // Send welcome email
     const user = await User.findById(userId);
@@ -1393,52 +1405,6 @@ exports.updateExecutiveInfo = async (req, res) => {
 // ---------------------------------------------------------------------------
 // PUBLIC — Browse Executives
 // ---------------------------------------------------------------------------
-
-/**
- * @desc    Get all approved executives
- * @route   GET /api/executives/approved
- * @access  Public
- */
-exports.getApprovedExecutives = async (req, res) => {
-  try {
-    const { country, state, page = 1, limit = 20 } = req.query;
-    const skip = (parseInt(page) - 1) * parseInt(limit);
-    const limitNum = Math.min(parseInt(limit), 50);
-
-    const query = { status: 'approved' };
-    if (country) query['location.country'] = country;
-    if (state) query['location.state'] = state;
-
-    const [executives, totalCount] = await Promise.all([
-      Executive.find(query)
-        .populate('userId', 'name email userName')
-        .select('-approvalInfo -suspension')
-        .sort({ 'shareInfo.totalOwnershipPct': -1 })
-        .skip(skip)
-        .limit(limitNum)
-        .lean(),
-      Executive.countDocuments(query)
-    ]);
-
-    return res.status(200).json({
-      success: true,
-      executives,
-      pagination: {
-        currentPage: parseInt(page),
-        totalPages: Math.ceil(totalCount / limitNum),
-        totalCount,
-        limit: limitNum
-      }
-    });
-  } catch (error) {
-    console.error('[EXECUTIVE] Error in getApprovedExecutives:', error);
-    return res.status(500).json({
-      success: false,
-      message: 'Failed to fetch approved executives',
-      ...(process.env.NODE_ENV === 'development' && { error: error.message })
-    });
-  }
-};
 
 // ---------------------------------------------------------------------------
 // ADMIN — Application Management
