@@ -406,6 +406,209 @@ exports.revokeActivationCode = async (req, res) => {
   }
 };
 
+// In executiveController.js - Update getApprovedExecutives
+
+// In executiveController.js - Enhanced getApprovedExecutives
+
+/**
+ * @desc    Get all approved executives
+ * @route   GET /api/executives/approved
+ * @access  Public
+ */
+exports.getApprovedExecutives = async (req, res) => {
+  try {
+    const { country, state, page = 1, limit = 20 } = req.query;
+    const skip = (parseInt(page) - 1) * parseInt(limit);
+    const limitNum = Math.min(parseInt(limit), 50);
+
+    const query = { status: 'approved' };
+    if (country) query['location.country'] = country;
+    if (state) query['location.state'] = state;
+
+    const [executives, totalCount] = await Promise.all([
+      Executive.find(query)
+        .populate('userId', 'name email userName phone createdAt walletAddress') // Added more user fields
+        .select('-approvalInfo -suspension')
+        .sort({ 'shareInfo.totalOwnershipPct': -1 })
+        .skip(skip)
+        .limit(limitNum)
+        .lean(),
+      Executive.countDocuments(query)
+    ]);
+
+    // Enrich executive data with additional computed fields
+    const enrichedExecutives = await Promise.all(executives.map(async (exec) => {
+      const userId = exec.userId?._id || exec.userId;
+      
+      // Get detailed share info for each executive
+      const shareInfo = await computeShareInfo(userId);
+      
+      // Get total transactions count
+      const TransactionV2 = require('../models/TransactionV2');
+      const transactionCount = await TransactionV2.countDocuments({ 
+        userId: userId,
+        status: 'completed'
+      });
+      
+      // Get user's total investment
+      const transactions = await TransactionV2.find({ 
+        userId: userId,
+        status: 'completed'
+      }).lean();
+      
+      let totalInvestedNaira = 0;
+      let totalInvestedUSDT = 0;
+      
+      transactions.forEach(tx => {
+        if (tx.currency === 'naira' || !tx.currency) {
+          totalInvestedNaira += tx.totalAmount || 0;
+        } else if (tx.currency === 'usdt') {
+          totalInvestedUSDT += tx.totalAmount || 0;
+        }
+      });
+      
+      // Calculate total shares (legacy count for display)
+      const totalShares = (shareInfo.regularShares || 0) + (shareInfo.coFounderShares || 0);
+      
+      return {
+        ...exec,
+        shareInfo: {
+          ...exec.shareInfo,
+          totalShares: totalShares,
+          totalTransactions: transactionCount,
+          totalInvestedNaira: totalInvestedNaira,
+          totalInvestedUSDT: totalInvestedUSDT,
+          // Ensure all share info is present
+          totalOwnershipPct: exec.shareInfo?.totalOwnershipPct || shareInfo.totalOwnershipPct || 0,
+          regularOwnershipPct: exec.shareInfo?.regularOwnershipPct || shareInfo.regularOwnershipPct || 0,
+          cofounderOwnershipPct: exec.shareInfo?.cofounderOwnershipPct || shareInfo.cofounderOwnershipPct || 0,
+          totalEarningKobo: exec.shareInfo?.totalEarningKobo || shareInfo.totalEarningKobo || 0,
+          regularShares: exec.shareInfo?.regularShares || shareInfo.regularShares || 0,
+          coFounderShares: exec.shareInfo?.coFounderShares || shareInfo.coFounderShares || 0
+        },
+        // Add computed fields
+        joinedDate: exec.createdAt || exec.userId?.createdAt || null,
+        // Ensure user data is complete
+        userId: exec.userId || { 
+          name: 'Executive', 
+          email: '', 
+          userName: '',
+          phone: '',
+          createdAt: null
+        }
+      };
+    }));
+
+    return res.status(200).json({
+      success: true,
+      executives: enrichedExecutives,
+      pagination: {
+        currentPage: parseInt(page),
+        totalPages: Math.ceil(totalCount / limitNum),
+        totalCount,
+        limit: limitNum
+      }
+    });
+  } catch (error) {
+    console.error('[EXECUTIVE] Error in getApprovedExecutives:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to fetch approved executives',
+      ...(process.env.NODE_ENV === 'development' && { error: error.message })
+    });
+  }
+};
+
+
+
+/**
+ * @desc    Get a single executive by ID with full details (public)
+ * @route   GET /api/executives/:executiveId
+ * @access  Public
+ */
+exports.getExecutiveByIdPublic = async (req, res) => {
+  try {
+    const { executiveId } = req.params;
+
+    if (!isValidObjectId(executiveId)) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Invalid executive ID format' 
+      });
+    }
+
+    const executive = await Executive.findById(executiveId)
+      .populate('userId', 'name email userName phone createdAt walletAddress')
+      .lean();
+
+    if (!executive) {
+      return res.status(404).json({ 
+        success: false, 
+        message: 'Executive not found' 
+      });
+    }
+
+    if (executive.status !== 'approved') {
+      return res.status(403).json({ 
+        success: false, 
+        message: 'Executive profile is not publicly available' 
+      });
+    }
+
+    // Enrich with additional data
+    const userId = executive.userId?._id || executive.userId;
+    const shareInfo = await computeShareInfo(userId);
+    
+    const TransactionV2 = require('../models/TransactionV2');
+    const transactions = await TransactionV2.find({ 
+      userId: userId,
+      status: 'completed'
+    }).lean();
+    
+    const transactionCount = transactions.length;
+    let totalInvestedNaira = 0;
+    let totalInvestedUSDT = 0;
+    
+    transactions.forEach(tx => {
+      if (tx.currency === 'naira' || !tx.currency) {
+        totalInvestedNaira += tx.totalAmount || 0;
+      } else if (tx.currency === 'usdt') {
+        totalInvestedUSDT += tx.totalAmount || 0;
+      }
+    });
+
+    const enrichedExecutive = {
+      ...executive,
+      shareInfo: {
+        ...executive.shareInfo,
+        totalShares: (shareInfo.regularShares || 0) + (shareInfo.coFounderShares || 0),
+        totalTransactions: transactionCount,
+        totalInvestedNaira: totalInvestedNaira,
+        totalInvestedUSDT: totalInvestedUSDT,
+        totalOwnershipPct: executive.shareInfo?.totalOwnershipPct || shareInfo.totalOwnershipPct || 0,
+        regularOwnershipPct: executive.shareInfo?.regularOwnershipPct || shareInfo.regularOwnershipPct || 0,
+        cofounderOwnershipPct: executive.shareInfo?.cofounderOwnershipPct || shareInfo.cofounderOwnershipPct || 0,
+        totalEarningKobo: executive.shareInfo?.totalEarningKobo || shareInfo.totalEarningKobo || 0,
+        regularShares: executive.shareInfo?.regularShares || shareInfo.regularShares || 0,
+        coFounderShares: executive.shareInfo?.coFounderShares || shareInfo.coFounderShares || 0
+      },
+      joinedDate: executive.createdAt || executive.userId?.createdAt || null
+    };
+
+    return res.status(200).json({
+      success: true,
+      executive: enrichedExecutive
+    });
+  } catch (error) {
+    console.error('[EXECUTIVE] Error in getExecutiveByIdPublic:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to fetch executive details',
+      ...(process.env.NODE_ENV === 'development' && { error: error.message })
+    });
+  }
+};
+
 /**
  * @desc    Admin: Get code statistics
  * @route   GET /api/executives/admin/codes/stats

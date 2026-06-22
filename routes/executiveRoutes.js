@@ -354,6 +354,21 @@ router.delete('/admin/codes/:code', protect, adminProtect, executiveController.r
 
 /**
  * @swagger
+ * /executives/{executiveId}:
+ *   get:
+ *     tags: [Executives - Public]
+ *     summary: Get a single executive by ID with full details
+ *     parameters:
+ *       - { in: path, name: executiveId, required: true, schema: { type: string } }
+ *     responses:
+ *       200: { description: Executive retrieved successfully }
+ *       404: { description: Executive not found }
+ *       403: { description: Not publicly available }
+ */
+router.get('/:executiveId', executiveController.getExecutiveByIdPublic);
+
+/**
+ * @swagger
  * /executives/admin/applications:
  *   get:
  *     tags: [Executives - Admin]
