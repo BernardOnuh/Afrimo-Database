@@ -117,6 +117,8 @@ router.post('/redeem', protect, executiveController.redeemActivationCode);
  */
 router.get('/admin/codes/stats', protect, adminProtect, executiveController.getCodeStatistics);
 
+router.get('/upload-signature', protect, executiveController.getUploadSignature);
+
 /**
  * @swagger
  * /executives/admin/generate-codes-bulk:

@@ -683,6 +683,36 @@ exports.getCodeStatistics = async (req, res) => {
 };
 
 
+exports.getUploadSignature = async (req, res) => {
+  try {
+    const admin = await requireAdmin(req, res);
+    if (!admin) return;
+
+    const cloudinary = require('cloudinary').v2;
+    const timestamp = Math.round(new Date().getTime() / 1000);
+    const folder = 'executives';
+    
+    const signature = cloudinary.utils.api_sign_request(
+      { timestamp, folder },
+      process.env.CLOUDINARY_API_SECRET
+    );
+
+    res.status(200).json({
+      success: true,
+      signature,
+      timestamp,
+      cloudName: process.env.CLOUDINARY_CLOUD_NAME,
+      apiKey: process.env.CLOUDINARY_API_KEY,
+      folder
+    });
+  } catch (error) {
+    console.error('[EXECUTIVE] Upload signature error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to generate upload signature'
+    });
+  }
+};
 /**
  * @desc    User: Complete executive profile after redeeming code
  * @route   PUT /api/executives/complete-profile
