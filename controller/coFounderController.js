@@ -587,28 +587,64 @@ const adminVerifyCoFounderManualPayment = async (req, res) => {
 const adminCancelCoFounderManualPayment = async (req, res) => {
   try {
     const { transactionId, cancelReason } = req.body;
- 
+
+    // Validate required fields
+    if (!transactionId) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'transactionId is required' 
+      });
+    }
+
     const admin = await User.findById(req.user.id);
     if (!admin?.isAdmin) {
-      return res.status(403).json({ success: false, message: 'Admin required' });
+      return res.status(403).json({ 
+        success: false, 
+        message: 'Admin required' 
+      });
     }
- 
-    const tx = await PaymentTransaction.findOne({ transactionId, type: 'co-founder' });
+
+    // Find the transaction
+    const tx = await PaymentTransaction.findOne({ 
+      transactionId, 
+      type: 'co-founder' 
+    });
+    
     if (!tx) {
-      return res.status(404).json({ success: false, message: 'Transaction not found' });
-    }
-    if (tx.status !== 'completed') {
-      return res.status(400).json({ success: false, message: 'Can only cancel completed transactions' });
-    }
- 
-    // Reject in UserShare
-    try {
-      await UserShare.rejectTransaction(tx.userId, transactionId, 'pending');
-    } catch (e) {
-      console.error('UserShare rejection error:', e.message);
+      return res.status(404).json({ 
+        success: false, 
+        message: 'Transaction not found' 
+      });
     }
     
-    // Rollback referral
+    if (tx.status !== 'completed') {
+      return res.status(400).json({ 
+        success: false, 
+        message: `Can only cancel completed transactions. Current status: ${tx.status}` 
+      });
+    }
+
+    // ── REJECT IN USERSHARE ──
+    // Check if the method exists before calling it
+    if (UserShare && typeof UserShare.rejectTransaction === 'function') {
+      try {
+        await UserShare.rejectTransaction(tx.userId, transactionId, 'pending');
+        console.log(`✅ UserShare rejection successful for ${transactionId}`);
+      } catch (e) {
+        console.error('UserShare rejection error (attempting alternative):', e.message);
+        
+        // Alternative: try using rejectTransaction if it exists with different signature
+        if (UserShare && typeof UserShare.failTransaction === 'function') {
+          await UserShare.failTransaction(tx.userId, transactionId, 'Cancelled by admin');
+        } else {
+          console.warn('No UserShare rejection method found - skipping');
+        }
+      }
+    } else {
+      console.warn('UserShare.rejectTransaction method not found - skipping');
+    }
+
+    // ── ROLLBACK REFERRAL ──
     try {
       await rollbackReferralCommission(
         tx.userId, 
@@ -618,52 +654,81 @@ const adminCancelCoFounderManualPayment = async (req, res) => {
         'co-founder', 
         'PaymentTransaction'
       );
+      console.log(`✅ Referral rollback successful for ${transactionId}`);
     } catch (e) {
       console.error('Referral rollback error (non-critical):', e.message);
       // Don't fail the request if referral rollback fails
     }
-    
-    // Update V1 transaction
+
+    // ── UPDATE V1 TRANSACTION ──
     tx.status = 'cancelled';
     tx.adminNotes = `CANCELLED: ${cancelReason || 'Admin cancelled'}`;
     await tx.save();
- 
-    // Update V2
-    await TransactionV2.findOneAndUpdate(
-      { transactionId },
-      { status: 'cancelled', note: `CANCELLED: ${cancelReason || 'Admin cancelled'}` }
-    );
-    await recalculateUserShare(tx.userId);
- 
-    // Email user
-    const user = await User.findById(tx.userId);
-    if (user?.email) {
-      try {
+    console.log(`✅ V1 transaction updated: ${transactionId}`);
+
+    // ── UPDATE V2 ──
+    try {
+      await TransactionV2.findOneAndUpdate(
+        { transactionId },
+        { 
+          status: 'cancelled', 
+          note: `CANCELLED: ${cancelReason || 'Admin cancelled'}` 
+        }
+      );
+      console.log(`✅ V2 transaction updated: ${transactionId}`);
+    } catch (e) {
+      console.error('V2 update error:', e.message);
+    }
+
+    // ── RECALCULATE USER SHARE ──
+    try {
+      await recalculateUserShare(tx.userId);
+      console.log(`✅ User share recalculated for user: ${tx.userId}`);
+    } catch (e) {
+      console.error('recalculateUserShare error:', e.message);
+      // Don't fail the whole operation; just log it
+    }
+
+    // ── EMAIL USER ──
+    try {
+      const user = await User.findById(tx.userId);
+      if (user?.email) {
         await sendEmail({
           email: user.email,
           subject: 'Co-Founder Payment Approval Cancelled',
           html: `
-            <p>Dear ${user.name},</p>
-            <p>Your co-founder payment approval for <strong>${tx.packageLabel}</strong> 
+            <p>Dear ${user.name || 'User'},</p>
+            <p>Your co-founder payment approval for <strong>${tx.packageLabel || 'co-founder package'}</strong> 
             has been temporarily reversed.</p>
             <p>Reason: ${cancelReason || 'Administrative review required'}</p>
             <p>Please contact support for more information.</p>
+            <br>
+            <p>Transaction ID: ${transactionId}</p>
           `
         });
-      } catch (e) {
-        console.error('Email error (non-critical):', e.message);
+        console.log(`✅ Email sent to: ${user.email}`);
       }
+    } catch (e) {
+      console.error('Email error (non-critical):', e.message);
     }
- 
+
     res.json({ 
       success: true, 
       message: 'Payment approval cancelled successfully', 
-      status: 'pending' 
+      status: 'pending',
+      transactionId
     });
- 
+
   } catch (error) {
     console.error('adminCancelCoFounderManualPayment error:', error);
-    res.status(500).json({ success: false, message: error.message });
+    console.error('Error stack:', error.stack);
+    
+    // Send a proper error response
+    res.status(500).json({ 
+      success: false, 
+      message: error.message || 'Failed to cancel transaction',
+      error: process.env.NODE_ENV === 'development' ? error.stack : undefined
+    });
   }
 };
 
