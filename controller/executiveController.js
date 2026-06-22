@@ -7,10 +7,11 @@ const UserShare = require('../models/UserShare');
 const CoFounderShare = require('../models/CoFounderShare');
 const { sendEmail } = require('../utils/emailService');
 const {
-  sharePaymentUpload,
+  uploadToCloudinary,          // ← use this instead of sharePaymentUpload
   logCloudinaryUpload,
   handleCloudinaryError
 } = require('../config/cloudinary');
+
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -899,13 +900,13 @@ exports.uploadExecutiveImage = async (req, res) => {
       });
     }
 
-    const result = await sharePaymentUpload(
-      req.file.buffer,
-      `executives/${userId}`,
-      req.file.originalname
-    );
+    // FIXED: uploadToCloudinary takes (buffer, options) and returns a Promise
+    const result = await uploadToCloudinary(req.file.buffer, {
+      folder: `executives/${userId}`,
+      resource_type: 'image'
+    });
 
-    logCloudinaryUpload(userId, result.secure_url, 'executive_profile');
+    console.log('[EXECUTIVE IMAGE] ✅ Uploaded successfully:', result.public_id, result.secure_url);
 
     return res.status(200).json({
       success: true,
@@ -915,7 +916,6 @@ exports.uploadExecutiveImage = async (req, res) => {
     });
   } catch (error) {
     console.error('[EXECUTIVE IMAGE] Upload error:', error);
-    handleCloudinaryError(error);
     return res.status(500).json({
       success: false,
       message: 'Failed to upload image',
