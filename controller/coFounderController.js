@@ -580,68 +580,92 @@ const adminVerifyCoFounderManualPayment = async (req, res) => {
     }
   };
 
-  const adminCancelCoFounderManualPayment = async (req, res) => {
-    try {
-      const { transactionId, cancelReason } = req.body;
-   
-      const admin = await User.findById(req.user.id);
-      if (!admin?.isAdmin) {
-        return res.status(403).json({ success: false, message: 'Admin required' });
-      }
-   
-      const tx = await PaymentTransaction.findOne({ transactionId, type: 'co-founder' });
-      if (!tx) {
-        return res.status(404).json({ success: false, message: 'Transaction not found' });
-      }
-      if (tx.status !== 'completed') {
-        return res.status(400).json({ success: false, message: 'Can only cancel completed transactions' });
-      }
-   
-      // ── V1 ────────────────────────────────────────────────────────────────
-      await UserShare.rejectTransaction(tx.userId, transactionId, 'pending');
-      try {
-        await rollbackReferralCommission(
-          tx.userId, transactionId, tx.amount, tx.currency, 'cofounder', 'PaymentTransaction'
-        );
-      } catch (e) {
-        console.error('Referral rollback error:', e.message);
-      }
-      tx.status     = 'cancelled';
-      tx.adminNotes = `CANCELLED: ${cancelReason || 'Admin cancelled'}`;
-      await tx.save();
-   
-      // ── V2 ────────────────────────────────────────────────────────────────
-      await TransactionV2.findOneAndUpdate(
-        { transactionId },
-        { status: 'cancelled', note: `CANCELLED: ${cancelReason || 'Admin cancelled'}` }
-      );
-      await recalculateUserShare(tx.userId);
-   
-      const user = await User.findById(tx.userId);
-      if (user?.email) {
-        try {
-          await sendEmail({
-            email   : user.email,
-            subject : 'Co-Founder Payment Approval Cancelled',
-            html    : `
-              <p>Dear ${user.name},</p>
-              <p>Your co-founder payment approval for <strong>${tx.packageLabel}</strong> 
-              has been temporarily reversed.</p>
-              <p>Reason: ${cancelReason || 'Administrative review required'}</p>
-              <p>Please contact support for more information.</p>
-            `
-          });
-        } catch (e) {
-          console.error('Email error:', e.message);
-        }
-      }
-   
-      res.json({ success: true, message: 'Payment approval cancelled', status: 'pending' });
-   
-    } catch (error) {
-      res.status(500).json({ success: false, message: error.message });
+// ===================================================================
+// ADMIN: CANCEL PAYMENT ✅ FIXED
+// ===================================================================
+ 
+const adminCancelCoFounderManualPayment = async (req, res) => {
+  try {
+    const { transactionId, cancelReason } = req.body;
+ 
+    const admin = await User.findById(req.user.id);
+    if (!admin?.isAdmin) {
+      return res.status(403).json({ success: false, message: 'Admin required' });
     }
-  };
+ 
+    const tx = await PaymentTransaction.findOne({ transactionId, type: 'co-founder' });
+    if (!tx) {
+      return res.status(404).json({ success: false, message: 'Transaction not found' });
+    }
+    if (tx.status !== 'completed') {
+      return res.status(400).json({ success: false, message: 'Can only cancel completed transactions' });
+    }
+ 
+    // Reject in UserShare
+    try {
+      await UserShare.rejectTransaction(tx.userId, transactionId, 'pending');
+    } catch (e) {
+      console.error('UserShare rejection error:', e.message);
+    }
+    
+    // Rollback referral
+    try {
+      await rollbackReferralCommission(
+        tx.userId, 
+        transactionId, 
+        tx.amount, 
+        tx.currency, 
+        'co-founder', 
+        'PaymentTransaction'
+      );
+    } catch (e) {
+      console.error('Referral rollback error (non-critical):', e.message);
+      // Don't fail the request if referral rollback fails
+    }
+    
+    // Update V1 transaction
+    tx.status = 'cancelled';
+    tx.adminNotes = `CANCELLED: ${cancelReason || 'Admin cancelled'}`;
+    await tx.save();
+ 
+    // Update V2
+    await TransactionV2.findOneAndUpdate(
+      { transactionId },
+      { status: 'cancelled', note: `CANCELLED: ${cancelReason || 'Admin cancelled'}` }
+    );
+    await recalculateUserShare(tx.userId);
+ 
+    // Email user
+    const user = await User.findById(tx.userId);
+    if (user?.email) {
+      try {
+        await sendEmail({
+          email: user.email,
+          subject: 'Co-Founder Payment Approval Cancelled',
+          html: `
+            <p>Dear ${user.name},</p>
+            <p>Your co-founder payment approval for <strong>${tx.packageLabel}</strong> 
+            has been temporarily reversed.</p>
+            <p>Reason: ${cancelReason || 'Administrative review required'}</p>
+            <p>Please contact support for more information.</p>
+          `
+        });
+      } catch (e) {
+        console.error('Email error (non-critical):', e.message);
+      }
+    }
+ 
+    res.json({ 
+      success: true, 
+      message: 'Payment approval cancelled successfully', 
+      status: 'pending' 
+    });
+ 
+  } catch (error) {
+    console.error('adminCancelCoFounderManualPayment error:', error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
 
   const adminDeleteCoFounderManualPayment = async (req, res) => {
     try {
