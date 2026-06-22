@@ -148,6 +148,29 @@ function isValidObjectId(id) {
   return mongoose.Types.ObjectId.isValid(id);
 }
 
+/**
+ * Generate a unique activation code with retry mechanism
+ * @param {number} maxAttempts - Maximum attempts to generate unique code
+ * @returns {Promise<string>} - Unique activation code
+ */
+async function generateUniqueActivationCode(maxAttempts = 10) {
+  let code;
+  let exists = true;
+  let attempts = 0;
+  
+  while (exists && attempts < maxAttempts) {
+    code = generateActivationCode();
+    exists = await Executive.exists({ activationCode: code });
+    attempts++;
+  }
+  
+  if (exists) {
+    throw new Error('Failed to generate unique activation code after ' + maxAttempts + ' attempts');
+  }
+  
+  return code;
+}
+
 // ---------------------------------------------------------------------------
 // ADMIN — Activation Code Management
 // ---------------------------------------------------------------------------
@@ -190,22 +213,30 @@ exports.generateActivationCode = async (req, res) => {
       }
     }
 
-    // Generate unique code with retry mechanism
-    let code;
-    let exists = true;
-    let attempts = 0;
-    const maxAttempts = 10;
-    
-    while (exists && attempts < maxAttempts) {
-      code = crypto.randomBytes(4).toString('hex').toUpperCase();
-      exists = await Executive.exists({ activationCode: code });
-      attempts++;
+    // Check if user already has a pending code
+    if (userId) {
+      const existingCode = await Executive.findOne({ 
+        userId, 
+        codeRedeemedAt: { $exists: false } 
+      });
+      
+      if (existingCode) {
+        return res.status(409).json({
+          success: false,
+          message: 'This user already has a pending activation code',
+          code: existingCode.activationCode
+        });
+      }
     }
-    
-    if (exists) {
-      return res.status(500).json({ 
-        success: false, 
-        message: 'Failed to generate unique code after multiple attempts' 
+
+    // Generate unique code
+    let code;
+    try {
+      code = await generateUniqueActivationCode(15);
+    } catch (error) {
+      return res.status(500).json({
+        success: false,
+        message: error.message || 'Failed to generate unique code'
       });
     }
 
@@ -227,7 +258,8 @@ exports.generateActivationCode = async (req, res) => {
       success: true,
       message: 'Activation code generated successfully',
       code,
-      executiveId: execDoc._id
+      executiveId: execDoc._id,
+      userId: userId || null
     });
   } catch (error) {
     console.error('[EXECUTIVE] Error generating code:', {
@@ -277,13 +309,23 @@ exports.listActivationCodes = async (req, res) => {
     const admin = await requireAdmin(req, res);
     if (!admin) return;
 
-    const { page = 1, limit = 50, redeemed } = req.query;
+    const { page = 1, limit = 50, redeemed, search } = req.query;
     const skip = (parseInt(page) - 1) * parseInt(limit);
-    const limitNum = Math.min(parseInt(limit), 100); // Max 100 per page
+    const limitNum = Math.min(parseInt(limit), 100);
 
     const query = { activationCode: { $exists: true, $ne: null } };
     if (redeemed === 'true') query.codeRedeemedAt = { $exists: true };
     if (redeemed === 'false') query.codeRedeemedAt = { $exists: false };
+
+    // Build search query
+    if (search) {
+      const searchRegex = new RegExp(search, 'i');
+      query.$or = [
+        { activationCode: searchRegex },
+        { 'location.country': searchRegex },
+        { 'location.state': searchRegex }
+      ];
+    }
 
     const [codes, totalCount] = await Promise.all([
       Executive.find(query)
@@ -371,6 +413,46 @@ exports.revokeActivationCode = async (req, res) => {
   }
 };
 
+/**
+ * @desc    Admin: Get code statistics
+ * @route   GET /api/executives/admin/codes/stats
+ * @access  Private (Admin)
+ */
+exports.getCodeStatistics = async (req, res) => {
+  try {
+    const admin = await requireAdmin(req, res);
+    if (!admin) return;
+
+    const [total, redeemed, pending] = await Promise.all([
+      Executive.countDocuments({ activationCode: { $exists: true, $ne: null } }),
+      Executive.countDocuments({ 
+        activationCode: { $exists: true, $ne: null },
+        codeRedeemedAt: { $exists: true } 
+      }),
+      Executive.countDocuments({ 
+        activationCode: { $exists: true, $ne: null },
+        codeRedeemedAt: { $exists: false } 
+      })
+    ]);
+
+    return res.status(200).json({
+      success: true,
+      statistics: {
+        total,
+        redeemed,
+        pending,
+        usageRate: total > 0 ? (redeemed / total) * 100 : 0
+      }
+    });
+  } catch (error) {
+    console.error('[EXECUTIVE] Error getting code stats:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to get code statistics'
+    });
+  }
+};
+
 // ---------------------------------------------------------------------------
 // USER — Activation Code Flow
 // ---------------------------------------------------------------------------
@@ -402,6 +484,20 @@ exports.redeemActivationCode = async (req, res) => {
       return res.status(400).json({ 
         success: false, 
         message: 'You already have an executive record' 
+      });
+    }
+
+    // Check if user has a pending code
+    const pendingCode = await Executive.findOne({
+      userId,
+      codeRedeemedAt: { $exists: false }
+    });
+
+    if (pendingCode) {
+      return res.status(400).json({
+        success: false,
+        message: 'You already have a pending activation code',
+        code: pendingCode.activationCode
       });
     }
 
@@ -934,7 +1030,7 @@ exports.getApprovedExecutives = async (req, res) => {
   try {
     const { country, state, page = 1, limit = 20 } = req.query;
     const skip = (parseInt(page) - 1) * parseInt(limit);
-    const limitNum = Math.min(parseInt(limit), 50); // Max 50 per page
+    const limitNum = Math.min(parseInt(limit), 50);
 
     const query = { status: 'approved' };
     if (country) query['location.country'] = country;
@@ -1000,6 +1096,16 @@ exports.getAllExecutiveApplications = async (req, res) => {
     if (country) query['location.country'] = country;
     if (state) query['location.state'] = state;
 
+    // Add search functionality
+    if (search) {
+      const searchRegex = new RegExp(search, 'i');
+      query.$or = [
+        { 'location.country': searchRegex },
+        { 'location.state': searchRegex },
+        { 'location.city': searchRegex }
+      ];
+    }
+
     const sort = {};
     sort[sortBy] = sortOrder === 'desc' ? -1 : 1;
 
@@ -1014,7 +1120,7 @@ exports.getAllExecutiveApplications = async (req, res) => {
       .lean();
 
     // Optional name/email search (post-populate)
-    if (search) {
+    if (search && applications.length > 0) {
       const s = search.toLowerCase();
       applications = applications.filter(a =>
         a.userId?.name?.toLowerCase().includes(s) ||
