@@ -1,24 +1,18 @@
 // routes/executiveRoutes.js
 const express = require('express');
-const router = express.Router();
-const multer = require('multer');
+const router  = express.Router();
+const multer  = require('multer');
 const executiveController = require('../controller/executiveController');
 const { protect, adminProtect } = require('../middleware/auth');
 
-// Configure multer for memory storage
-const storage = multer.memoryStorage();
+// Multer — memory storage for Cloudinary upload
 const upload = multer({
-  storage: storage,
-  limits: {
-    fileSize: 50 * 1024 * 1024 // 5MB max file size
-  },
-  fileFilter: (req, file, cb) => {
-    // Accept images only
-    if (file.mimetype.startsWith('image/')) {
-      cb(null, true);
-    } else {
-      cb(new Error('Only image files are allowed'), false);
-    }
+  storage: multer.memoryStorage(),
+  limits:  { fileSize: 5 * 1024 * 1024 },          // 5 MB hard cap (matches controller check)
+  fileFilter: (_req, file, cb) => {
+    file.mimetype.startsWith('image/')
+      ? cb(null, true)
+      : cb(new Error('Only image files are allowed'), false);
   }
 });
 
@@ -41,34 +35,30 @@ const upload = multer({
  *         location:
  *           type: object
  *           properties:
- *             country:
- *               type: string
- *             state:
- *               type: string
- *             city:
- *               type: string
- *             address:
- *               type: string
+ *             country: { type: string }
+ *             state:   { type: string }
+ *             city:    { type: string }
+ *             address: { type: string }
  *         contactInfo:
  *           type: object
  *           properties:
- *             phone:
- *               type: string
- *             email:
- *               type: string
+ *             phone: { type: string }
+ *             email: { type: string }
  *         shareInfo:
  *           type: object
+ *           description: All share data is now expressed as ownership percentages (decimals)
  *           properties:
- *             totalShares:
- *               type: number
- *             regularShares:
- *               type: number
- *             coFounderShares:
- *               type: number
+ *             totalOwnershipPct:     { type: number, example: 0.000084 }
+ *             regularOwnershipPct:   { type: number, example: 0.000042 }
+ *             cofounderOwnershipPct: { type: number, example: 0.000042 }
+ *             totalEarningKobo:      { type: integer, example: 56000 }
+ *             regularShares:         { type: integer, example: 2,   description: "Legacy count" }
+ *             coFounderShares:       { type: integer, example: 0,   description: "Legacy count" }
+ *             verifiedAt:            { type: string, format: date-time }
  */
 
 // ===================================================================
-// PUBLIC ROUTES  
+// PUBLIC
 // ===================================================================
 
 /**
@@ -77,95 +67,49 @@ const upload = multer({
  *   get:
  *     tags: [Executives - Public]
  *     summary: Get approved executives
- *     description: Get list of all approved executives (public)
  *     parameters:
- *       - in: query
- *         name: country
- *         schema:
- *           type: string
- *         description: Filter by country
- *       - in: query
- *         name: state
- *         schema:
- *           type: string
- *         description: Filter by state
- *       - in: query
- *         name: page
- *         schema:
- *           type: integer
- *           default: 1
- *       - in: query
- *         name: limit
- *         schema:
- *           type: integer
- *           default: 20
+ *       - { in: query, name: country, schema: { type: string } }
+ *       - { in: query, name: state,   schema: { type: string } }
+ *       - { in: query, name: page,    schema: { type: integer, default: 1  } }
+ *       - { in: query, name: limit,   schema: { type: integer, default: 20 } }
  *     responses:
- *       200:
- *         description: Executives retrieved successfully
+ *       200: { description: Executives retrieved successfully }
  */
 router.get('/approved', executiveController.getApprovedExecutives);
 
 // ===================================================================
-// USER ROUTES (Activation Code Flow)
-// ===================================================================
-
-// Redeem activation code
-router.post('/redeem', protect, executiveController.redeemActivationCode);
-
-// Complete profile after redeeming code
-router.put('/complete-profile', protect, executiveController.completeProfile);
-
-// ===================================================================
-// USER ROUTES (Legacy + Update)
+// USER — Activation-Code Flow
 // ===================================================================
 
 /**
  * @swagger
- * /executives/upload-image:
+ * /executives/redeem:
  *   post:
  *     tags: [Executives - User]
- *     summary: Upload executive profile image
- *     description: Upload profile picture for executive application
+ *     summary: Redeem an activation code
  *     security:
  *       - bearerAuth: []
  *     requestBody:
  *       required: true
  *       content:
- *         multipart/form-data:
+ *         application/json:
  *           schema:
  *             type: object
- *             required: [image]
+ *             required: [code]
  *             properties:
- *               image:
- *                 type: string
- *                 format: binary
- *                 description: Profile image file (max 5MB)
+ *               code: { type: string, example: "A1B2C3D4" }
  *     responses:
- *       200:
- *         description: Image uploaded successfully
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 success:
- *                   type: boolean
- *                 message:
- *                   type: string
- *                 imageUrl:
- *                   type: string
- *       400:
- *         description: Invalid file or no file provided
+ *       200: { description: Code redeemed, complete profile next }
+ *       400: { description: Already redeemed / invalid code }
  */
-router.post('/upload-image', protect, upload.single('image'), executiveController.uploadExecutiveImage);
+router.post('/redeem', protect, executiveController.redeemActivationCode);
 
 /**
  * @swagger
- * /executives/apply:
- *   post:
+ * /executives/complete-profile:
+ *   put:
  *     tags: [Executives - User]
- *     summary: Apply to become an executive
- *     description: Submit application to become an executive (requires shares and profile image)
+ *     summary: Complete executive profile after redeeming a code
  *     security:
  *       - bearerAuth: []
  *     requestBody:
@@ -176,53 +120,89 @@ router.post('/upload-image', protect, upload.single('image'), executiveControlle
  *             type: object
  *             required: [country, state, city, address, phone, email, profileImage]
  *             properties:
- *               country:
- *                 type: string
- *                 example: "Nigeria"
- *               state:
- *                 type: string
- *                 example: "Lagos"
- *               city:
- *                 type: string
- *                 example: "Ikeja"
- *               address:
- *                 type: string
- *                 example: "123 Main Street, Ikeja"
- *               phone:
- *                 type: string
- *                 example: "+2348123456789"
- *               alternativePhone:
- *                 type: string
- *               email:
- *                 type: string
- *                 example: "executive@example.com"
- *               alternativeEmail:
- *                 type: string
- *               profileImage:
- *                 type: string
- *                 description: Cloudinary URL of uploaded profile image
- *                 example: "https://res.cloudinary.com/..."
- *               bio:
- *                 type: string
- *               expertise:
- *                 type: array
- *                 items:
- *                   type: string
- *               linkedin:
- *                 type: string
- *               twitter:
- *                 type: string
- *               latitude:
- *                 type: number
- *               longitude:
- *                 type: number
+ *               country:          { type: string }
+ *               state:            { type: string }
+ *               city:             { type: string }
+ *               address:          { type: string }
+ *               phone:            { type: string }
+ *               alternativePhone: { type: string }
+ *               email:            { type: string }
+ *               alternativeEmail: { type: string }
+ *               bio:              { type: string }
+ *               expertise:        { type: array, items: { type: string } }
+ *               linkedin:         { type: string }
+ *               twitter:          { type: string }
+ *               facebook:         { type: string }
+ *               instagram:        { type: string }
+ *               profileImage:     { type: string, description: Cloudinary URL }
+ *               latitude:         { type: number }
+ *               longitude:        { type: number }
  *     responses:
- *       201:
- *         description: Application submitted successfully
- *       400:
- *         description: Invalid request
- *       403:
- *         description: User doesn't have shares
+ *       200: { description: Profile completed and auto-approved }
+ *       400: { description: Validation error }
+ *       404: { description: No redeemed code found }
+ */
+router.put('/complete-profile', protect, executiveController.completeProfile);
+
+// ===================================================================
+// USER — Image Upload + Legacy Apply + My Application + Self-Update
+// ===================================================================
+
+/**
+ * @swagger
+ * /executives/upload-image:
+ *   post:
+ *     tags: [Executives - User]
+ *     summary: Upload executive profile image
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         multipart/form-data:
+ *           schema:
+ *             type: object
+ *             required: [image]
+ *             properties:
+ *               image: { type: string, format: binary, description: "Max 5 MB" }
+ *     responses:
+ *       200: { description: Image uploaded, returns imageUrl }
+ *       400: { description: No file / wrong type / too large }
+ */
+router.post('/upload-image', protect, upload.single('image'), executiveController.uploadExecutiveImage);
+
+/**
+ * @swagger
+ * /executives/apply:
+ *   post:
+ *     tags: [Executives - User]
+ *     summary: Apply to become an executive (self-service, requires share ownership)
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [country, state, city, address, phone, email, profileImage]
+ *             properties:
+ *               country:      { type: string }
+ *               state:        { type: string }
+ *               city:         { type: string }
+ *               address:      { type: string }
+ *               phone:        { type: string }
+ *               email:        { type: string }
+ *               profileImage: { type: string }
+ *               bio:          { type: string }
+ *               expertise:    { type: array, items: { type: string } }
+ *               linkedin:     { type: string }
+ *               twitter:      { type: string }
+ *               latitude:     { type: number }
+ *               longitude:    { type: number }
+ *     responses:
+ *       201: { description: Application submitted, pending admin review }
+ *       403: { description: No share ownership }
  */
 router.post('/apply', protect, executiveController.applyAsExecutive);
 
@@ -231,12 +211,12 @@ router.post('/apply', protect, executiveController.applyAsExecutive);
  * /executives/my-application:
  *   get:
  *     tags: [Executives - User]
- *     summary: Get my executive application
+ *     summary: Get my executive application / status
  *     security:
  *       - bearerAuth: []
  *     responses:
- *       200:
- *         description: Application retrieved successfully
+ *       200: { description: Application retrieved }
+ *       404: { description: No application found }
  */
 router.get('/my-application', protect, executiveController.getMyExecutiveApplication);
 
@@ -245,7 +225,7 @@ router.get('/my-application', protect, executiveController.getMyExecutiveApplica
  * /executives/update:
  *   put:
  *     tags: [Executives - User]
- *     summary: Update executive information
+ *     summary: Self-update executive contact / profile info
  *     security:
  *       - bearerAuth: []
  *     requestBody:
@@ -254,24 +234,84 @@ router.get('/my-application', protect, executiveController.getMyExecutiveApplica
  *           schema:
  *             type: object
  *             properties:
- *               phone:
- *                 type: string
- *               email:
- *                 type: string
- *               address:
- *                 type: string
- *               bio:
- *                 type: string
- *               profileImage:
- *                 type: string
+ *               phone:            { type: string }
+ *               alternativePhone: { type: string }
+ *               email:            { type: string }
+ *               alternativeEmail: { type: string }
+ *               address:          { type: string }
+ *               bio:              { type: string }
+ *               expertise:        { type: array, items: { type: string } }
+ *               linkedin:         { type: string }
+ *               twitter:          { type: string }
+ *               profileImage:     { type: string }
  *     responses:
- *       200:
- *         description: Information updated successfully
+ *       200: { description: Updated successfully }
+ *       404: { description: Not found / not approved }
  */
 router.put('/update', protect, executiveController.updateExecutiveInfo);
 
 // ===================================================================
-// ADMIN ROUTES
+// ADMIN — Activation Code Management
+// ===================================================================
+
+/**
+ * @swagger
+ * /executives/admin/generate-code:
+ *   post:
+ *     tags: [Executives - Admin]
+ *     summary: Generate an activation code
+ *     security:
+ *       - adminAuth: []
+ *     requestBody:
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               userId: { type: string, description: "Pre-assign to a specific user (optional)" }
+ *               note:   { type: string }
+ *     responses:
+ *       201: { description: Code generated }
+ */
+router.post('/admin/generate-code', protect, adminProtect, executiveController.generateActivationCode);
+
+/**
+ * @swagger
+ * /executives/admin/codes:
+ *   get:
+ *     tags: [Executives - Admin]
+ *     summary: List all activation codes
+ *     security:
+ *       - adminAuth: []
+ *     parameters:
+ *       - { in: query, name: page,     schema: { type: integer, default: 1  } }
+ *       - { in: query, name: limit,    schema: { type: integer, default: 50 } }
+ *       - { in: query, name: redeemed, schema: { type: string, enum: [true, false] }, description: "Filter by redemption status" }
+ *     responses:
+ *       200: { description: Codes listed }
+ */
+router.get('/admin/codes', protect, adminProtect, executiveController.listActivationCodes);
+
+/**
+ * @swagger
+ * /executives/admin/codes/{code}:
+ *   delete:
+ *     tags: [Executives - Admin]
+ *     summary: Revoke an unused activation code
+ *     security:
+ *       - adminAuth: []
+ *     parameters:
+ *       - { in: path, name: code, required: true, schema: { type: string } }
+ *     responses:
+ *       200: { description: Code revoked }
+ *       400: { description: Code already redeemed }
+ *       404: { description: Code not found }
+ */
+router.delete('/admin/codes/:code', protect, adminProtect, executiveController.revokeActivationCode);
+
+// ===================================================================
+// ADMIN — Application / Executive Management
+//  IMPORTANT: Specific named paths MUST come before /:executiveId
 // ===================================================================
 
 /**
@@ -279,28 +319,35 @@ router.put('/update', protect, executiveController.updateExecutiveInfo);
  * /executives/admin/applications:
  *   get:
  *     tags: [Executives - Admin]
- *     summary: Get all executive applications
+ *     summary: List all executive applications with filters
  *     security:
  *       - adminAuth: []
  *     parameters:
- *       - in: query
- *         name: status
- *         schema:
- *           type: string
- *           enum: [pending, approved, rejected, suspended]
- *       - in: query
- *         name: page
- *         schema:
- *           type: integer
- *       - in: query
- *         name: limit
- *         schema:
- *           type: integer
+ *       - { in: query, name: status,    schema: { type: string, enum: [pending, approved, rejected, suspended] } }
+ *       - { in: query, name: country,   schema: { type: string } }
+ *       - { in: query, name: state,     schema: { type: string } }
+ *       - { in: query, name: search,    schema: { type: string }, description: "Name / email / username" }
+ *       - { in: query, name: sortBy,    schema: { type: string, default: applicationDate } }
+ *       - { in: query, name: sortOrder, schema: { type: string, enum: [asc, desc], default: desc } }
+ *       - { in: query, name: page,      schema: { type: integer, default: 1  } }
+ *       - { in: query, name: limit,     schema: { type: integer, default: 20 } }
  *     responses:
- *       200:
- *         description: Applications retrieved successfully
+ *       200: { description: Applications retrieved }
  */
 router.get('/admin/applications', protect, adminProtect, executiveController.getAllExecutiveApplications);
+
+/**
+ * @swagger
+ * /executives/admin/statistics:
+ *   get:
+ *     tags: [Executives - Admin]
+ *     summary: Get executive statistics (% based ownership totals, regional breakdown, top executives)
+ *     security:
+ *       - adminAuth: []
+ *     responses:
+ *       200: { description: Statistics retrieved }
+ */
+router.get('/admin/statistics', protect, adminProtect, executiveController.getExecutiveStatistics);
 
 /**
  * @swagger
@@ -311,30 +358,21 @@ router.get('/admin/applications', protect, adminProtect, executiveController.get
  *     security:
  *       - adminAuth: []
  *     parameters:
- *       - in: path
- *         name: applicationId
- *         required: true
- *         schema:
- *           type: string
+ *       - { in: path, name: applicationId, required: true, schema: { type: string } }
  *     requestBody:
  *       content:
  *         application/json:
  *           schema:
  *             type: object
  *             properties:
- *               adminNotes:
- *                 type: string
- *               roleTitle:
- *                 type: string
- *               responsibilities:
- *                 type: array
- *                 items:
- *                   type: string
- *               region:
- *                 type: string
+ *               adminNotes:      { type: string }
+ *               roleTitle:       { type: string }
+ *               responsibilities: { type: array, items: { type: string } }
+ *               region:          { type: string }
  *     responses:
- *       200:
- *         description: Application approved
+ *       200: { description: Approved }
+ *       400: { description: Already processed }
+ *       404: { description: Not found }
  */
 router.post('/admin/approve/:applicationId', protect, adminProtect, executiveController.approveExecutiveApplication);
 
@@ -347,11 +385,7 @@ router.post('/admin/approve/:applicationId', protect, adminProtect, executiveCon
  *     security:
  *       - adminAuth: []
  *     parameters:
- *       - in: path
- *         name: applicationId
- *         required: true
- *         schema:
- *           type: string
+ *       - { in: path, name: applicationId, required: true, schema: { type: string } }
  *     requestBody:
  *       required: true
  *       content:
@@ -360,11 +394,10 @@ router.post('/admin/approve/:applicationId', protect, adminProtect, executiveCon
  *             type: object
  *             required: [reason]
  *             properties:
- *               reason:
- *                 type: string
+ *               reason: { type: string }
  *     responses:
- *       200:
- *         description: Application rejected
+ *       200: { description: Rejected }
+ *       400: { description: Already processed or missing reason }
  */
 router.post('/admin/reject/:applicationId', protect, adminProtect, executiveController.rejectExecutiveApplication);
 
@@ -373,15 +406,11 @@ router.post('/admin/reject/:applicationId', protect, adminProtect, executiveCont
  * /executives/admin/suspend/{executiveId}:
  *   post:
  *     tags: [Executives - Admin]
- *     summary: Suspend executive
+ *     summary: Suspend an approved executive
  *     security:
  *       - adminAuth: []
  *     parameters:
- *       - in: path
- *         name: executiveId
- *         required: true
- *         schema:
- *           type: string
+ *       - { in: path, name: executiveId, required: true, schema: { type: string } }
  *     requestBody:
  *       required: true
  *       content:
@@ -390,63 +419,135 @@ router.post('/admin/reject/:applicationId', protect, adminProtect, executiveCont
  *             type: object
  *             required: [reason]
  *             properties:
- *               reason:
- *                 type: string
- *               endDate:
- *                 type: string
- *                 format: date
+ *               reason:  { type: string }
+ *               endDate: { type: string, format: date }
  *     responses:
- *       200:
- *         description: Executive suspended
+ *       200: { description: Suspended }
+ *       400: { description: Not approved / missing reason }
  */
 router.post('/admin/suspend/:executiveId', protect, adminProtect, executiveController.suspendExecutive);
 
 /**
  * @swagger
- * /executives/admin/remove/{executiveId}:
- *   delete:
+ * /executives/admin/reactivate/{executiveId}:
+ *   post:
  *     tags: [Executives - Admin]
- *     summary: Remove executive status
+ *     summary: Reactivate a suspended executive
  *     security:
  *       - adminAuth: []
  *     parameters:
- *       - in: path
- *         name: executiveId
- *         required: true
- *         schema:
- *           type: string
+ *       - { in: path, name: executiveId, required: true, schema: { type: string } }
  *     requestBody:
  *       content:
  *         application/json:
  *           schema:
  *             type: object
  *             properties:
- *               reason:
- *                 type: string
+ *               adminNotes: { type: string }
  *     responses:
- *       200:
- *         description: Executive removed
+ *       200: { description: Reactivated }
+ *       400: { description: Not suspended }
+ *       404: { description: Not found }
+ */
+router.post('/admin/reactivate/:executiveId', protect, adminProtect, executiveController.reactivateExecutive);
+
+/**
+ * @swagger
+ * /executives/admin/edit/{executiveId}:
+ *   put:
+ *     tags: [Executives - Admin]
+ *     summary: Admin-edit any executive's profile fields
+ *     description: Only fields included in the body are updated. All fields are optional.
+ *     security:
+ *       - adminAuth: []
+ *     parameters:
+ *       - { in: path, name: executiveId, required: true, schema: { type: string } }
+ *     requestBody:
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               country:          { type: string }
+ *               state:            { type: string }
+ *               city:             { type: string }
+ *               address:          { type: string }
+ *               phone:            { type: string }
+ *               alternativePhone: { type: string }
+ *               email:            { type: string }
+ *               alternativeEmail: { type: string }
+ *               bio:              { type: string }
+ *               expertise:        { type: array, items: { type: string } }
+ *               linkedin:         { type: string }
+ *               twitter:          { type: string }
+ *               facebook:         { type: string }
+ *               instagram:        { type: string }
+ *               profileImage:     { type: string }
+ *               roleTitle:        { type: string }
+ *               responsibilities: { type: array, items: { type: string } }
+ *               region:           { type: string }
+ *               adminNotes:       { type: string }
+ *     responses:
+ *       200: { description: Executive updated }
+ *       404: { description: Not found }
+ */
+router.put('/admin/edit/:executiveId', protect, adminProtect, executiveController.adminEditExecutive);
+
+/**
+ * @swagger
+ * /executives/admin/refresh-shares/{executiveId}:
+ *   post:
+ *     tags: [Executives - Admin]
+ *     summary: Re-sync an executive's shareInfo from current share records
+ *     description: Useful after manual share adjustments to keep the executive record current.
+ *     security:
+ *       - adminAuth: []
+ *     parameters:
+ *       - { in: path, name: executiveId, required: true, schema: { type: string } }
+ *     responses:
+ *       200: { description: Share info refreshed }
+ *       404: { description: Not found }
+ */
+router.post('/admin/refresh-shares/:executiveId', protect, adminProtect, executiveController.adminRefreshExecutiveShares);
+
+/**
+ * @swagger
+ * /executives/admin/remove/{executiveId}:
+ *   delete:
+ *     tags: [Executives - Admin]
+ *     summary: Permanently remove an executive record
+ *     security:
+ *       - adminAuth: []
+ *     parameters:
+ *       - { in: path, name: executiveId, required: true, schema: { type: string } }
+ *     requestBody:
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               reason: { type: string }
+ *     responses:
+ *       200: { description: Removed }
+ *       404: { description: Not found }
  */
 router.delete('/admin/remove/:executiveId', protect, adminProtect, executiveController.removeExecutive);
 
 /**
  * @swagger
- * /executives/admin/statistics:
+ * /executives/admin/{executiveId}:
  *   get:
  *     tags: [Executives - Admin]
- *     summary: Get executive statistics
+ *     summary: Get a single executive record by ID
  *     security:
  *       - adminAuth: []
+ *     parameters:
+ *       - { in: path, name: executiveId, required: true, schema: { type: string } }
  *     responses:
- *       200:
- *         description: Statistics retrieved successfully
+ *       200: { description: Executive retrieved }
+ *       404: { description: Not found }
  */
-router.get('/admin/statistics', protect, adminProtect, executiveController.getExecutiveStatistics);
-
-// Admin: Generate activation code
-router.post('/admin/generate-code', protect, adminProtect, executiveController.generateActivationCode);
-
-// Admin: List all activation codes
-router.get('/admin/codes', protect, adminProtect, executiveController.listActivationCodes);
+// NOTE: This generic /:executiveId GET must stay LAST among admin routes
+router.get('/admin/:executiveId', protect, adminProtect, executiveController.getExecutiveById);
 
 module.exports = router;
