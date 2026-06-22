@@ -1,5 +1,6 @@
 // controller/executiveController.js
 const crypto = require('crypto');
+const mongoose = require('mongoose');
 const Executive = require('../models/Executive');
 const User = require('../models/User');
 const UserShare = require('../models/UserShare');
@@ -117,12 +118,34 @@ async function computeShareInfo(userId) {
 
 /** Check admin status from the request */
 async function requireAdmin(req, res) {
-  const admin = await User.findById(req.user.id).lean();
-  if (!admin || !admin.isAdmin) {
-    res.status(403).json({ success: false, message: 'Unauthorized: Admin access required' });
-    return null;
+  try {
+    if (!req.user || !req.user.id) {
+      return res.status(401).json({ 
+        success: false, 
+        message: 'Unauthorized: User not authenticated' 
+      });
+    }
+
+    const admin = await User.findById(req.user.id).lean();
+    if (!admin || !admin.isAdmin) {
+      return res.status(403).json({ 
+        success: false, 
+        message: 'Unauthorized: Admin access required' 
+      });
+    }
+    return admin;
+  } catch (error) {
+    console.error('[EXECUTIVE] Admin check error:', error);
+    return res.status(500).json({ 
+      success: false, 
+      message: 'Failed to verify admin status' 
+    });
   }
-  return admin;
+}
+
+/** Validate MongoDB ObjectId */
+function isValidObjectId(id) {
+  return mongoose.Types.ObjectId.isValid(id);
 }
 
 // ---------------------------------------------------------------------------
@@ -136,25 +159,63 @@ async function requireAdmin(req, res) {
  */
 exports.generateActivationCode = async (req, res) => {
   try {
-    if (!await requireAdmin(req, res)) return;
+    // Check admin status
+    const admin = await User.findById(req.user.id).lean();
+    if (!admin || !admin.isAdmin) {
+      return res.status(403).json({ 
+        success: false, 
+        message: 'Unauthorized: Admin access required' 
+      });
+    }
 
     const adminId = req.user.id;
     const { userId, note } = req.body;
 
-    // Ensure uniqueness
-    let code;
-    let exists = true;
-    while (exists) {
-      code  = generateActivationCode();
-      exists = await Executive.findOne({ activationCode: code });
+    // Validate userId if provided
+    if (userId && !isValidObjectId(userId)) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Invalid user ID format' 
+      });
     }
 
+    // Check if user exists if userId provided
+    if (userId) {
+      const userExists = await User.findById(userId).lean();
+      if (!userExists) {
+        return res.status(404).json({ 
+          success: false, 
+          message: 'User not found with the provided ID' 
+        });
+      }
+    }
+
+    // Generate unique code with retry mechanism
+    let code;
+    let exists = true;
+    let attempts = 0;
+    const maxAttempts = 10;
+    
+    while (exists && attempts < maxAttempts) {
+      code = crypto.randomBytes(4).toString('hex').toUpperCase();
+      exists = await Executive.exists({ activationCode: code });
+      attempts++;
+    }
+    
+    if (exists) {
+      return res.status(500).json({ 
+        success: false, 
+        message: 'Failed to generate unique code after multiple attempts' 
+      });
+    }
+
+    // Create executive document
     const execDoc = new Executive({
-      activationCode:    code,
-      codeGeneratedBy:   adminId,
-      codeGeneratedAt:   new Date(),
-      status:            'pending',
-      adminNote:         note || null,
+      activationCode: code,
+      codeGeneratedBy: adminId,
+      codeGeneratedAt: new Date(),
+      status: 'pending',
+      adminNote: note || null,
       ...(userId && { userId })
     });
 
@@ -162,15 +223,47 @@ exports.generateActivationCode = async (req, res) => {
 
     console.log('[EXECUTIVE] Activation code generated:', code, 'by admin:', adminId);
 
-    res.status(201).json({
-      success:     true,
-      message:     'Activation code generated successfully',
+    return res.status(201).json({
+      success: true,
+      message: 'Activation code generated successfully',
       code,
       executiveId: execDoc._id
     });
   } catch (error) {
-    console.error('[EXECUTIVE] Error generating code:', error);
-    res.status(500).json({ success: false, message: 'Failed to generate activation code' });
+    console.error('[EXECUTIVE] Error generating code:', {
+      message: error.message,
+      stack: error.stack,
+      code: error.code,
+      name: error.name
+    });
+
+    // Handle duplicate key error
+    if (error.code === 11000) {
+      return res.status(409).json({
+        success: false,
+        message: 'Duplicate code generated, please try again'
+      });
+    }
+
+    // Handle validation errors
+    if (error.name === 'ValidationError') {
+      const errors = Object.values(error.errors).map(e => e.message);
+      return res.status(400).json({
+        success: false,
+        message: 'Validation error',
+        errors
+      });
+    }
+
+    const errorMessage = process.env.NODE_ENV === 'development' 
+      ? error.message 
+      : 'Failed to generate activation code';
+    
+    return res.status(500).json({ 
+      success: false, 
+      message: errorMessage,
+      ...(process.env.NODE_ENV === 'development' && { stack: error.stack })
+    });
   }
 };
 
@@ -181,37 +274,46 @@ exports.generateActivationCode = async (req, res) => {
  */
 exports.listActivationCodes = async (req, res) => {
   try {
-    if (!await requireAdmin(req, res)) return;
+    const admin = await requireAdmin(req, res);
+    if (!admin) return;
 
     const { page = 1, limit = 50, redeemed } = req.query;
-    const skip  = (parseInt(page) - 1) * parseInt(limit);
+    const skip = (parseInt(page) - 1) * parseInt(limit);
+    const limitNum = Math.min(parseInt(limit), 100); // Max 100 per page
 
     const query = { activationCode: { $exists: true, $ne: null } };
-    if (redeemed === 'true')  query.codeRedeemedAt = { $exists: true };
+    if (redeemed === 'true') query.codeRedeemedAt = { $exists: true };
     if (redeemed === 'false') query.codeRedeemedAt = { $exists: false };
 
-    const codes = await Executive.find(query)
-      .populate('userId',          'name email userName')
-      .populate('codeGeneratedBy', 'name email')
-      .select('activationCode userId codeGeneratedBy codeGeneratedAt codeRedeemedAt status location.country location.state adminNote')
-      .sort({ codeGeneratedAt: -1 })
-      .skip(skip)
-      .limit(parseInt(limit));
+    const [codes, totalCount] = await Promise.all([
+      Executive.find(query)
+        .populate('userId', 'name email userName')
+        .populate('codeGeneratedBy', 'name email')
+        .select('activationCode userId codeGeneratedBy codeGeneratedAt codeRedeemedAt status location.country location.state adminNote')
+        .sort({ codeGeneratedAt: -1 })
+        .skip(skip)
+        .limit(limitNum)
+        .lean(),
+      Executive.countDocuments(query)
+    ]);
 
-    const totalCount = await Executive.countDocuments(query);
-
-    res.status(200).json({
+    return res.status(200).json({
       success: true,
       codes,
       pagination: {
         currentPage: parseInt(page),
-        totalPages:  Math.ceil(totalCount / parseInt(limit)),
-        totalCount
+        totalPages: Math.ceil(totalCount / limitNum),
+        totalCount,
+        limit: limitNum
       }
     });
   } catch (error) {
     console.error('[EXECUTIVE] Error listing codes:', error);
-    res.status(500).json({ success: false, message: 'Failed to list activation codes' });
+    return res.status(500).json({ 
+      success: false, 
+      message: 'Failed to list activation codes',
+      ...(process.env.NODE_ENV === 'development' && { error: error.message })
+    });
   }
 };
 
@@ -222,25 +324,50 @@ exports.listActivationCodes = async (req, res) => {
  */
 exports.revokeActivationCode = async (req, res) => {
   try {
-    if (!await requireAdmin(req, res)) return;
+    const admin = await requireAdmin(req, res);
+    if (!admin) return;
 
     const { code } = req.params;
 
-    const execDoc = await Executive.findOne({ activationCode: code.toUpperCase().trim() });
-    if (!execDoc) {
-      return res.status(404).json({ success: false, message: 'Activation code not found' });
+    if (!code) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Code parameter is required' 
+      });
     }
+
+    const execDoc = await Executive.findOne({ 
+      activationCode: code.toUpperCase().trim() 
+    });
+    
+    if (!execDoc) {
+      return res.status(404).json({ 
+        success: false, 
+        message: 'Activation code not found' 
+      });
+    }
+    
     if (execDoc.codeRedeemedAt) {
-      return res.status(400).json({ success: false, message: 'Cannot revoke a code that has already been redeemed' });
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Cannot revoke a code that has already been redeemed' 
+      });
     }
 
     await Executive.deleteOne({ _id: execDoc._id });
 
     console.log('[EXECUTIVE] Activation code revoked:', code, 'by admin:', req.user.id);
-    res.status(200).json({ success: true, message: 'Activation code revoked successfully' });
+    return res.status(200).json({ 
+      success: true, 
+      message: 'Activation code revoked successfully' 
+    });
   } catch (error) {
     console.error('[EXECUTIVE] Error revoking code:', error);
-    res.status(500).json({ success: false, message: 'Failed to revoke activation code' });
+    return res.status(500).json({ 
+      success: false, 
+      message: 'Failed to revoke activation code',
+      ...(process.env.NODE_ENV === 'development' && { error: error.message })
+    });
   }
 };
 
@@ -259,40 +386,70 @@ exports.redeemActivationCode = async (req, res) => {
     const { code } = req.body;
 
     if (!code) {
-      return res.status(400).json({ success: false, message: 'Activation code is required' });
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Activation code is required' 
+      });
     }
 
     // Check if user already has an executive record
-    const existingExec = await Executive.findOne({ userId, codeRedeemedAt: { $exists: true } });
+    const existingExec = await Executive.findOne({ 
+      userId, 
+      codeRedeemedAt: { $exists: true } 
+    });
+    
     if (existingExec) {
-      return res.status(400).json({ success: false, message: 'You already have an executive record' });
+      return res.status(400).json({ 
+        success: false, 
+        message: 'You already have an executive record' 
+      });
     }
 
-    const execDoc = await Executive.findOne({ activationCode: code.toUpperCase().trim() });
+    const execDoc = await Executive.findOne({ 
+      activationCode: code.toUpperCase().trim() 
+    });
+    
     if (!execDoc) {
-      return res.status(404).json({ success: false, message: 'Invalid activation code' });
+      return res.status(404).json({ 
+        success: false, 
+        message: 'Invalid activation code' 
+      });
     }
+    
     if (execDoc.codeRedeemedAt) {
-      return res.status(400).json({ success: false, message: 'This code has already been redeemed' });
+      return res.status(400).json({ 
+        success: false, 
+        message: 'This code has already been redeemed' 
+      });
     }
+    
     if (execDoc.userId && execDoc.userId.toString() !== userId) {
-      return res.status(403).json({ success: false, message: 'This code is assigned to a different user' });
+      return res.status(403).json({ 
+        success: false, 
+        message: 'This code is assigned to a different user' 
+      });
     }
 
-    execDoc.userId         = userId;
+    // Redeem the code
+    execDoc.userId = userId;
     execDoc.codeRedeemedAt = new Date();
+    execDoc.status = 'pending';
     await execDoc.save();
 
     console.log('[EXECUTIVE] Code redeemed:', code, 'by user:', userId);
 
-    res.status(200).json({
-      success:     true,
-      message:     'Activation code redeemed successfully. Please complete your profile.',
+    return res.status(200).json({
+      success: true,
+      message: 'Activation code redeemed successfully. Please complete your profile.',
       executiveId: execDoc._id
     });
   } catch (error) {
     console.error('[EXECUTIVE] Error redeeming code:', error);
-    res.status(500).json({ success: false, message: 'Failed to redeem activation code' });
+    return res.status(500).json({ 
+      success: false, 
+      message: 'Failed to redeem activation code',
+      ...(process.env.NODE_ENV === 'development' && { error: error.message })
+    });
   }
 };
 
@@ -311,7 +468,24 @@ exports.completeProfile = async (req, res) => {
       profileImage, latitude, longitude
     } = req.body;
 
-    const execDoc = await Executive.findOne({ userId, codeRedeemedAt: { $exists: true } });
+    // Validate required fields
+    const requiredFields = { country, state, city, address, phone, email, profileImage };
+    const missingFields = Object.entries(requiredFields)
+      .filter(([_, value]) => !value)
+      .map(([key]) => key);
+
+    if (missingFields.length > 0) {
+      return res.status(400).json({
+        success: false,
+        message: `Please provide all required fields: ${missingFields.join(', ')}`
+      });
+    }
+
+    const execDoc = await Executive.findOne({ 
+      userId, 
+      codeRedeemedAt: { $exists: true } 
+    });
+    
     if (!execDoc) {
       return res.status(404).json({
         success: false,
@@ -319,70 +493,71 @@ exports.completeProfile = async (req, res) => {
       });
     }
 
-    if (!country || !state || !city || !address || !phone || !email) {
+    // Check if profile is already completed
+    if (execDoc.isVerified && execDoc.status === 'approved') {
       return res.status(400).json({
         success: false,
-        message: 'Please provide all required fields: country, state, city, address, phone, and email'
+        message: 'Your executive profile is already completed and approved'
       });
     }
-    if (!profileImage) {
-      return res.status(400).json({ success: false, message: 'Profile image is required' });
-    }
 
-    // --- NEW: % based share info ---
+    // Compute share info
     const shareInfo = await computeShareInfo(userId);
 
+    // Update executive document
     execDoc.profileImage = profileImage;
-    execDoc.location     = {
+    execDoc.location = {
       country,
       state,
       city,
       address,
-      coordinates: { latitude: latitude || null, longitude: longitude || null }
+      coordinates: { 
+        latitude: latitude || null, 
+        longitude: longitude || null 
+      }
     };
-    execDoc.contactInfo  = {
+    execDoc.contactInfo = {
       phone,
-      alternativePhone:  alternativePhone  || null,
+      alternativePhone: alternativePhone || null,
       email,
-      alternativeEmail:  alternativeEmail  || null
+      alternativeEmail: alternativeEmail || null
     };
-    execDoc.shareInfo    = {
-      // % based fields
-      totalOwnershipPct:     shareInfo.totalOwnershipPct,
-      regularOwnershipPct:   shareInfo.regularOwnershipPct,
+    execDoc.shareInfo = {
+      totalOwnershipPct: shareInfo.totalOwnershipPct,
+      regularOwnershipPct: shareInfo.regularOwnershipPct,
       cofounderOwnershipPct: shareInfo.cofounderOwnershipPct,
-      totalEarningKobo:      shareInfo.totalEarningKobo,
-      // legacy counts kept for display
-      regularShares:         shareInfo.regularShares,
-      coFounderShares:       shareInfo.coFounderShares,
-      verifiedAt:            new Date()
+      totalEarningKobo: shareInfo.totalEarningKobo,
+      regularShares: shareInfo.regularShares,
+      coFounderShares: shareInfo.coFounderShares,
+      verifiedAt: new Date()
     };
-    execDoc.bio         = bio || null;
-    execDoc.expertise   = expertise || [];
+    execDoc.bio = bio || null;
+    execDoc.expertise = expertise || [];
     execDoc.socialMedia = {
-      linkedin:  linkedin  || null,
-      twitter:   twitter   || null,
-      facebook:  facebook  || null,
+      linkedin: linkedin || null,
+      twitter: twitter || null,
+      facebook: facebook || null,
       instagram: instagram || null
     };
-    execDoc.linkedin    = linkedin || null;
-    execDoc.twitter     = twitter  || null;
-    execDoc.status      = 'approved';
-    execDoc.isVerified  = true;
+    execDoc.linkedin = linkedin || null;
+    execDoc.twitter = twitter || null;
+    execDoc.status = 'approved';
+    execDoc.isVerified = true;
     execDoc.approvalInfo = {
-      approvedAt:  new Date(),
-      adminNotes:  'Auto-approved via activation code'
+      approvedAt: new Date(),
+      adminNotes: 'Auto-approved via activation code'
     };
 
     await execDoc.save();
 
     console.log('[EXECUTIVE] Profile completed for user:', userId);
 
+    // Send welcome email
     const user = await User.findById(userId);
     if (user?.email) {
       try {
         await sendEmail({
-          email:   user.email,
+          email: user.email,
           subject: 'AfriMobile - Welcome, Executive!',
           html: `
             <h2>Welcome to the AfriMobile Executive Team!</h2>
@@ -401,14 +576,18 @@ exports.completeProfile = async (req, res) => {
       }
     }
 
-    res.status(200).json({
-      success:     true,
-      message:     'Executive profile completed successfully!',
+    return res.status(200).json({
+      success: true,
+      message: 'Executive profile completed successfully!',
       application: execDoc
     });
   } catch (error) {
     console.error('[EXECUTIVE] Error completing profile:', error);
-    res.status(500).json({ success: false, message: 'Failed to complete executive profile' });
+    return res.status(500).json({ 
+      success: false, 
+      message: 'Failed to complete executive profile',
+      ...(process.env.NODE_ENV === 'development' && { error: error.message })
+    });
   }
 };
 
@@ -426,18 +605,32 @@ exports.uploadExecutiveImage = async (req, res) => {
     const userId = req.user.id;
 
     if (!req.file) {
-      return res.status(400).json({ success: false, message: 'No image file provided' });
+      return res.status(400).json({ 
+        success: false, 
+        message: 'No image file provided' 
+      });
     }
-    if (!req.file.mimetype.startsWith('image/')) {
-      return res.status(400).json({ success: false, message: 'File must be an image' });
+    
+    if (!req.file.mimetype || !req.file.mimetype.startsWith('image/')) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'File must be an image' 
+      });
     }
+    
     if (req.file.size > 5 * 1024 * 1024) {
-      return res.status(400).json({ success: false, message: 'Image size must be less than 5MB' });
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Image size must be less than 5MB' 
+      });
     }
 
     const user = await User.findById(userId);
     if (!user) {
-      return res.status(404).json({ success: false, message: 'User not found' });
+      return res.status(404).json({ 
+        success: false, 
+        message: 'User not found' 
+      });
     }
 
     const result = await sharePaymentUpload(
@@ -448,19 +641,19 @@ exports.uploadExecutiveImage = async (req, res) => {
 
     logCloudinaryUpload(userId, result.secure_url, 'executive_profile');
 
-    res.status(200).json({
-      success:  true,
-      message:  'Image uploaded successfully',
+    return res.status(200).json({
+      success: true,
+      message: 'Image uploaded successfully',
       imageUrl: result.secure_url,
       publicId: result.public_id
     });
   } catch (error) {
     console.error('[EXECUTIVE IMAGE] Upload error:', error);
     handleCloudinaryError(error);
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       message: 'Failed to upload image',
-      error:   process.env.NODE_ENV === 'development' ? error.message : undefined
+      ...(process.env.NODE_ENV === 'development' && { error: error.message })
     });
   }
 };
@@ -483,24 +676,33 @@ exports.applyAsExecutive = async (req, res) => {
       linkedin, twitter, latitude, longitude, profileImage
     } = req.body;
 
-    if (!country || !state || !city || !address || !phone || !email) {
+    // Validate required fields
+    const requiredFields = { country, state, city, address, phone, email, profileImage };
+    const missingFields = Object.entries(requiredFields)
+      .filter(([_, value]) => !value)
+      .map(([key]) => key);
+
+    if (missingFields.length > 0) {
       return res.status(400).json({
         success: false,
-        message: 'Please provide all required fields: country, state, city, address, phone, and email'
+        message: `Please provide all required fields: ${missingFields.join(', ')}`
       });
-    }
-    if (!profileImage) {
-      return res.status(400).json({ success: false, message: 'Profile image is required' });
     }
 
     // Check for existing application
     const existingApplication = await Executive.findOne({ userId });
     if (existingApplication) {
       if (existingApplication.status === 'pending') {
-        return res.status(400).json({ success: false, message: 'You already have a pending executive application' });
+        return res.status(400).json({ 
+          success: false, 
+          message: 'You already have a pending executive application' 
+        });
       }
       if (existingApplication.status === 'approved') {
-        return res.status(400).json({ success: false, message: 'You are already an approved executive' });
+        return res.status(400).json({ 
+          success: false, 
+          message: 'You are already an approved executive' 
+        });
       }
       if (existingApplication.status === 'rejected') {
         await Executive.deleteOne({ _id: existingApplication._id });
@@ -516,7 +718,7 @@ exports.applyAsExecutive = async (req, res) => {
       });
     }
 
-    // --- NEW: % based share info ---
+    // Compute share info
     const shareInfo = await computeShareInfo(userId);
 
     if (shareInfo.totalOwnershipPct <= 0) {
@@ -534,28 +736,31 @@ exports.applyAsExecutive = async (req, res) => {
         state,
         city,
         address,
-        coordinates: { latitude: latitude || null, longitude: longitude || null }
+        coordinates: { 
+          latitude: latitude || null, 
+          longitude: longitude || null 
+        }
       },
       contactInfo: {
         phone,
-        alternativePhone:  alternativePhone  || null,
+        alternativePhone: alternativePhone || null,
         email,
-        alternativeEmail:  alternativeEmail  || null
+        alternativeEmail: alternativeEmail || null
       },
       shareInfo: {
-        totalOwnershipPct:     shareInfo.totalOwnershipPct,
-        regularOwnershipPct:   shareInfo.regularOwnershipPct,
+        totalOwnershipPct: shareInfo.totalOwnershipPct,
+        regularOwnershipPct: shareInfo.regularOwnershipPct,
         cofounderOwnershipPct: shareInfo.cofounderOwnershipPct,
-        totalEarningKobo:      shareInfo.totalEarningKobo,
-        regularShares:         shareInfo.regularShares,
-        coFounderShares:       shareInfo.coFounderShares,
-        verifiedAt:            new Date()
+        totalEarningKobo: shareInfo.totalEarningKobo,
+        regularShares: shareInfo.regularShares,
+        coFounderShares: shareInfo.coFounderShares,
+        verifiedAt: new Date()
       },
-      bio:         bio      || null,
-      expertise:   expertise || [],
+      bio: bio || null,
+      expertise: expertise || [],
       socialMedia: {
         linkedin: linkedin || null,
-        twitter:  twitter  || null
+        twitter: twitter || null
       },
       status: 'pending'
     });
@@ -564,10 +769,11 @@ exports.applyAsExecutive = async (req, res) => {
 
     const user = await User.findById(userId);
 
+    // Send confirmation email to user
     if (user?.email) {
       try {
         await sendEmail({
-          email:   user.email,
+          email: user.email,
           subject: 'AfriMobile - Executive Application Received',
           html: `
             <h2>Executive Application Submitted</h2>
@@ -588,16 +794,17 @@ exports.applyAsExecutive = async (req, res) => {
       }
     }
 
+    // Send notification to admin
     const adminEmail = process.env.ADMIN_EMAIL;
     if (adminEmail) {
       try {
         await sendEmail({
-          email:   adminEmail,
+          email: adminEmail,
           subject: 'New Executive Application',
           html: `
             <h2>New Executive Application</h2>
             <ul>
-              <li>User: ${user.name} (${user.email})</li>
+              <li>User: ${user?.name || 'Unknown'} (${user?.email || 'No email'})</li>
               <li>Ownership: ${(shareInfo.totalOwnershipPct * 100).toFixed(6)}%</li>
               <li>Location: ${city}, ${state}, ${country}</li>
               <li>Phone: ${phone}</li>
@@ -610,17 +817,17 @@ exports.applyAsExecutive = async (req, res) => {
       }
     }
 
-    res.status(201).json({
-      success:     true,
-      message:     'Executive application submitted successfully',
+    return res.status(201).json({
+      success: true,
+      message: 'Executive application submitted successfully',
       application: executiveApplication
     });
   } catch (error) {
     console.error('[EXECUTIVE] Error in applyAsExecutive:', error);
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       message: 'Failed to submit executive application',
-      error:   process.env.NODE_ENV === 'development' ? error.message : undefined
+      ...(process.env.NODE_ENV === 'development' && { error: error.message })
     });
   }
 };
@@ -641,16 +848,22 @@ exports.getMyExecutiveApplication = async (req, res) => {
       .populate('approvalInfo.rejectedBy', 'name email');
 
     if (!application) {
-      return res.status(404).json({ success: false, message: 'No executive application found' });
+      return res.status(404).json({ 
+        success: false, 
+        message: 'No executive application found' 
+      });
     }
 
-    res.status(200).json({ success: true, application });
+    return res.status(200).json({ 
+      success: true, 
+      application 
+    });
   } catch (error) {
     console.error('[EXECUTIVE] Error in getMyExecutiveApplication:', error);
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       message: 'Failed to fetch executive application',
-      error:   process.env.NODE_ENV === 'development' ? error.message : undefined
+      ...(process.env.NODE_ENV === 'development' && { error: error.message })
     });
   }
 };
@@ -668,7 +881,10 @@ exports.updateExecutiveInfo = async (req, res) => {
     });
 
     if (!executive) {
-      return res.status(404).json({ success: false, message: 'Executive profile not found or not approved' });
+      return res.status(404).json({ 
+        success: false, 
+        message: 'Executive profile not found or not approved' 
+      });
     }
 
     const {
@@ -676,30 +892,31 @@ exports.updateExecutiveInfo = async (req, res) => {
       address, bio, expertise, linkedin, twitter, profileImage
     } = req.body;
 
-    if (phone)                            executive.contactInfo.phone             = phone;
-    if (alternativePhone !== undefined)   executive.contactInfo.alternativePhone  = alternativePhone;
-    if (email)                            executive.contactInfo.email             = email;
-    if (alternativeEmail !== undefined)   executive.contactInfo.alternativeEmail  = alternativeEmail;
-    if (address)                          executive.location.address              = address;
-    if (bio !== undefined)                executive.bio                           = bio;
-    if (expertise)                        executive.expertise                     = expertise;
-    if (linkedin !== undefined)           executive.socialMedia.linkedin          = linkedin;
-    if (twitter !== undefined)            executive.socialMedia.twitter           = twitter;
-    if (profileImage)                     executive.profileImage                  = profileImage;
+    // Update fields if provided
+    if (phone) executive.contactInfo.phone = phone;
+    if (alternativePhone !== undefined) executive.contactInfo.alternativePhone = alternativePhone;
+    if (email) executive.contactInfo.email = email;
+    if (alternativeEmail !== undefined) executive.contactInfo.alternativeEmail = alternativeEmail;
+    if (address) executive.location.address = address;
+    if (bio !== undefined) executive.bio = bio;
+    if (expertise) executive.expertise = expertise;
+    if (linkedin !== undefined) executive.socialMedia.linkedin = linkedin;
+    if (twitter !== undefined) executive.socialMedia.twitter = twitter;
+    if (profileImage) executive.profileImage = profileImage;
 
     await executive.save();
 
-    res.status(200).json({
-      success:     true,
-      message:     'Executive information updated successfully',
+    return res.status(200).json({
+      success: true,
+      message: 'Executive information updated successfully',
       application: executive
     });
   } catch (error) {
     console.error('[EXECUTIVE] Error in updateExecutiveInfo:', error);
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       message: 'Failed to update executive information',
-      error:   process.env.NODE_ENV === 'development' ? error.message : undefined
+      ...(process.env.NODE_ENV === 'development' && { error: error.message })
     });
   }
 };
@@ -716,37 +933,40 @@ exports.updateExecutiveInfo = async (req, res) => {
 exports.getApprovedExecutives = async (req, res) => {
   try {
     const { country, state, page = 1, limit = 20 } = req.query;
-    const skip  = (parseInt(page) - 1) * parseInt(limit);
+    const skip = (parseInt(page) - 1) * parseInt(limit);
+    const limitNum = Math.min(parseInt(limit), 50); // Max 50 per page
 
     const query = { status: 'approved' };
     if (country) query['location.country'] = country;
-    if (state)   query['location.state']   = state;
+    if (state) query['location.state'] = state;
 
-    const executives = await Executive.find(query)
-      .populate('userId', 'name email userName')
-      .select('-approvalInfo -suspension')
-      .sort({ 'shareInfo.totalOwnershipPct': -1 })  // sort by % descending
-      .skip(skip)
-      .limit(parseInt(limit));
+    const [executives, totalCount] = await Promise.all([
+      Executive.find(query)
+        .populate('userId', 'name email userName')
+        .select('-approvalInfo -suspension')
+        .sort({ 'shareInfo.totalOwnershipPct': -1 })
+        .skip(skip)
+        .limit(limitNum)
+        .lean(),
+      Executive.countDocuments(query)
+    ]);
 
-    const totalCount = await Executive.countDocuments(query);
-
-    res.status(200).json({
-      success:    true,
+    return res.status(200).json({
+      success: true,
       executives,
       pagination: {
         currentPage: parseInt(page),
-        totalPages:  Math.ceil(totalCount / parseInt(limit)),
+        totalPages: Math.ceil(totalCount / limitNum),
         totalCount,
-        limit:       parseInt(limit)
+        limit: limitNum
       }
     });
   } catch (error) {
     console.error('[EXECUTIVE] Error in getApprovedExecutives:', error);
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       message: 'Failed to fetch approved executives',
-      error:   process.env.NODE_ENV === 'development' ? error.message : undefined
+      ...(process.env.NODE_ENV === 'development' && { error: error.message })
     });
   }
 };
@@ -762,7 +982,8 @@ exports.getApprovedExecutives = async (req, res) => {
  */
 exports.getAllExecutiveApplications = async (req, res) => {
   try {
-    if (!await requireAdmin(req, res)) return;
+    const admin = await requireAdmin(req, res);
+    if (!admin) return;
 
     const {
       status, country, state,
@@ -771,11 +992,13 @@ exports.getAllExecutiveApplications = async (req, res) => {
       search
     } = req.query;
 
-    const skip  = (parseInt(page) - 1) * parseInt(limit);
+    const skip = (parseInt(page) - 1) * parseInt(limit);
+    const limitNum = Math.min(parseInt(limit), 100);
+    
     const query = {};
-    if (status)  query.status                = status;
-    if (country) query['location.country']   = country;
-    if (state)   query['location.state']     = state;
+    if (status) query.status = status;
+    if (country) query['location.country'] = country;
+    if (state) query['location.state'] = state;
 
     const sort = {};
     sort[sortBy] = sortOrder === 'desc' ? -1 : 1;
@@ -784,16 +1007,17 @@ exports.getAllExecutiveApplications = async (req, res) => {
       .populate('userId', 'name email userName phone walletAddress')
       .populate('approvalInfo.approvedBy', 'name email')
       .populate('approvalInfo.rejectedBy', 'name email')
-      .populate('codeGeneratedBy',         'name email')
+      .populate('codeGeneratedBy', 'name email')
       .sort(sort)
       .skip(skip)
-      .limit(parseInt(limit));
+      .limit(limitNum)
+      .lean();
 
     // Optional name/email search (post-populate)
     if (search) {
       const s = search.toLowerCase();
       applications = applications.filter(a =>
-        a.userId?.name?.toLowerCase().includes(s)  ||
+        a.userId?.name?.toLowerCase().includes(s) ||
         a.userId?.email?.toLowerCase().includes(s) ||
         a.userId?.userName?.toLowerCase().includes(s)
       );
@@ -801,22 +1025,22 @@ exports.getAllExecutiveApplications = async (req, res) => {
 
     const totalCount = await Executive.countDocuments(query);
 
-    res.status(200).json({
-      success:      true,
+    return res.status(200).json({
+      success: true,
       applications,
       pagination: {
         currentPage: parseInt(page),
-        totalPages:  Math.ceil(totalCount / parseInt(limit)),
+        totalPages: Math.ceil(totalCount / limitNum),
         totalCount,
-        limit:       parseInt(limit)
+        limit: limitNum
       }
     });
   } catch (error) {
     console.error('[EXECUTIVE] Error in getAllExecutiveApplications:', error);
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       message: 'Failed to fetch executive applications',
-      error:   process.env.NODE_ENV === 'development' ? error.message : undefined
+      ...(process.env.NODE_ENV === 'development' && { error: error.message })
     });
   }
 };
@@ -828,27 +1052,41 @@ exports.getAllExecutiveApplications = async (req, res) => {
  */
 exports.getExecutiveById = async (req, res) => {
   try {
-    if (!await requireAdmin(req, res)) return;
+    const admin = await requireAdmin(req, res);
+    if (!admin) return;
 
     const { executiveId } = req.params;
 
-    const application = await Executive.findById(executiveId)
-      .populate('userId',                  'name email userName phone walletAddress')
-      .populate('approvalInfo.approvedBy', 'name email')
-      .populate('approvalInfo.rejectedBy', 'name email')
-      .populate('codeGeneratedBy',         'name email');
-
-    if (!application) {
-      return res.status(404).json({ success: false, message: 'Executive not found' });
+    if (!isValidObjectId(executiveId)) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Invalid executive ID format' 
+      });
     }
 
-    res.status(200).json({ success: true, application });
+    const application = await Executive.findById(executiveId)
+      .populate('userId', 'name email userName phone walletAddress')
+      .populate('approvalInfo.approvedBy', 'name email')
+      .populate('approvalInfo.rejectedBy', 'name email')
+      .populate('codeGeneratedBy', 'name email');
+
+    if (!application) {
+      return res.status(404).json({ 
+        success: false, 
+        message: 'Executive not found' 
+      });
+    }
+
+    return res.status(200).json({ 
+      success: true, 
+      application 
+    });
   } catch (error) {
     console.error('[EXECUTIVE] Error in getExecutiveById:', error);
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       message: 'Failed to fetch executive',
-      error:   process.env.NODE_ENV === 'development' ? error.message : undefined
+      ...(process.env.NODE_ENV === 'development' && { error: error.message })
     });
   }
 };
@@ -860,17 +1098,29 @@ exports.getExecutiveById = async (req, res) => {
  */
 exports.approveExecutiveApplication = async (req, res) => {
   try {
-    if (!await requireAdmin(req, res)) return;
+    const admin = await requireAdmin(req, res);
+    if (!admin) return;
 
     const { applicationId } = req.params;
     const { adminNotes, roleTitle, responsibilities, region } = req.body;
+
+    if (!isValidObjectId(applicationId)) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Invalid application ID format' 
+      });
+    }
 
     const application = await Executive.findById(applicationId)
       .populate('userId', 'name email');
 
     if (!application) {
-      return res.status(404).json({ success: false, message: 'Executive application not found' });
+      return res.status(404).json({ 
+        success: false, 
+        message: 'Executive application not found' 
+      });
     }
+    
     if (application.status !== 'pending') {
       return res.status(400).json({
         success: false,
@@ -878,24 +1128,26 @@ exports.approveExecutiveApplication = async (req, res) => {
       });
     }
 
-    if (roleTitle)        application.role.title           = roleTitle;
+    // Update role if provided
+    if (roleTitle) application.role.title = roleTitle;
     if (responsibilities) application.role.responsibilities = responsibilities;
-    if (region)           application.role.region           = region;
+    if (region) application.role.region = region;
 
     await application.approve(req.user.id, adminNotes);
 
+    // Send approval email
     const user = application.userId;
     if (user?.email) {
       try {
         await sendEmail({
-          email:   user.email,
+          email: user.email,
           subject: 'AfriMobile - Executive Application Approved!',
           html: `
             <h2>Congratulations! Your Executive Application Has Been Approved</h2>
             <p>Dear ${user.name},</p>
             <p>Your application to become an AfriMobile Executive has been approved!</p>
             <ul>
-              <li>Role: ${application.role.title}</li>
+              <li>Role: ${application.role.title || 'Executive'}</li>
               <li>Region: ${application.role.region || application.location.state}</li>
               <li>Ownership: ${(application.shareInfo.totalOwnershipPct * 100).toFixed(6)}%</li>
             </ul>
@@ -909,17 +1161,17 @@ exports.approveExecutiveApplication = async (req, res) => {
       }
     }
 
-    res.status(200).json({
-      success:     true,
-      message:     'Executive application approved successfully',
+    return res.status(200).json({
+      success: true,
+      message: 'Executive application approved successfully',
       application
     });
   } catch (error) {
     console.error('[EXECUTIVE] Error in approveExecutiveApplication:', error);
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       message: 'Failed to approve executive application',
-      error:   process.env.NODE_ENV === 'development' ? error.message : undefined
+      ...(process.env.NODE_ENV === 'development' && { error: error.message })
     });
   }
 };
@@ -931,21 +1183,36 @@ exports.approveExecutiveApplication = async (req, res) => {
  */
 exports.rejectExecutiveApplication = async (req, res) => {
   try {
-    if (!await requireAdmin(req, res)) return;
+    const admin = await requireAdmin(req, res);
+    if (!admin) return;
 
     const { applicationId } = req.params;
     const { reason } = req.body;
 
+    if (!isValidObjectId(applicationId)) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Invalid application ID format' 
+      });
+    }
+
     if (!reason) {
-      return res.status(400).json({ success: false, message: 'Rejection reason is required' });
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Rejection reason is required' 
+      });
     }
 
     const application = await Executive.findById(applicationId)
       .populate('userId', 'name email');
 
     if (!application) {
-      return res.status(404).json({ success: false, message: 'Executive application not found' });
+      return res.status(404).json({ 
+        success: false, 
+        message: 'Executive application not found' 
+      });
     }
+    
     if (application.status !== 'pending') {
       return res.status(400).json({
         success: false,
@@ -955,11 +1222,12 @@ exports.rejectExecutiveApplication = async (req, res) => {
 
     await application.reject(req.user.id, reason);
 
+    // Send rejection email
     const user = application.userId;
     if (user?.email) {
       try {
         await sendEmail({
-          email:   user.email,
+          email: user.email,
           subject: 'AfriMobile - Executive Application Status',
           html: `
             <h2>Executive Application Update</h2>
@@ -975,13 +1243,17 @@ exports.rejectExecutiveApplication = async (req, res) => {
       }
     }
 
-    res.status(200).json({ success: true, message: 'Executive application rejected', application });
+    return res.status(200).json({ 
+      success: true, 
+      message: 'Executive application rejected', 
+      application 
+    });
   } catch (error) {
     console.error('[EXECUTIVE] Error in rejectExecutiveApplication:', error);
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       message: 'Failed to reject executive application',
-      error:   process.env.NODE_ENV === 'development' ? error.message : undefined
+      ...(process.env.NODE_ENV === 'development' && { error: error.message })
     });
   }
 };
@@ -993,32 +1265,51 @@ exports.rejectExecutiveApplication = async (req, res) => {
  */
 exports.suspendExecutive = async (req, res) => {
   try {
-    if (!await requireAdmin(req, res)) return;
+    const admin = await requireAdmin(req, res);
+    if (!admin) return;
 
     const { executiveId } = req.params;
     const { reason, endDate } = req.body;
 
+    if (!isValidObjectId(executiveId)) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Invalid executive ID format' 
+      });
+    }
+
     if (!reason) {
-      return res.status(400).json({ success: false, message: 'Suspension reason is required' });
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Suspension reason is required' 
+      });
     }
 
     const executive = await Executive.findById(executiveId)
       .populate('userId', 'name email');
 
     if (!executive) {
-      return res.status(404).json({ success: false, message: 'Executive not found' });
+      return res.status(404).json({ 
+        success: false, 
+        message: 'Executive not found' 
+      });
     }
+    
     if (executive.status !== 'approved') {
-      return res.status(400).json({ success: false, message: 'Only approved executives can be suspended' });
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Only approved executives can be suspended' 
+      });
     }
 
     await executive.suspend(req.user.id, reason, endDate ? new Date(endDate) : null);
 
+    // Send suspension email
     const user = executive.userId;
     if (user?.email) {
       try {
         await sendEmail({
-          email:   user.email,
+          email: user.email,
           subject: 'AfriMobile - Executive Status Suspended',
           html: `
             <h2>Executive Status Suspended</h2>
@@ -1035,13 +1326,17 @@ exports.suspendExecutive = async (req, res) => {
       }
     }
 
-    res.status(200).json({ success: true, message: 'Executive suspended successfully', application: executive });
+    return res.status(200).json({ 
+      success: true, 
+      message: 'Executive suspended successfully', 
+      application: executive 
+    });
   } catch (error) {
     console.error('[EXECUTIVE] Error in suspendExecutive:', error);
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       message: 'Failed to suspend executive',
-      error:   process.env.NODE_ENV === 'development' ? error.message : undefined
+      ...(process.env.NODE_ENV === 'development' && { error: error.message })
     });
   }
 };
@@ -1053,22 +1348,37 @@ exports.suspendExecutive = async (req, res) => {
  */
 exports.reactivateExecutive = async (req, res) => {
   try {
-    if (!await requireAdmin(req, res)) return;
+    const admin = await requireAdmin(req, res);
+    if (!admin) return;
 
     const { executiveId } = req.params;
-    const { adminNotes }  = req.body;
+    const { adminNotes } = req.body;
+
+    if (!isValidObjectId(executiveId)) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Invalid executive ID format' 
+      });
+    }
 
     const executive = await Executive.findById(executiveId)
       .populate('userId', 'name email');
 
     if (!executive) {
-      return res.status(404).json({ success: false, message: 'Executive not found' });
+      return res.status(404).json({ 
+        success: false, 
+        message: 'Executive not found' 
+      });
     }
+    
     if (executive.status !== 'suspended') {
-      return res.status(400).json({ success: false, message: 'Only suspended executives can be reactivated' });
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Only suspended executives can be reactivated' 
+      });
     }
 
-    executive.status     = 'approved';
+    executive.status = 'approved';
     executive.suspension = undefined;
     executive.approvalInfo = {
       ...executive.approvalInfo,
@@ -1079,11 +1389,12 @@ exports.reactivateExecutive = async (req, res) => {
 
     await executive.save();
 
+    // Send reactivation email
     const user = executive.userId;
     if (user?.email) {
       try {
         await sendEmail({
-          email:   user.email,
+          email: user.email,
           subject: 'AfriMobile - Executive Status Reactivated',
           html: `
             <h2>Executive Status Reactivated</h2>
@@ -1098,13 +1409,17 @@ exports.reactivateExecutive = async (req, res) => {
       }
     }
 
-    res.status(200).json({ success: true, message: 'Executive reactivated successfully', application: executive });
+    return res.status(200).json({ 
+      success: true, 
+      message: 'Executive reactivated successfully', 
+      application: executive 
+    });
   } catch (error) {
     console.error('[EXECUTIVE] Error in reactivateExecutive:', error);
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       message: 'Failed to reactivate executive',
-      error:   process.env.NODE_ENV === 'development' ? error.message : undefined
+      ...(process.env.NODE_ENV === 'development' && { error: error.message })
     });
   }
 };
@@ -1116,7 +1431,8 @@ exports.reactivateExecutive = async (req, res) => {
  */
 exports.adminEditExecutive = async (req, res) => {
   try {
-    if (!await requireAdmin(req, res)) return;
+    const admin = await requireAdmin(req, res);
+    if (!admin) return;
 
     const { executiveId } = req.params;
     const {
@@ -1127,55 +1443,65 @@ exports.adminEditExecutive = async (req, res) => {
       adminNotes
     } = req.body;
 
+    if (!isValidObjectId(executiveId)) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Invalid executive ID format' 
+      });
+    }
+
     const executive = await Executive.findById(executiveId);
     if (!executive) {
-      return res.status(404).json({ success: false, message: 'Executive not found' });
+      return res.status(404).json({ 
+        success: false, 
+        message: 'Executive not found' 
+      });
     }
 
     // Location
-    if (country)  executive.location.country  = country;
-    if (state)    executive.location.state     = state;
-    if (city)     executive.location.city      = city;
-    if (address)  executive.location.address   = address;
+    if (country) executive.location.country = country;
+    if (state) executive.location.state = state;
+    if (city) executive.location.city = city;
+    if (address) executive.location.address = address;
 
     // Contact
-    if (phone)                          executive.contactInfo.phone            = phone;
+    if (phone) executive.contactInfo.phone = phone;
     if (alternativePhone !== undefined) executive.contactInfo.alternativePhone = alternativePhone;
-    if (email)                          executive.contactInfo.email            = email;
+    if (email) executive.contactInfo.email = email;
     if (alternativeEmail !== undefined) executive.contactInfo.alternativeEmail = alternativeEmail;
 
     // Profile
-    if (bio !== undefined)    executive.bio            = bio;
-    if (expertise)            executive.expertise      = expertise;
-    if (profileImage)         executive.profileImage   = profileImage;
+    if (bio !== undefined) executive.bio = bio;
+    if (expertise) executive.expertise = expertise;
+    if (profileImage) executive.profileImage = profileImage;
 
     // Social
-    if (linkedin !== undefined)  executive.socialMedia.linkedin  = linkedin;
-    if (twitter  !== undefined)  executive.socialMedia.twitter   = twitter;
-    if (facebook !== undefined)  executive.socialMedia.facebook  = facebook;
+    if (linkedin !== undefined) executive.socialMedia.linkedin = linkedin;
+    if (twitter !== undefined) executive.socialMedia.twitter = twitter;
+    if (facebook !== undefined) executive.socialMedia.facebook = facebook;
     if (instagram !== undefined) executive.socialMedia.instagram = instagram;
 
     // Role
-    if (roleTitle)        executive.role.title           = roleTitle;
+    if (roleTitle) executive.role.title = roleTitle;
     if (responsibilities) executive.role.responsibilities = responsibilities;
-    if (region)           executive.role.region           = region;
+    if (region) executive.role.region = region;
 
     // Admin note
     if (adminNotes) executive.approvalInfo.adminNotes = adminNotes;
 
     await executive.save();
 
-    res.status(200).json({
-      success:     true,
-      message:     'Executive updated successfully',
+    return res.status(200).json({
+      success: true,
+      message: 'Executive updated successfully',
       application: executive
     });
   } catch (error) {
     console.error('[EXECUTIVE] Error in adminEditExecutive:', error);
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       message: 'Failed to update executive',
-      error:   process.env.NODE_ENV === 'development' ? error.message : undefined
+      ...(process.env.NODE_ENV === 'development' && { error: error.message })
     });
   }
 };
@@ -1187,40 +1513,51 @@ exports.adminEditExecutive = async (req, res) => {
  */
 exports.adminRefreshExecutiveShares = async (req, res) => {
   try {
-    if (!await requireAdmin(req, res)) return;
+    const admin = await requireAdmin(req, res);
+    if (!admin) return;
 
     const { executiveId } = req.params;
 
+    if (!isValidObjectId(executiveId)) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Invalid executive ID format' 
+      });
+    }
+
     const executive = await Executive.findById(executiveId);
     if (!executive) {
-      return res.status(404).json({ success: false, message: 'Executive not found' });
+      return res.status(404).json({ 
+        success: false, 
+        message: 'Executive not found' 
+      });
     }
 
     const shareInfo = await computeShareInfo(executive.userId);
 
     executive.shareInfo = {
-      totalOwnershipPct:     shareInfo.totalOwnershipPct,
-      regularOwnershipPct:   shareInfo.regularOwnershipPct,
+      totalOwnershipPct: shareInfo.totalOwnershipPct,
+      regularOwnershipPct: shareInfo.regularOwnershipPct,
       cofounderOwnershipPct: shareInfo.cofounderOwnershipPct,
-      totalEarningKobo:      shareInfo.totalEarningKobo,
-      regularShares:         shareInfo.regularShares,
-      coFounderShares:       shareInfo.coFounderShares,
-      verifiedAt:            new Date()
+      totalEarningKobo: shareInfo.totalEarningKobo,
+      regularShares: shareInfo.regularShares,
+      coFounderShares: shareInfo.coFounderShares,
+      verifiedAt: new Date()
     };
 
     await executive.save();
 
-    res.status(200).json({
-      success:   true,
-      message:   'Share info refreshed successfully',
+    return res.status(200).json({
+      success: true,
+      message: 'Share info refreshed successfully',
       shareInfo: executive.shareInfo
     });
   } catch (error) {
     console.error('[EXECUTIVE] Error in adminRefreshExecutiveShares:', error);
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       message: 'Failed to refresh share info',
-      error:   process.env.NODE_ENV === 'development' ? error.message : undefined
+      ...(process.env.NODE_ENV === 'development' && { error: error.message })
     });
   }
 };
@@ -1232,23 +1569,35 @@ exports.adminRefreshExecutiveShares = async (req, res) => {
  */
 exports.removeExecutive = async (req, res) => {
   try {
-    if (!await requireAdmin(req, res)) return;
+    const admin = await requireAdmin(req, res);
+    if (!admin) return;
 
     const { executiveId } = req.params;
     const { reason } = req.body;
+
+    if (!isValidObjectId(executiveId)) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Invalid executive ID format' 
+      });
+    }
 
     const executive = await Executive.findByIdAndDelete(executiveId)
       .populate('userId', 'name email');
 
     if (!executive) {
-      return res.status(404).json({ success: false, message: 'Executive not found' });
+      return res.status(404).json({ 
+        success: false, 
+        message: 'Executive not found' 
+      });
     }
 
+    // Send removal email
     const user = executive.userId;
     if (user?.email) {
       try {
         await sendEmail({
-          email:   user.email,
+          email: user.email,
           subject: 'AfriMobile - Executive Status Removed',
           html: `
             <h2>Executive Status Removed</h2>
@@ -1264,13 +1613,16 @@ exports.removeExecutive = async (req, res) => {
       }
     }
 
-    res.status(200).json({ success: true, message: 'Executive status removed successfully' });
+    return res.status(200).json({ 
+      success: true, 
+      message: 'Executive status removed successfully' 
+    });
   } catch (error) {
     console.error('[EXECUTIVE] Error in removeExecutive:', error);
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       message: 'Failed to remove executive',
-      error:   process.env.NODE_ENV === 'development' ? error.message : undefined
+      ...(process.env.NODE_ENV === 'development' && { error: error.message })
     });
   }
 };
@@ -1286,7 +1638,8 @@ exports.removeExecutive = async (req, res) => {
  */
 exports.getExecutiveStatistics = async (req, res) => {
   try {
-    if (!await requireAdmin(req, res)) return;
+    const admin = await requireAdmin(req, res);
+    if (!admin) return;
 
     const [
       totalExecutives,
@@ -1301,7 +1654,10 @@ exports.getExecutiveStatistics = async (req, res) => {
       Executive.countDocuments({ status: 'approved' }),
       Executive.countDocuments({ status: 'rejected' }),
       Executive.countDocuments({ status: 'suspended' }),
-      Executive.countDocuments({ activationCode: { $exists: true, $ne: null }, codeRedeemedAt: { $exists: false } })
+      Executive.countDocuments({ 
+        activationCode: { $exists: true, $ne: null }, 
+        codeRedeemedAt: { $exists: false } 
+      })
     ]);
 
     // Aggregate ownership % across all approved executives
@@ -1309,13 +1665,19 @@ exports.getExecutiveStatistics = async (req, res) => {
       { $match: { status: 'approved' } },
       {
         $group: {
-          _id:               null,
+          _id: null,
           totalOwnershipPct: { $sum: '$shareInfo.totalOwnershipPct' },
-          totalEarningKobo:  { $sum: '$shareInfo.totalEarningKobo' }
+          totalEarningKobo: { $sum: '$shareInfo.totalEarningKobo' },
+          count: { $sum: 1 }
         }
       }
     ]);
-    const ownershipTotals = ownershipAgg[0] || { totalOwnershipPct: 0, totalEarningKobo: 0 };
+    
+    const ownershipTotals = ownershipAgg[0] || { 
+      totalOwnershipPct: 0, 
+      totalEarningKobo: 0,
+      count: 0
+    };
 
     // Regional distribution
     const regionalDistribution = await Executive.aggregate([
@@ -1324,13 +1686,14 @@ exports.getExecutiveStatistics = async (req, res) => {
         $group: {
           _id: {
             country: '$location.country',
-            state:   '$location.state'
+            state: '$location.state'
           },
-          count:             { $sum: 1 },
+          count: { $sum: 1 },
           totalOwnershipPct: { $sum: '$shareInfo.totalOwnershipPct' }
         }
       },
-      { $sort: { count: -1 } }
+      { $sort: { count: -1 } },
+      { $limit: 50 }
     ]);
 
     // Top executives by ownership %
@@ -1338,23 +1701,28 @@ exports.getExecutiveStatistics = async (req, res) => {
       .populate('userId', 'name email')
       .select('userId shareInfo location')
       .sort({ 'shareInfo.totalOwnershipPct': -1 })
-      .limit(10);
+      .limit(10)
+      .lean();
 
-    res.status(200).json({
+    return res.status(200).json({
       success: true,
       statistics: {
         total: totalExecutives,
         byStatus: {
-          pending:    pendingCount,
-          approved:   approvedCount,
-          rejected:   rejectedCount,
-          suspended:  suspendedCount
+          pending: pendingCount,
+          approved: approvedCount,
+          rejected: rejectedCount,
+          suspended: suspendedCount
         },
         unusedActivationCodes: unusedCodeCount,
         ownershipSummary: {
-          totalOwnershipPct:        ownershipTotals.totalOwnershipPct,
-          formattedTotalOwnership:  (ownershipTotals.totalOwnershipPct * 100).toFixed(6) + '%',
-          totalEarningKobo:         ownershipTotals.totalEarningKobo
+          totalOwnershipPct: ownershipTotals.totalOwnershipPct,
+          formattedTotalOwnership: (ownershipTotals.totalOwnershipPct * 100).toFixed(6) + '%',
+          totalEarningKobo: ownershipTotals.totalEarningKobo,
+          executiveCount: ownershipTotals.count,
+          averageOwnershipPct: ownershipTotals.count > 0 
+            ? (ownershipTotals.totalOwnershipPct / ownershipTotals.count) 
+            : 0
         },
         regionalDistribution,
         topExecutives
@@ -1362,10 +1730,10 @@ exports.getExecutiveStatistics = async (req, res) => {
     });
   } catch (error) {
     console.error('[EXECUTIVE] Error in getExecutiveStatistics:', error);
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       message: 'Failed to fetch executive statistics',
-      error:   process.env.NODE_ENV === 'development' ? error.message : undefined
+      ...(process.env.NODE_ENV === 'development' && { error: error.message })
     });
   }
 };
