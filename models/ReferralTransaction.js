@@ -8,69 +8,93 @@ const ReferralTransactionSchema = new mongoose.Schema({
     required: true,
     index: true
   },
-  
+
+  // FIXED: no longer required — admin-created adjustment transactions
+  // (adjustUserEarnings, performBulkActions) have no referred user
   referredUser: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'User',
-    required: true,
+    required: false,
+    default: null,
     index: true
   },
-  
+
   amount: {
     type: Number,
     required: true,
     min: 0
   },
-  
+
   currency: {
     type: String,
     enum: ['naira', 'usdt', 'USD'],
     default: 'naira'
   },
-  
+
   generation: {
     type: Number,
     enum: [1, 2, 3],
     required: true,
     index: true
   },
-  
+
   // FIXED: Normalize to string for consistent matching
   sourceTransaction: {
     type: String,
     required: true,
     index: true
   },
-  
+
   sourceTransactionModel: {
     type: String,
-    enum: ['Transaction', 'PaymentTransaction', 'UserShare'],
+    enum: ['Transaction', 'PaymentTransaction', 'UserShare', 'AdminAdjustment'],
     default: 'PaymentTransaction'
   },
-  
+
   purchaseType: {
     type: String,
-    enum: ['share', 'co-founder', 'other'],
+    enum: ['share', 'co-founder', 'other', 'adjustment', 'bulk_adjustment'],
     default: 'share'
   },
-  
+
   status: {
     type: String,
-    enum: ['pending', 'completed', 'failed', 'rolled_back'],
+    enum: ['pending', 'completed', 'failed', 'rolled_back', 'cancelled', 'adjusted'],
     default: 'completed',
     index: true
   },
-  
+
   rolledBackAt: {
     type: Date,
     default: null
   },
-  
+
+  // ADDED: who last made a manual adjustment to this transaction
+  adjustedBy: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User',
+    default: null
+  },
+
+  // ADDED: why the manual adjustment was made
+  adjustmentReason: {
+    type: String,
+    default: null,
+    maxlength: 500
+  },
+
+  // ADDED: amount before the most recent manual adjustment
+  originalAmount: {
+    type: Number,
+    min: 0,
+    default: null
+  },
+
   notes: {
     type: String,
     maxlength: 500
   },
-  
+
   metadata: {
     actualShares: { type: Number, min: 0 },
     equivalentShares: { type: Number, min: 0 },
@@ -79,12 +103,12 @@ const ReferralTransactionSchema = new mongoose.Schema({
     commissionRate: { type: Number, min: 0, max: 100 },
     additionalData: { type: mongoose.Schema.Types.Mixed }
   },
-  
+
   processedBy: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'User'
   },
-  
+
   commissionDetails: {
     baseAmount: { type: Number, min: 0 },
     commissionRate: { type: Number, min: 0, max: 100 },
@@ -95,11 +119,11 @@ const ReferralTransactionSchema = new mongoose.Schema({
 });
 
 // CRITICAL: Add compound unique index to prevent duplicates
-ReferralTransactionSchema.index({ 
-  beneficiary: 1, 
-  sourceTransaction: 1, 
-  generation: 1 
-}, { 
+ReferralTransactionSchema.index({
+  beneficiary: 1,
+  sourceTransaction: 1,
+  generation: 1
+}, {
   unique: true,
   name: 'prevent_duplicate_commissions'
 });
@@ -118,26 +142,26 @@ ReferralTransactionSchema.statics.createCommission = async function(commissionDa
       ...commissionData,
       sourceTransaction: commissionData.sourceTransaction.toString()
     };
-    
+
     // Check if commission already exists
     const existing = await this.findOne({
       beneficiary: normalizedData.beneficiary,
       sourceTransaction: normalizedData.sourceTransaction,
       generation: normalizedData.generation
     });
-    
+
     if (existing) {
       console.log(`Commission already exists for beneficiary ${normalizedData.beneficiary}, transaction ${normalizedData.sourceTransaction}, generation ${normalizedData.generation}`);
       return { success: false, message: 'Commission already exists', existing };
     }
-    
+
     // Create new commission
     const commission = new this(normalizedData);
     await commission.save();
-    
+
     console.log(`Created commission: ${commission._id} - ${commission.formattedAmount} for generation ${commission.generation}`);
     return { success: true, commission };
-    
+
   } catch (error) {
     if (error.code === 11000) {
       console.log('Duplicate commission prevented by unique index');
@@ -154,11 +178,11 @@ ReferralTransactionSchema.statics.createBatchCommissions = async function(commis
     duplicates: [],
     errors: []
   };
-  
+
   for (const commissionData of commissionsData) {
     try {
       const result = await this.createCommission(commissionData);
-      
+
       if (result.success) {
         results.created.push(result.commission);
       } else {
@@ -174,7 +198,7 @@ ReferralTransactionSchema.statics.createBatchCommissions = async function(commis
       });
     }
   }
-  
+
   return results;
 };
 
@@ -189,7 +213,7 @@ ReferralTransactionSchema.statics.findBySourceTransaction = function(transaction
 // Method to detect and fix duplicate commissions
 ReferralTransactionSchema.statics.findAndFixDuplicates = async function() {
   console.log('🔍 Scanning for duplicate commissions...');
-  
+
   const duplicates = await this.aggregate([
     {
       $group: {
@@ -208,22 +232,22 @@ ReferralTransactionSchema.statics.findAndFixDuplicates = async function() {
       }
     }
   ]);
-  
+
   console.log(`Found ${duplicates.length} sets of duplicate commissions`);
-  
+
   let removedCount = 0;
-  
+
   for (const duplicate of duplicates) {
     // Keep the first one, remove the rest
     const toRemove = duplicate.docs.slice(1);
-    
+
     for (const doc of toRemove) {
       await this.findByIdAndDelete(doc._id);
       removedCount++;
       console.log(`Removed duplicate commission: ${doc._id}`);
     }
   }
-  
+
   console.log(`Removed ${removedCount} duplicate commissions`);
   return { duplicatesFound: duplicates.length, removedCount };
 };
@@ -272,7 +296,7 @@ ReferralTransactionSchema.pre('save', function(next) {
   if (this.sourceTransaction) {
     this.sourceTransaction = this.sourceTransaction.toString();
   }
-  
+
   // Validate commission details
   if (this.commissionDetails && this.commissionDetails.baseAmount && this.commissionDetails.commissionRate) {
     const expectedAmount = (this.commissionDetails.baseAmount * this.commissionDetails.commissionRate) / 100;
@@ -280,7 +304,7 @@ ReferralTransactionSchema.pre('save', function(next) {
       return next(new Error('Commission amount does not match calculated amount'));
     }
   }
-  
+
   // Set default commission rates
   if (!this.commissionDetails || !this.commissionDetails.commissionRate) {
     const defaultRates = { 1: 15, 2: 3, 3: 2 };
@@ -289,7 +313,7 @@ ReferralTransactionSchema.pre('save', function(next) {
     }
     this.commissionDetails.commissionRate = defaultRates[this.generation] || 0;
   }
-  
+
   next();
 });
 
