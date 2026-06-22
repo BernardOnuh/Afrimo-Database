@@ -642,6 +642,48 @@ exports.generateMultipleActivationCodes = async (req, res) => {
 };
 
 /**
+ * @desc    Admin: Get code generation statistics
+ * @route   GET /api/executives/admin/codes/stats
+ * @access  Private (Admin)
+ */
+exports.getCodeStatistics = async (req, res) => {
+  try {
+    const admin = await requireAdmin(req, res);
+    if (!admin) return;
+
+    const [total, redeemed, pending] = await Promise.all([
+      Executive.countDocuments({ activationCode: { $exists: true, $ne: null } }),
+      Executive.countDocuments({ 
+        activationCode: { $exists: true, $ne: null },
+        codeRedeemedAt: { $exists: true } 
+      }),
+      Executive.countDocuments({ 
+        activationCode: { $exists: true, $ne: null },
+        codeRedeemedAt: { $exists: false } 
+      })
+    ]);
+
+    return res.status(200).json({
+      success: true,
+      statistics: {
+        total,
+        redeemed,
+        pending,
+        usageRate: total > 0 ? (redeemed / total) * 100 : 0
+      }
+    });
+  } catch (error) {
+    console.error('[EXECUTIVE] Error getting code stats:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to get code statistics',
+      ...(process.env.NODE_ENV === 'development' && { error: error.message })
+    });
+  }
+};
+
+
+/**
  * @desc    User: Complete executive profile after redeeming code
  * @route   PUT /api/executives/complete-profile
  * @access  Private (User)

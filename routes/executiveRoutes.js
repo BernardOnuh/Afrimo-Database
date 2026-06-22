@@ -106,6 +106,19 @@ router.post('/redeem', protect, executiveController.redeemActivationCode);
 
 /**
  * @swagger
+ * /executives/admin/codes/stats:
+ *   get:
+ *     tags: [Executives - Admin]
+ *     summary: Get code generation statistics
+ *     security:
+ *       - adminAuth: []
+ *     responses:
+ *       200: { description: Statistics retrieved }
+ */
+router.get('/admin/codes/stats', protect, adminProtect, executiveController.getCodeStatistics);
+
+/**
+ * @swagger
  * /executives/admin/generate-codes-bulk:
  *   post:
  *     tags: [Executives - Admin]
