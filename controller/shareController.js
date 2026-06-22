@@ -1047,15 +1047,19 @@ exports.adminGetManualTransactions = async (req, res) => {
 
 exports.adminVerifyManualPayment = async (req, res) => {
   try {
-    const { transactionId, approved, adminNote } = req.body;
+    const { transactionId, approved, adminNote, type = 'share' } = req.body;
  
     const admin = await User.findById(req.user.id);
     if (!admin?.isAdmin) {
       return res.status(403).json({ success: false, message: 'Admin required' });
     }
  
-    // ── Update V1 ─────────────────────────────────────────────────────────
-    const tx = await PaymentTransaction.findOne({ transactionId, type: 'share' });
+    // ✅ FIX: Accept BOTH 'share' and 'co-founder'
+    const tx = await PaymentTransaction.findOne({ 
+      transactionId, 
+      type: { $in: ['share', 'co-founder', 'cofounder'] }
+    });
+    
     if (!tx) {
       return res.status(404).json({ success: false, message: 'Transaction not found' });
     }
@@ -1069,7 +1073,7 @@ exports.adminVerifyManualPayment = async (req, res) => {
     tx.verifiedAt = new Date();
     await tx.save();
  
-    // ── Update V2 ─────────────────────────────────────────────────────────
+    // Update V2
     await TransactionV2.findOneAndUpdate(
       { transactionId },
       {
@@ -1080,11 +1084,16 @@ exports.adminVerifyManualPayment = async (req, res) => {
     );
     await recalculateUserShare(tx.userId);
  
-    // ── UserShare approval ────────────────────────────────────────────────
+    // Handle approval based on type
     if (approved) {
       await UserShare.approveTransaction(tx.userId, transactionId);
       try {
-        await processReferralCommission(tx.userId, tx.amount, 'share', transactionId);
+        // ✅ Use the correct referral handler based on type
+        if (tx.type === 'co-founder' || tx.type === 'cofounder') {
+          await handleCofounderPurchase(tx.userId, tx.amount, tx.ownershipPct, tx._id);
+        } else {
+          await processReferralCommission(tx.userId, tx.amount, 'share', transactionId);
+        }
       } catch (e) {
         console.error('Referral error:', e.message);
       }
@@ -1092,19 +1101,19 @@ exports.adminVerifyManualPayment = async (req, res) => {
       await UserShare.rejectTransaction(tx.userId, transactionId, 'failed');
     }
  
-    // ── Email user ────────────────────────────────────────────────────────
+    // Email user
     const user = await User.findById(tx.userId);
     if (user?.email) {
       try {
         await sendEmail({
           email   : user.email,
-          subject : `Share Payment ${approved ? 'Approved' : 'Declined'}`,
+          subject : `${tx.type === 'co-founder' ? 'Co-Founder' : ''} Payment ${approved ? 'Approved' : 'Declined'}`,
           html    : `
             <h2>Payment ${approved ? 'Approved ✅' : 'Declined ❌'}</h2>
             <p>Dear ${user.name},</p>
             <p>Your payment of ${tx.currency === 'naira' ? '₦' : '$'}${tx.amount.toLocaleString()} 
             for <strong>${tx.packageLabel}</strong> has been ${approved ? 'approved' : 'declined'}.</p>
-            ${approved ? `<p>Ownership added: <strong>+${(tx.ownershipPct * 100).toFixed(7)}%</strong></p>` : ''}
+            ${approved ? `<p>Ownership added: <strong>+${(tx.ownershipPct * 100).toFixed(6)}%</strong></p>` : ''}
             ${adminNote ? `<p>Note: ${adminNote}</p>` : ''}
           `
         });
