@@ -106,6 +106,29 @@ router.post('/redeem', protect, executiveController.redeemActivationCode);
 
 /**
  * @swagger
+ * /executives/admin/generate-codes-bulk:
+ *   post:
+ *     tags: [Executives - Admin]
+ *     summary: Generate multiple activation codes at once (UNLIMITED)
+ *     security:
+ *       - adminAuth: []
+ *     requestBody:
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               count: { type: integer, default: 1, description: "Number of codes to generate" }
+ *               userId: { type: string, description: "Pre-assign to a specific user (optional)" }
+ *               note: { type: string }
+ *     responses:
+ *       201: { description: Codes generated }
+ */
+router.post('/admin/generate-codes-bulk', protect, adminProtect, executiveController.generateMultipleActivationCodes);
+
+
+/**
+ * @swagger
  * /executives/complete-profile:
  *   put:
  *     tags: [Executives - User]

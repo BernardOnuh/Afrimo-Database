@@ -176,7 +176,7 @@ async function generateUniqueActivationCode(maxAttempts = 10) {
 // ---------------------------------------------------------------------------
 
 /**
- * @desc    Admin: Generate activation code
+ * @desc    Admin: Generate activation code (UNLIMITED)
  * @route   POST /api/executives/admin/generate-code
  * @access  Private (Admin)
  */
@@ -213,30 +213,22 @@ exports.generateActivationCode = async (req, res) => {
       }
     }
 
-    // Check if user already has a pending code
-    if (userId) {
-      const existingCode = await Executive.findOne({ 
-        userId, 
-        codeRedeemedAt: { $exists: false } 
-      });
-      
-      if (existingCode) {
-        return res.status(409).json({
-          success: false,
-          message: 'This user already has a pending activation code',
-          code: existingCode.activationCode
-        });
-      }
-    }
-
-    // Generate unique code
+    // NO LIMITS - Generate unique code with retry
     let code;
-    try {
-      code = await generateUniqueActivationCode(15);
-    } catch (error) {
+    let exists = true;
+    let attempts = 0;
+    const maxAttempts = 20; // Keep retry for uniqueness, but no daily limits
+    
+    while (exists && attempts < maxAttempts) {
+      code = crypto.randomBytes(4).toString('hex').toUpperCase();
+      exists = await Executive.exists({ activationCode: code });
+      attempts++;
+    }
+    
+    if (exists) {
       return res.status(500).json({
         success: false,
-        message: error.message || 'Failed to generate unique code'
+        message: 'Failed to generate unique code after multiple attempts'
       });
     }
 
@@ -474,32 +466,28 @@ exports.redeemActivationCode = async (req, res) => {
       });
     }
 
-    // Check if user already has an executive record
+    // Check if user already has an executive record (active/approved)
     const existingExec = await Executive.findOne({ 
       userId, 
+      status: 'approved',
       codeRedeemedAt: { $exists: true } 
     });
     
     if (existingExec) {
       return res.status(400).json({ 
         success: false, 
-        message: 'You already have an executive record' 
+        message: 'You already have an approved executive record. You cannot redeem more codes.' 
       });
     }
 
-    // Check if user has a pending code
-    const pendingCode = await Executive.findOne({
-      userId,
-      codeRedeemedAt: { $exists: false }
-    });
-
-    if (pendingCode) {
-      return res.status(400).json({
-        success: false,
-        message: 'You already have a pending activation code',
-        code: pendingCode.activationCode
-      });
-    }
+    // REMOVED: The check for pending codes - allows multiple redemptions
+    // if (pendingCode) {
+    //   return res.status(400).json({
+    //     success: false,
+    //     message: 'You already have a pending activation code',
+    //     code: pendingCode.activationCode
+    //   });
+    // }
 
     const execDoc = await Executive.findOne({ 
       activationCode: code.toUpperCase().trim() 
@@ -544,6 +532,110 @@ exports.redeemActivationCode = async (req, res) => {
     return res.status(500).json({ 
       success: false, 
       message: 'Failed to redeem activation code',
+      ...(process.env.NODE_ENV === 'development' && { error: error.message })
+    });
+  }
+};
+
+/**
+ * @desc    Admin: Generate multiple activation codes at once
+ * @route   POST /api/executives/admin/generate-codes-bulk
+ * @access  Private (Admin)
+ */
+exports.generateMultipleActivationCodes = async (req, res) => {
+  try {
+    // Check admin status
+    const admin = await User.findById(req.user.id).lean();
+    if (!admin || !admin.isAdmin) {
+      return res.status(403).json({ 
+        success: false, 
+        message: 'Unauthorized: Admin access required' 
+      });
+    }
+
+    const adminId = req.user.id;
+    const { count = 1, userId, note } = req.body;
+
+    // Limit count to prevent abuse (optional - remove if you want truly unlimited)
+    const numberOfCodes = Math.min(parseInt(count), 1000);
+
+    // Validate userId if provided
+    if (userId && !isValidObjectId(userId)) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Invalid user ID format' 
+      });
+    }
+
+    // Check if user exists if userId provided
+    if (userId) {
+      const userExists = await User.findById(userId).lean();
+      if (!userExists) {
+        return res.status(404).json({ 
+          success: false, 
+          message: 'User not found with the provided ID' 
+        });
+      }
+    }
+
+    const generatedCodes = [];
+    const errors = [];
+
+    // Generate multiple codes
+    for (let i = 0; i < numberOfCodes; i++) {
+      try {
+        let code;
+        let exists = true;
+        let attempts = 0;
+        const maxAttempts = 20;
+        
+        while (exists && attempts < maxAttempts) {
+          code = crypto.randomBytes(4).toString('hex').toUpperCase();
+          exists = await Executive.exists({ activationCode: code });
+          attempts++;
+        }
+        
+        if (exists) {
+          errors.push(`Failed to generate unique code for index ${i}`);
+          continue;
+        }
+
+        const execDoc = new Executive({
+          activationCode: code,
+          codeGeneratedBy: adminId,
+          codeGeneratedAt: new Date(),
+          status: 'pending',
+          adminNote: note || null,
+          ...(userId && { userId })
+        });
+
+        await execDoc.save();
+        generatedCodes.push({
+          code,
+          executiveId: execDoc._id
+        });
+
+      } catch (error) {
+        errors.push(`Error generating code ${i + 1}: ${error.message}`);
+      }
+    }
+
+    console.log('[EXECUTIVE] Generated', generatedCodes.length, 'activation codes by admin:', adminId);
+
+    return res.status(201).json({
+      success: true,
+      message: `Generated ${generatedCodes.length} activation codes successfully`,
+      totalRequested: numberOfCodes,
+      generated: generatedCodes.length,
+      errors: errors.length > 0 ? errors : undefined,
+      codes: generatedCodes,
+      userId: userId || null
+    });
+  } catch (error) {
+    console.error('[EXECUTIVE] Error generating codes in bulk:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to generate activation codes',
       ...(process.env.NODE_ENV === 'development' && { error: error.message })
     });
   }
