@@ -302,6 +302,59 @@ router.get('/admin/user/:identifier/pending', protect, adminProtect, withdrawalC
  */
 router.get('/admin/user/:identifier/summary', protect, adminProtect, withdrawalController.adminGetUserWithdrawalSummary);
 
+/**
+ * @swagger
+ * /withdrawal/admin/user/{identifier}/balance/edit:
+ *   put:
+ *     summary: Edit user's withdrawal balance (Admin)
+ *     description: Adjust user's total withdrawn, pending withdrawals, or processing withdrawals
+ *     tags:
+ *       - Admin User Lookup
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: identifier
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: User ID, username, or email
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - field
+ *               - reason
+ *             properties:
+ *               field:
+ *                 type: string
+ *                 enum: [totalWithdrawn, pendingWithdrawals, processingWithdrawals, totalEarnings]
+ *                 description: Which balance field to edit
+ *               value:
+ *                 type: number
+ *                 description: New absolute value for the field (replaces current value)
+ *               adjustment:
+ *                 type: number
+ *                 description: Adjustment amount (added to current value) - use instead of value
+ *               reason:
+ *                 type: string
+ *                 description: Reason for the balance adjustment (required)
+ *               notes:
+ *                 type: string
+ *                 description: Additional notes
+ *     responses:
+ *       200:
+ *         description: Balance updated successfully
+ *       400:
+ *         description: Invalid request or validation error
+ *       404:
+ *         description: User not found
+ */
+router.put('/admin/user/:identifier/balance/edit', protect, adminProtect, withdrawalController.adminEditUserBalance);
+
 // ========== CRYPTO WITHDRAWAL ROUTES ==========
 
 /**

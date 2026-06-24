@@ -17,6 +17,7 @@ const Referral = require('../models/Referral');
 const ReferralTransaction = require('../models/ReferralTransaction');
 const Withdrawal = require('../models/Withdrawal');
 const Payment = require('../models/Payment');
+const BalanceAdjustment = require('../models/BalanceAdjustment');
 const CryptoExchangeRate = require('../models/CryptoExchangeRate');
 const { sendEmail } = require('../utils/emailService');
 const axios = require('axios');
@@ -1345,6 +1346,270 @@ exports.rejectWithdrawal = async (req, res) => {
 };
 
 /**
+ * Admin: Edit user's withdrawal balance
+ * @route PUT /api/withdrawal/admin/user/:identifier/balance/edit
+ * @access Admin
+ * 
+ * Request body:
+ * {
+ *   field: 'totalWithdrawn' | 'pendingWithdrawals' | 'processingWithdrawals' | 'totalEarnings',
+ *   value: <number> (absolute value to set) OR adjustment: <number> (amount to add),
+ *   reason: 'Reason for adjustment (required)',
+ *   notes: 'Optional notes'
+ * }
+ */
+exports.adminEditUserBalance = async (req, res) => {
+  try {
+    const { identifier } = req.params;
+    const { field, value, adjustment, reason, notes } = req.body;
+
+    // Validation
+    if (!field) {
+      return res.status(400).json({
+        success: false,
+        message: 'Please specify which field to edit (totalWithdrawn, pendingWithdrawals, processingWithdrawals, or totalEarnings)'
+      });
+    }
+
+    const validFields = ['totalWithdrawn', 'pendingWithdrawals', 'processingWithdrawals', 'totalEarnings'];
+    if (!validFields.includes(field)) {
+      return res.status(400).json({
+        success: false,
+        message: `Invalid field. Must be one of: ${validFields.join(', ')}`
+      });
+    }
+
+    if (value === undefined && adjustment === undefined) {
+      return res.status(400).json({
+        success: false,
+        message: 'Please provide either a "value" (absolute amount) or "adjustment" (amount to add/subtract)'
+      });
+    }
+
+    if (!reason || reason.trim() === '') {
+      return res.status(400).json({
+        success: false,
+        message: 'Reason for balance adjustment is required'
+      });
+    }
+
+    if (typeof value !== 'undefined' && typeof adjustment !== 'undefined') {
+      return res.status(400).json({
+        success: false,
+        message: 'Provide either "value" OR "adjustment", not both'
+      });
+    }
+
+    // Find user
+    const user = await findUserByIdentifier(identifier);
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: `User not found: ${identifier}`
+      });
+    }
+
+    // Get or create referral data
+    let referralData = await Referral.findOne({ user: user._id });
+
+    if (!referralData) {
+      referralData = new Referral({
+        user: user._id,
+        totalEarnings: 0,
+        totalWithdrawn: 0,
+        pendingWithdrawals: 0,
+        processingWithdrawals: 0
+      });
+      await referralData.save();
+    }
+
+    // Store old values for audit trail
+    const oldValues = {
+      totalEarnings: referralData.totalEarnings || 0,
+      totalWithdrawn: referralData.totalWithdrawn || 0,
+      pendingWithdrawals: referralData.pendingWithdrawals || 0,
+      processingWithdrawals: referralData.processingWithdrawals || 0
+    };
+
+    // Calculate new value
+    let newValue;
+    if (value !== undefined) {
+      newValue = value;
+      if (newValue < 0) {
+        return res.status(400).json({
+          success: false,
+          message: `${field} cannot be negative. Provided value: ${newValue}`
+        });
+      }
+    } else {
+      newValue = oldValues[field] + adjustment;
+      if (newValue < 0) {
+        return res.status(400).json({
+          success: false,
+          message: `Adjustment would result in negative ${field}. Current: ${oldValues[field]}, Adjustment: ${adjustment}, Result: ${newValue}`
+        });
+      }
+    }
+
+    // Update the field
+    referralData[field] = newValue;
+    await referralData.save();
+
+    // Verify consistency: availableBalance should not be negative
+    const availableBalance = referralData.totalEarnings - 
+                            (referralData.totalWithdrawn || 0) - 
+                            (referralData.pendingWithdrawals || 0) - 
+                            (referralData.processingWithdrawals || 0);
+
+    if (availableBalance < 0) {
+      console.warn(`⚠️ WARNING: User ${user.email} has negative available balance: ${availableBalance}`);
+    }
+
+    // Create audit log entry (if you have an audit log model)
+    // You may want to create an BalanceAdjustment or AuditLog model
+// Create audit log entry
+    const auditLog = {
+      user: user._id,
+      adminId: req.user.id,
+      field,
+      oldValue: oldValues[field],
+      newValue,
+      changeAmount: value !== undefined ? (newValue - oldValues[field]) : adjustment,
+      reason,
+      notes,
+      userEmail: user.email,
+      userName: user.name,
+      adminEmail: req.user.email,
+      ipAddress: req.ip,
+      userAgent: req.get('user-agent')
+    };
+
+    // Save to database
+    try {
+      const adjustment = new BalanceAdjustment(auditLog);
+      await adjustment.save();
+      console.log('✓ Balance Adjustment Logged to Database:', adjustment._id);
+    } catch (dbError) {
+      console.error('Failed to save audit log:', dbError);
+      // Don't throw - adjustment was made, just log wasn't saved
+    }
+    // Send notification email to user
+    try {
+      await sendEmail({
+        email: user.email,
+        subject: 'Account Balance Adjustment Notice',
+        html: `
+          <h2>Your Account Balance Has Been Adjusted</h2>
+          <p>Hello ${user.name},</p>
+          <p>Your account balance has been adjusted by our admin team.</p>
+          <table style="border-collapse: collapse; margin: 20px 0;">
+            <tr style="background-color: #f5f5f5;">
+              <td style="padding: 10px; border: 1px solid #ddd;"><strong>Field:</strong></td>
+              <td style="padding: 10px; border: 1px solid #ddd;">${field}</td>
+            </tr>
+            <tr>
+              <td style="padding: 10px; border: 1px solid #ddd;"><strong>Previous Value:</strong></td>
+              <td style="padding: 10px; border: 1px solid #ddd;">₦${oldValues[field].toLocaleString()}</td>
+            </tr>
+            <tr style="background-color: #f5f5f5;">
+              <td style="padding: 10px; border: 1px solid #ddd;"><strong>New Value:</strong></td>
+              <td style="padding: 10px; border: 1px solid #ddd;">₦${newValue.toLocaleString()}</td>
+            </tr>
+            <tr>
+              <td style="padding: 10px; border: 1px solid #ddd;"><strong>Reason:</strong></td>
+              <td style="padding: 10px; border: 1px solid #ddd;">${reason}</td>
+            </tr>
+            ${notes ? `<tr style="background-color: #f5f5f5;">
+              <td style="padding: 10px; border: 1px solid #ddd;"><strong>Notes:</strong></td>
+              <td style="padding: 10px; border: 1px solid #ddd;">${notes}</td>
+            </tr>` : ''}
+          </table>
+          <p>If you have any questions about this adjustment, please contact support.</p>
+          <p>Best regards,<br/>Afrimobile Support Team</p>
+        `
+      });
+    } catch (emailError) {
+      console.error('Failed to send balance adjustment notification email:', emailError);
+    }
+
+    // Send notification email to admin
+    try {
+      await sendEmail({
+        email: process.env.ADMIN_EMAIL || 'admin@afrimobile.com',
+        subject: 'Balance Adjustment Completed',
+        html: `
+          <h2>Balance Adjustment Log</h2>
+          <p><strong>User:</strong> ${user.name} (${user.email})</p>
+          <p><strong>Admin:</strong> ${req.user.email}</p>
+          <table style="border-collapse: collapse; margin: 20px 0;">
+            <tr style="background-color: #f5f5f5;">
+              <td style="padding: 10px; border: 1px solid #ddd;"><strong>Field:</strong></td>
+              <td style="padding: 10px; border: 1px solid #ddd;">${field}</td>
+            </tr>
+            <tr>
+              <td style="padding: 10px; border: 1px solid #ddd;"><strong>Old Value:</strong></td>
+              <td style="padding: 10px; border: 1px solid #ddd;">₦${oldValues[field].toLocaleString()}</td>
+            </tr>
+            <tr style="background-color: #f5f5f5;">
+              <td style="padding: 10px; border: 1px solid #ddd;"><strong>New Value:</strong></td>
+              <td style="padding: 10px; border: 1px solid #ddd;">₦${newValue.toLocaleString()}</td>
+            </tr>
+            <tr>
+              <td style="padding: 10px; border: 1px solid #ddd;"><strong>Reason:</strong></td>
+              <td style="padding: 10px; border: 1px solid #ddd;">${reason}</td>
+            </tr>
+            ${notes ? `<tr style="background-color: #f5f5f5;">
+              <td style="padding: 10px; border: 1px solid #ddd;"><strong>Notes:</strong></td>
+              <td style="padding: 10px; border: 1px solid #ddd;">${notes}</td>
+            </tr>` : ''}
+          </table>
+        `
+      });
+    } catch (emailError) {
+      console.error('Failed to send admin notification email:', emailError);
+    }
+
+    res.status(200).json({
+      success: true,
+      message: `${field} updated successfully`,
+      data: {
+        user: {
+          id: user._id,
+          username: user.username,
+          email: user.email,
+          name: user.name
+        },
+        adjustment: {
+          field,
+          oldValue: oldValues[field],
+          newValue,
+          changeAmount: value !== undefined ? (newValue - oldValues[field]) : adjustment,
+          reason,
+          notes: notes || 'None'
+        },
+        updatedBalance: {
+          totalEarnings: referralData.totalEarnings,
+          totalWithdrawn: referralData.totalWithdrawn,
+          pendingWithdrawals: referralData.pendingWithdrawals,
+          processingWithdrawals: referralData.processingWithdrawals,
+          availableBalance: availableBalance,
+          balanceWarning: availableBalance < 0 ? 'Available balance is negative!' : null
+        },
+        timestamp: new Date()
+      }
+    });
+  } catch (error) {
+    console.error('Error editing user balance:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to edit user balance',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+};
+
+/**
  * Mark withdrawal as paid (Admin)
  * @route PUT /api/withdrawal/admin/:id/pay
  * @access Admin
@@ -1853,6 +2118,61 @@ exports.getCryptoWithdrawalStatus = async (req, res) => {
   }
 };
 
+/**
+ * Admin: Get balance adjustment history for a user
+ * @route GET /api/withdrawal/admin/user/:identifier/balance/history
+ * @access Admin
+ */
+exports.adminGetUserBalanceHistory = async (req, res) => {
+  try {
+    const { identifier } = req.params;
+    const { limit = 50, page = 1 } = req.query;
+
+    const user = await findUserByIdentifier(identifier);
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: `User not found: ${identifier}`
+      });
+    }
+
+    const BalanceAdjustment = require('../models/BalanceAdjustment');
+    
+    const history = await BalanceAdjustment.find({ user: user._id })
+      .populate('adminId', 'email name')
+      .sort({ timestamp: -1 })
+      .limit(parseInt(limit))
+      .skip((parseInt(page) - 1) * parseInt(limit));
+
+    const count = await BalanceAdjustment.countDocuments({ user: user._id });
+
+    res.json({
+      success: true,
+      userId: user._id,
+      count,
+      totalPages: Math.ceil(count / parseInt(limit)),
+      currentPage: parseInt(page),
+      data: history.map(h => ({
+        id: h._id,
+        field: h.field,
+        oldValue: h.oldValue,
+        newValue: h.newValue,
+        changeAmount: h.changeAmount,
+        reason: h.reason,
+        notes: h.notes,
+        adminEmail: h.adminEmail,
+        timestamp: h.timestamp
+      }))
+    });
+  } catch (error) {
+    console.error('Error fetching balance history:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch balance history'
+    });
+  }
+};
 /**
  * Get crypto withdrawal receipt URL
  * @route GET /api/withdrawal/crypto/receipt/:id
