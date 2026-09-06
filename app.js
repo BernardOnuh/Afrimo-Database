@@ -341,6 +341,10 @@ function setupDatabaseMonitoring() {
   });
 }
 
+// Didit KYC webhook - mounted BEFORE express.json so the raw body is available
+// for X-Signature-V2 HMAC verification.
+app.use('/api/webhooks/didit', require('./routes/diditWebhookRoutes'));
+
 // Enhanced Middleware
 app.use(express.json({ 
   limit: '100mb',
@@ -559,6 +563,7 @@ app.use('/api', (req, res, next) => {
 // ============================================================================
 
 app.use('/api/users', require('./routes/userRoutes'));
+app.use('/api/kyc', require('./routes/kycRoutes'));
 app.use('/api/shares/tiers', require('./routes/tierRoutes'));
 app.use('/api/shares', require('./routes/shareRoutes'));
 app.use('/api/v2/transactions', require('./routes/transactionV2Routes'));

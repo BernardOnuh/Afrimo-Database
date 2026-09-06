@@ -62,6 +62,20 @@ const userSchema = new mongoose.Schema({
     type: Boolean,
     default: false
   },
+  // KYC verification state (Didit)
+  kycStatus: {
+    type: String,
+    enum: ['not_started', 'pending', 'verified', 'failed', 'kyc_expired'],
+    default: 'not_started'
+  },
+  isVerified: {
+    type: Boolean,
+    default: false
+  },
+  kycData: {
+    type: mongoose.Schema.Types.Mixed,
+    default: null
+  },
   isAdmin: {
     type: Boolean,
     default: false
