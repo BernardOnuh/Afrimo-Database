@@ -12,12 +12,34 @@ async function setConfig(key, value, adminId, reason) {
   );
 }
 
+async function ensureConnection(timeoutMs = 30000) {
+  if (mongoose.connection.readyState === 1) return true;
+  const mongoUri = process.env.MONGODB_URI || process.env.MONGO_URI;
+  if (!mongoUri) return false;
+  const start = Date.now();
+  while (mongoose.connection.readyState !== 1) {
+    if (mongoose.connection.readyState === 0) {
+      try {
+        await mongoose.connect(mongoUri);
+      } catch (err) {
+        console.error('[SCHEDULER] Connection attempt failed:', err.message);
+      }
+    }
+    if (Date.now() - start > timeoutMs) return false;
+    await new Promise((resolve) => setTimeout(resolve, 1000));
+  }
+  return true;
+}
+
 async function run() {
   let connected = false;
   try {
-    if (mongoose.connection.readyState === 0) {
-      await mongoose.connect(process.env.MONGO_URI);
-      connected = true;
+    if (mongoose.connection.readyState !== 1) {
+      connected = await ensureConnection();
+      if (!connected) {
+        console.error('[SCHEDULER] Database not available, will retry on next interval');
+        return;
+      }
     }
     const due = await WithdrawalSchedule.find({
       executed: false,
@@ -73,8 +95,7 @@ async function run() {
     if (connected) await mongoose.disconnect();
   } catch (err) {
     console.error('[SCHEDULER] Fatal error:', err.message);
-    if (connected) await mongoose.disconnect();
-    process.exit(1);
+    if (require.main === module && connected) await mongoose.disconnect();
   }
 }
 
