@@ -2,6 +2,15 @@
 // utils/emailService.js
 const nodemailer = require('nodemailer');
 
+// Resend (dedicated sending provider) is used when RESEND_API_KEY is set.
+// Gmail SMTP remains as a fallback. Resend gives proper SPF/DKIM/DMARC and
+// reliable inbox delivery for bulk/broadcast mail.
+const createResend = () => {
+  if (!process.env.RESEND_API_KEY) return null;
+  const { Resend } = require('resend');
+  return new Resend(process.env.RESEND_API_KEY);
+};
+
 // Configure email transporter
 const createTransporter = () => {
   return nodemailer.createTransport({
@@ -16,17 +25,39 @@ const createTransporter = () => {
     maxMessages: 10,
     rateDelta: 15000,
     rateLimit: 5,
-    // Setting proper headers
-    headers: {
-      'X-Priority': '1',
-      'X-MSMail-Priority': 'High',
-      'Importance': 'High'
-    }
   });
 };
 
 // Send email function
 const sendEmail = async (options) => {
+  const resend = createResend();
+
+  if (resend) {
+    try {
+      const senderName = process.env.EMAIL_FROM_NAME || 'AfriMobile Team';
+      const from = options.from || `${senderName} <${process.env.RESEND_FROM_ADDRESS || 'news@afrimobiletech.com'}>`;
+
+      const { data, error } = await resend.emails.send({
+        from,
+        to: [options.email],
+        subject: options.subject,
+        text: options.text || extractTextFromHTML(options.html),
+        html: options.html,
+        ...(options.replyTo ? { reply_to: options.replyTo } : {}),
+      });
+
+      if (error) {
+        console.error('Resend email error:', error);
+        return false;
+      }
+      console.log(`Resend email sent to ${options.email}:`, data?.id);
+      return true;
+    } catch (error) {
+      console.error('Resend sending failed:', error);
+      return false;
+    }
+  }
+
   try {
     const transporter = createTransporter();
     
@@ -43,13 +74,19 @@ const sendEmail = async (options) => {
       // Include both plain text and HTML versions
       text: options.text || extractTextFromHTML(options.html),
       html: options.html,
-      // Add priority headers to reduce spam likelihood
-      priority: 'high'
+      // Priority is configurable per-send. Bulk/marketing mail should pass
+      // priority: 'normal' - 'high' on bulk mail is a spam signal.
+      priority: options.priority || 'high'
     };
 
     // Support attachments (e.g., certificate images)
     if (options.attachments) {
       mailOptions.attachments = options.attachments;
+    }
+
+    // Support caller-supplied headers (e.g. List-Unsubscribe for broadcasts)
+    if (options.headers) {
+      mailOptions.headers = { ...(mailOptions.headers || {}), ...options.headers };
     }
     
     console.log(`Attempting to send email to: ${options.email}`);
