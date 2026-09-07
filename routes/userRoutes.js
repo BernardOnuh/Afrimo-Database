@@ -563,6 +563,42 @@ router.put('/profile', protect, userController.updateUserProfile);
 
 /**
  * @swagger
+ * /users/profile-image:
+ *   post:
+ *     summary: Upload current user's profile image (avatar)
+ *     tags: [Users]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       content:
+ *         multipart/form-data:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               image:
+ *                 type: string
+ *                 format: binary
+ *     responses:
+ *       200:
+ *         description: Profile image uploaded
+ *       400:
+ *         description: Invalid file
+ *       401:
+ *         description: Not authenticated
+ */
+const multer = require('multer');
+const profileImageUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 5 * 1024 * 1024 },
+  fileFilter: (req, file, cb) => {
+    if (file.mimetype.startsWith('image/')) cb(null, true);
+    else cb(new Error('Only image files are allowed'));
+  }
+});
+router.post('/profile-image', protect, profileImageUpload.single('image'), userController.uploadProfileImage);
+
+/**
+ * @swagger
  * /users/password:
  *   put:
  *     tags: [Users]
