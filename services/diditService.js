@@ -149,6 +149,40 @@ class DiditService {
       return false;
     }
   }
+
+  // X-Signature fallback: HMAC over the exact raw bytes Didit transmitted
+  // (only valid when no middleware re-encoded the body).
+  verifyRawSignature(rawBuffer, signature, secret) {
+    const secretToUse = secret || this.webhookSecret;
+    if (!secretToUse) throw new Error('DIDIT_WEBHOOK_SECRET is not configured');
+    const expected = crypto.createHmac('sha256', secretToUse).update(rawBuffer).digest('hex');
+    if (signature.length !== expected.length) return false;
+    try {
+      return crypto.timingSafeEqual(Buffer.from(expected), Buffer.from(signature));
+    } catch (err) {
+      return false;
+    }
+  }
+
+  // X-Signature-Simple fallback: "{timestamp}:{session_id}:{status}:{webhook_type}".
+  // Authenticates the envelope only - decision data should be re-fetched if used.
+  verifySimpleSignature(parsedBody, signature, secret) {
+    const secretToUse = secret || this.webhookSecret;
+    if (!secretToUse) throw new Error('DIDIT_WEBHOOK_SECRET is not configured');
+    const canonical = [
+      parsedBody.timestamp ?? '',
+      parsedBody.session_id ?? '',
+      parsedBody.status ?? '',
+      parsedBody.webhook_type ?? '',
+    ].join(':');
+    const expected = crypto.createHmac('sha256', secretToUse).update(canonical).digest('hex');
+    if (signature.length !== expected.length) return false;
+    try {
+      return crypto.timingSafeEqual(Buffer.from(expected), Buffer.from(signature));
+    } catch (err) {
+      return false;
+    }
+  }
 }
 
 module.exports = { DiditService, DIDIT_WORKFLOW_ID };

@@ -163,28 +163,44 @@ const handleWebhook = async (req, res) => {
     return res.status(400).send('bad json');
   }
 
-  const signature = req.headers['x-signature-v2'] || '';
   const ts = Number(req.headers['x-timestamp']);
 
   // 2. Freshness — reject anything older/newer than 300s (replay protection)
-  if (!ts || Math.abs(Date.now() / 1000 - ts) > 300) {
+  const now = Math.floor(Date.now() / 1000);
+  if (!ts || Math.abs(now - ts) > 300) {
     return res.status(401).send('stale');
   }
 
-  // 3. Constant-time HMAC-SHA256 compare against X-Signature-V2
-  let valid;
+  // 3. Authenticate with X-Signature-V2 (preferred), falling back to the raw
+  //    X-Signature bytes, then X-Signature-Simple (envelope only). All constant-time.
   try {
-    valid = didit.verifyWebhook(parsed, signature);
+    const v2 = req.headers['x-signature-v2'];
+    const raw = req.headers['x-signature'];
+    const simple = req.headers['x-signature-simple'];
+
+    let ok =
+      (v2 && didit.verifyWebhook(parsed, v2)) ||
+      (raw && Buffer.isBuffer(req.body) && didit.verifyRawSignature(req.body, raw)) ||
+      (simple && didit.verifySimpleSignature(parsed, simple));
+
+    if (!ok) {
+      console.warn('❌ Didit webhook: invalid signature (v2=%s raw=%s simple=%s)', !!v2, !!raw, !!simple);
+      return res.status(401).send('bad sig');
+    }
   } catch (error) {
     console.error('❌ Didit webhook: signature verification unavailable:', error.message);
     return res.status(500).send('sig verify unavailable');
   }
-  if (!valid) {
-    console.warn('❌ Didit webhook: invalid signature');
-    return res.status(401).send('bad sig');
+
+  // 3b. Dispatch by webhook_type. Only session events update the user record;
+  //     entity/transaction/travel-rule events are acknowledged (logged) for now.
+  const webhookType = parsed.webhook_type || parsed.event_type;
+  if (webhookType && webhookType !== 'status.updated' && webhookType !== 'data.updated') {
+    console.log(`ℹ️ Didit webhook: acknowledged ${webhookType} (${parsed.status}) - no KYC action`);
+    return res.status(200).send('ok');
   }
 
-  // 4. Idempotency — dedupe on event_id (unique per delivery attempt)
+  // 4. Idempotency — dedupe on event_id (reused across destinations and retries)
   const eventId = parsed.event_id;
   if (eventId) {
     const existing = await KycVerification.findOne({ lastEventId: eventId });
