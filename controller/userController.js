@@ -1607,14 +1607,8 @@ exports.createKYCLink = async (req, res) => {
       });
     }
 
-    // Use correct supported ID types for Nigeria - UPDATED TO USE NIN
-    const defaultIdTypes = [
-      {
-        country: "NG",
-        id_type: "NIN",
-        verification_method: "enhanced_kyc",
-      },
-    ];
+    // Use configurable ID types from SMILE_ID_TYPES env (falls back to doc_verification)
+    const defaultIdTypes = smileIDService.getDefaultIdTypes();
 
     // Configure verification link
     const linkConfig = {
@@ -1703,14 +1697,8 @@ exports.createBulkKYCLinks = async (req, res) => {
     const successful = [];
     const failed = [];
 
-    // Default supported ID types for Nigeria - UPDATED TO USE NIN
-    const defaultIdTypes = [
-      {
-        country: "NG",
-        id_type: "NIN",
-        verification_method: "enhanced_kyc",
-      },
-    ];
+    // Default supported ID types from SMILE_ID_TYPES env (falls back to doc_verification)
+    const defaultIdTypes = smileIDService.getDefaultIdTypes();
 
     for (const linkRequest of links) {
       try {

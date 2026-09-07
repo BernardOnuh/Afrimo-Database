@@ -32,6 +32,34 @@ class SmileIDService {
     console.log(`SmileID Service initialized in ${this.environment} mode`);
   }
 
+  // Parse configurable ID types from SMILE_ID_TYPES env var.
+  // Format: "country:id_type:verification_method" separated by commas
+  // Example: "NG:PASSPORT:doc_verification,NG:NIN:enhanced_kyc,NG:BVN:basic_bvn"
+  getDefaultIdTypes() {
+    const raw = process.env.SMILE_ID_TYPES;
+    if (raw && raw.trim()) {
+      const parsed = raw
+        .split(",")
+        .map((entry) => entry.trim())
+        .filter(Boolean)
+        .map((entry) => {
+          const [country, id_type, verification_method] = entry.split(":");
+          return { country, id_type, verification_method };
+        })
+        .filter((t) => t.country && t.id_type && t.verification_method);
+      if (parsed.length > 0) {
+        return parsed;
+      }
+    }
+    return [
+      {
+        country: "NG",
+        id_type: "PASSPORT",
+        verification_method: "doc_verification",
+      },
+    ];
+  }
+
   // FIXED: Changed default to 60 days with better expiry calculation
   getDefaultExpiry(daysFromNow = 60) {
     const expiry = new Date();
@@ -81,13 +109,7 @@ class SmileIDService {
       timestamp: timestamp,
       name: config.name || `Verification Link - ${new Date().toLocaleDateString()}`,
       company_name: config.companyName || process.env.COMPANY_NAME || "Afrimobile",
-      id_types: config.idTypes || [
-        {
-          country: "NG",
-          id_type: "NIN",
-          verification_method: "enhanced_kyc",
-        },
-      ],
+      id_types: config.idTypes || this.getDefaultIdTypes(),
       callback_url: config.callbackUrl || process.env.WEBHOOK_URL,
       data_privacy_policy_url: config.privacyPolicyUrl || process.env.PRIVACY_POLICY_URL,
       logo_url: config.logoUrl || process.env.COMPANY_LOGO_URL,
