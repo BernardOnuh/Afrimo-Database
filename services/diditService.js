@@ -37,7 +37,12 @@ class DiditService {
     if (expectedDetails) body.expected_details = expectedDetails;
     if (metadata) body.metadata = metadata;
     if (language) body.language = language;
-    if (callback) body.callback = callback;
+    if (callback) {
+      body.callback = callback;
+      // Didit default is "initiator" which can fail to fire; "both" is the
+      // recommended value for reliable callback redirects on the finishing device.
+      body.callback_method = 'both';
+    }
 
     const response = await fetch(`${DIDIT_BASE_URL}/session/`, {
       method: 'POST',
