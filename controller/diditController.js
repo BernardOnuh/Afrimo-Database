@@ -1,4 +1,5 @@
 // controller/diditController.js - Didit KYC controllers
+const mongoose = require('mongoose');
 const User = require('../models/User');
 const KycVerification = require('../models/KycVerification');
 const { DiditService } = require('../services/diditService');
@@ -208,96 +209,82 @@ const handleWebhook = async (req, res) => {
 
 // Update the KycVerification record + the User's KYC fields from a webhook event.
 async function applyDecision({ sessionId, status, vendorData, parsed, eventId }) {
+  const isValidId = (v) => mongoose.Types.ObjectId.isValid(v);
+
   // Resolve the user either from the KycVerification record or from vendor_data.
   let record = sessionId ? await KycVerification.findOne({ diditSessionId: sessionId }) : null;
 
   let user = null;
-  if (record) {
+  if (record && isValidId(record.user)) {
     user = await User.findById(record.user);
-  } else if (parsed.metadata && parsed.metadata.afrimobileUserId) {
+  } else if (parsed.metadata && isValidId(parsed.metadata.afrimobileUserId)) {
     user = await User.findById(parsed.metadata.afrimobileUserId);
-  } else if (vendorData) {
+  } else if (vendorData && isValidId(vendorData)) {
     user = await User.findById(vendorData);
   }
 
-  if (!user && !record) {
-    console.warn('⚠️ Didit webhook: unknown user for session', sessionId, vendorData);
+  if (!record && !user) {
+    console.warn('⚠️ Didit webhook: unknown user/session (ignored). session:', sessionId, 'vendor:', vendorData);
     return;
   }
 
-  const update = {
-    status,
-    lastEventId: eventId || record && record.lastEventId,
-  };
-
-  if (status === 'Approved') {
-    update.decision = parsed.decision || null;
-  }
-
   if (record) {
+    const update = { status, lastEventId: eventId || record.lastEventId };
+    if (status === 'Approved') update.decision = parsed.decision || null;
     await KycVerification.findByIdAndUpdate(record._id, update, { new: true });
-  } else if (sessionId) {
+  } else if (user) {
+    // Session wasn't persisted server-side (e.g. webhook arrived standalone) - carry it.
     record = await KycVerification.create({
-      user: user ? user._id : undefined,
-      diditSessionId: sessionId,
+      user: user._id,
+      diditSessionId: sessionId || 'unknown',
       workflowId: parsed.workflow_id || null,
       status,
-      decision: parsed.decision || null,
       lastEventId: eventId,
+      sessionUrl: null,
+      decision: parsed.decision || null,
     });
   }
 
-  if (user) {
-    // Persist event_id dedupe even if we couldn't resolve a user record for some reason
-    if (!record && eventId) {
-      record = await KycVerification.create({
-        diditSessionId: sessionId || 'unknown',
-        status,
-        lastEventId: eventId,
-        decision: parsed.decision || null,
-        workflowId: parsed.workflow_id || null,
-      });
+  if (!user) return;
+
+  user.kycStatus = mapStatus(status);
+  user.kycData = {
+    ...(user.kycData || {}),
+    provider: 'didit',
+    diditSessionId: sessionId || (user.kycData && user.kycData.diditSessionId) || null,
+    diditStatus: status,
+  };
+
+  if (status === 'Approved') {
+    user.isVerified = true;
+    user.verified = true;
+    user.kycData.verifiedAt = new Date();
+    user.kycData.decisionAt = new Date();
+    if (parsed.decision) {
+      user.kycData.idVerifications = parsed.decision.id_verifications || undefined;
+      user.kycData.livenessChecks = parsed.decision.liveness_checks || undefined;
+      user.kycData.faceMatches = parsed.decision.face_matches || undefined;
+      user.kycData.amlScreenings = parsed.decision.aml_screenings || undefined;
     }
-
-    user.kycStatus = mapStatus(status);
-    user.kycData = {
-      ...(user.kycData || {}),
-      provider: 'didit',
-      diditSessionId: sessionId || user.kycData.diditSessionId,
-      diditStatus: status,
-    };
-
-    if (status === 'Approved') {
-      user.isVerified = true;
-      user.verified = true;
-      user.kycData.verifiedAt = new Date();
-      user.kycData.decisionAt = new Date();
-      if (parsed.decision) {
-        user.kycData.idVerifications = parsed.decision.id_verifications || undefined;
-        user.kycData.livenessChecks = parsed.decision.liveness_checks || undefined;
-        user.kycData.faceMatches = parsed.decision.face_matches || undefined;
-        user.kycData.amlScreenings = parsed.decision.aml_screenings || undefined;
-      }
-    } else if (status === 'Declined') {
-      user.isVerified = false;
-      user.verified = false;
-      user.kycData.failedAt = new Date();
-      user.kycData.failedReason = 'Didit declined the verification';
-    } else if (status === 'Kyc Expired') {
-      user.isVerified = false;
-      user.verified = false;
-      user.kycStatus = 'verified';
-      user.kycData.kycExpiredAt = new Date();
-      user.kycData.nextSessionRequired = true;
-    } else if (status === 'Abandoned') {
-      user.isVerified = false;
-      user.kycStatus = 'failed';
-    } else if (status === 'In Review') {
-      user.kycStatus = 'pending';
-    }
-
-    await user.save();
+  } else if (status === 'Declined') {
+    user.isVerified = false;
+    user.verified = false;
+    user.kycData.failedAt = new Date();
+    user.kycData.failedReason = 'Didit declined the verification';
+  } else if (status === 'Kyc Expired') {
+    user.isVerified = false;
+    user.verified = false;
+    user.kycStatus = 'verified';
+    user.kycData.kycExpiredAt = new Date();
+    user.kycData.nextSessionRequired = true;
+  } else if (status === 'Abandoned') {
+    user.isVerified = false;
+    user.kycStatus = 'failed';
+  } else if (status === 'In Review') {
+    user.kycStatus = 'pending';
   }
+
+  await user.save();
 }
 
 module.exports = {
