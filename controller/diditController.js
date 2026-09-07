@@ -34,7 +34,7 @@ function kycSummary(user, latestRecord) {
 }
 
 // POST /api/kyc/session - create a Didit verification session for the logged-in user
-exports.createSession = async (req, res) => {
+const createSession = async (req, res) => {
   try {
     if (didit.disabled) {
       return res.status(503).json({
@@ -122,7 +122,7 @@ exports.createSession = async (req, res) => {
 };
 
 // GET /api/kyc/status - current KYC state for the logged-in user
-exports.getStatus = async (req, res) => {
+const getStatus = async (req, res) => {
   try {
     const user = req.user;
     const latestRecord = await KycVerification.findOne({ user: user._id })
@@ -145,7 +145,7 @@ exports.getStatus = async (req, res) => {
 
 // POST /api/webhooks/didit - receive Didit status/data webhooks
 // Signature + freshness + idempotency verification happen here.
-exports.handleWebhook = async (req, res) => {
+const handleWebhook = async (req, res) => {
   // 1. Extract raw payload
   let parsed;
   try {
