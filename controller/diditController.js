@@ -101,7 +101,7 @@ const createSession = async (req, res) => {
       lastStartedAt: new Date(),
       diditStatus: session.status || 'Not Started',
     };
-    await user.save();
+    await user.save({ validateModifiedOnly: true });
 
     return res.status(201).json({
       success: true,
@@ -300,7 +300,7 @@ async function applyDecision({ sessionId, status, vendorData, parsed, eventId })
     user.kycStatus = 'pending';
   }
 
-  await user.save();
+  await user.save({ validateModifiedOnly: true });
 }
 
 module.exports = {
