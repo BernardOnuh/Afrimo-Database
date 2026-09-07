@@ -973,7 +973,17 @@ async function startApp() {
         }
         
         jobsManager.startAll();
-        
+
+        if (process.env.ENABLE_BROADCAST_WORKER === '1') {
+          try {
+            const { startBroadcastWorker } = require('./scripts/broadcastWorker');
+            startBroadcastWorker();
+            console.log('✅ Email broadcast worker enabled');
+          } catch (err) {
+            console.error('⚠️ Broadcast worker failed to start:', err.message);
+          }
+        }
+
         console.log('✅ Background jobs initialization complete');
         console.log('======================================');
         logger.info('Application startup completed successfully');
