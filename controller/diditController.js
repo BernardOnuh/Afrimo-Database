@@ -2,6 +2,8 @@
 const mongoose = require('mongoose');
 const User = require('../models/User');
 const KycVerification = require('../models/KycVerification');
+const UserShare = require('../models/UserShare');
+const UserShareV2 = require('../models/UserShareV2');
 const { DiditService } = require('../services/diditService');
 
 const didit = new DiditService();
@@ -22,8 +24,48 @@ function mapStatus(diditStatus) {
   }
 }
 
+// Determine whether a user actually owns shares (regular or co-founder).
+// Checks the maintained ownership snapshots (UserShareV2 and legacy
+// UserShare) plus the user's stats counter, so legitimate shareholders are
+// never wrongly blocked even if one source is stale.
+async function userHasShares(user) {
+  try {
+    if (Number(user.stats && user.stats.totalShares) > 0) return true;
+
+    const userId = user._id;
+    const [v2, legacy] = await Promise.all([
+      UserShareV2.findOne({ user: userId })
+        .select('totalOwnershipPct cofounderOwnershipPct regularOwnershipPct')
+        .lean(),
+      UserShare.findOne({ user: userId })
+        .select('totalOwnershipPct transactions')
+        .lean(),
+    ]);
+
+    if (v2 && (v2.totalOwnershipPct > 0 || v2.regularOwnershipPct > 0 || v2.cofounderOwnershipPct > 0)) {
+      return true;
+    }
+
+    if (legacy && legacy.totalOwnershipPct > 0) return true;
+
+    if (legacy && Array.isArray(legacy.transactions)) {
+      return legacy.transactions.some(
+        (t) => t.status === 'completed' && (Number(t.shares) > 0 || Number(t.ownershipPct) > 0)
+      );
+    }
+
+    return false;
+  } catch (error) {
+    // Never fail the request because of an ownership lookup; fall back to the
+    // user's stats counter.
+    console.error('⚠️ userHasShares lookup error:', error.message);
+    return Number(user.stats && user.stats.totalShares) > 0;
+  }
+}
+
 // Top-level KYC info shape used across responses
-function kycSummary(user, latestRecord) {
+async function kycSummary(user, latestRecord) {
+  const hasShares = await userHasShares(user);
   return {
     kycStatus: user.kycStatus || 'not_started',
     isVerified: !!user.isVerified,
@@ -31,6 +73,7 @@ function kycSummary(user, latestRecord) {
     verifiedAt: user.kycData && user.kycData.verifiedAt ? user.kycData.verifiedAt : null,
     diditStatus: latestRecord ? latestRecord.status : (user.kycData && user.kycData.diditStatus) || null,
     diditSessionId: latestRecord ? latestRecord.diditSessionId : null,
+    hasShares,
   };
 }
 
@@ -45,6 +88,19 @@ const createSession = async (req, res) => {
     }
 
     const user = req.user;
+
+    // Users must own at least one share before they can complete KYC.
+    // This gate's the KYC + co-founder onboarding so only shareholders
+    // (investors) can verify. Buyers without shares are pointed to buy-shares.
+    const hasShares = await userHasShares(user);
+
+    if (!hasShares) {
+      return res.status(403).json({
+        success: false,
+        message: 'You need to own at least one share before you can complete KYC verification. Buy shares first to unlock KYC and the co-founder space.',
+        code: 'SHARES_REQUIRED',
+      });
+    }
 
     // If user is already verified, don't spin up another session
     if (user.kycStatus === 'verified' && user.isVerified) {
@@ -133,7 +189,7 @@ const getStatus = async (req, res) => {
     return res.status(200).json({
       success: true,
       message: 'KYC status retrieved',
-      data: kycSummary(user, latestRecord),
+      data: await kycSummary(user, latestRecord),
     });
   } catch (error) {
     console.error('❌ Error fetching KYC status:', error);
